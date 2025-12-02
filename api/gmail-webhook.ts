@@ -30,7 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const data = JSON.parse(Buffer.from(pubSubMessage.data, 'base64').toString('utf-8'));
     const userEmail: string | undefined = data.emailAddress;
-    const newHistoryId: string | undefined = data.historyId; 
+    const newHistoryId: string | undefined = data.historyId;
 
     if (!userEmail || !newHistoryId) {
       return res.status(400).send('Missing emailAddress or historyId');
@@ -111,20 +111,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 source: rule.name,
               };
               newRecords.push(newRecord);
-              
+
               // Prepare Notification Logic
               if (newRecord.kind === 'order') {
-                notificationEvents.push({ 
-                    type: 'order', 
-                    text: `New Order: ${newRecord.order_id || 'Unknown'} - $${newRecord.amount} (${userEmail})` 
+                notificationEvents.push({
+                  type: 'order',
+                  text: `New Order: ${newRecord.order_id || 'Unknown'} - $${newRecord.amount} (${userEmail})`
                 });
               } else if (newRecord.kind === 'Funds') {
-                notificationEvents.push({ 
-                    type: 'funds', 
-                    text: `Funds Received: $${newRecord.amount} ${newRecord.currency} (${userEmail})` 
+                notificationEvents.push({
+                  type: 'funds',
+                  text: `Funds Received: $${newRecord.amount} ${newRecord.currency} (${userEmail})`
                 });
               }
-              break; 
+              break;
             }
           }
         }
@@ -135,9 +135,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const recordsCollection = db.collection('user').doc(effectiveUserId).collection('records');
 
     if (newRecords.length > 0) {
+      const recordsCollection = db.collection('user').doc(effectiveUserId).collection('records');
+      const batch = db.batch();
+
+      // --- LOGIC MỚI: Dùng email_id làm Document ID ---
+      // Không cần query kiểm tra 'existingIds' nữa vì Firestore sẽ tự handle việc ghi đè
+
+      let saveCount = 0;
       for (const record of newRecords) {
-        const docRef = recordsCollection.doc();
-        batch.set(docRef, record);
+        // Nếu có email_id, dùng nó làm tên Document. Nếu không (hiếm), dùng Auto-ID.
+        const docRef = record.email_id
+          ? recordsCollection.doc(record.email_id)
+          : recordsCollection.doc();
+
+        // Xóa trường id bên trong data để tránh lưu dư thừa (vì ID đã nằm ở tên Document rồi)
+        const { id, ...recordData } = record;
+
+        // Dùng set với { merge: true } để an toàn, hoặc set ghi đè hoàn toàn đều được
+        batch.set(docRef, recordData);
+        saveCount++;
+      }
+
+      if (saveCount > 0) {
+        await batch.commit();
+        console.log(`[Webhook] Processed ${saveCount} records using Email-ID as Key.`);
       }
     }
 
@@ -146,31 +167,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // === TRIGGER NOTIFICATIONS ===
     if (notificationEvents.length > 0) {
-        // Send individually or batched. For simplicity, sending the first one or a generic "X new updates"
-        // To avoid spamming, if multiple events, send one summary.
-        if (notificationEvents.length === 1) {
-            const evt = notificationEvents[0];
-            await sendPushNotificationToUsers(effectiveUserId, evt.type, {
-                title: evt.type === 'order' ? 'New Order!' : 'Funds Received!',
-                body: evt.text
-            });
-        } else {
-            const orders = notificationEvents.filter(e => e.type === 'order');
-            const funds = notificationEvents.filter(e => e.type === 'funds');
-            
-            if (orders.length > 0) {
-                await sendPushNotificationToUsers(effectiveUserId, 'order', {
-                    title: 'New Orders Arrived',
-                    body: `You have ${orders.length} new orders.`
-                });
-            }
-            if (funds.length > 0) {
-                await sendPushNotificationToUsers(effectiveUserId, 'funds', {
-                    title: 'New Funds Received',
-                    body: `You have ${funds.length} new payout updates.`
-                });
-            }
+      // Send individually or batched. For simplicity, sending the first one or a generic "X new updates"
+      // To avoid spamming, if multiple events, send one summary.
+      if (notificationEvents.length === 1) {
+        const evt = notificationEvents[0];
+        await sendPushNotificationToUsers(effectiveUserId, evt.type, {
+          title: evt.type === 'order' ? 'New Order!' : 'Funds Received!',
+          body: evt.text
+        });
+      } else {
+        const orders = notificationEvents.filter(e => e.type === 'order');
+        const funds = notificationEvents.filter(e => e.type === 'funds');
+
+        if (orders.length > 0) {
+          await sendPushNotificationToUsers(effectiveUserId, 'order', {
+            title: 'New Orders Arrived',
+            body: `You have ${orders.length} new orders.`
+          });
         }
+        if (funds.length > 0) {
+          await sendPushNotificationToUsers(effectiveUserId, 'funds', {
+            title: 'New Funds Received',
+            body: `You have ${funds.length} new payout updates.`
+          });
+        }
+      }
     }
 
     return res.status(204).send('');

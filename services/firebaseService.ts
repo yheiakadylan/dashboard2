@@ -1,4 +1,3 @@
-
 import { initializeApp } from "firebase/app";
 import { 
     getFirestore, 
@@ -22,34 +21,20 @@ import { getMessaging, isSupported } from "firebase/messaging";
 import { Account, Record } from '../api/_lib/types';
 
 const firebaseConfig = {
-
   apiKey: process.env.FIREBASE_API_KEY || "AIzaSyCf9A3apdFE24uU4M3E4j1cnBvmjiB9Z7E",
-
   authDomain: process.env.FIREBASE_AUTH_DOMAIN || "dashboard-13ec8.firebaseapp.com",
-
   projectId: process.env.FIREBASE_PROJECT_ID || "dashboard-13ec8",
-
   storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "dashboard-13ec8.firebasestorage.app",
-
   messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "604763790543",
-
   appId: process.env.FIREBASE_APP_ID || "1:604763790543:web:26905ec5742624300e6bba",
-
 };
 /*const firebaseConfig = {
-
   apiKey: process.env.FIREBASE_API_KEY || "AIzaSyCMfkDrGBzVa2ungr5iX8VDNpfdssw1RhA",
-
   authDomain: process.env.FIREBASE_AUTH_DOMAIN || "servertest-25b17.firebaseapp.com",
-
   projectId: process.env.FIREBASE_PROJECT_ID || "servertest-25b17",
-
   storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "servertest-25b17.firebasestorage.app",
-
   messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "1056476786050",
-
   appId: process.env.FIREBASE_APP_ID || "1:1056476786050:web:e60baea741d839de3ab39b",
-
 };*/
 // Initialize Firebase and Firestore.
 const app = initializeApp(firebaseConfig);
@@ -70,6 +55,7 @@ export const getMessagingInstance = async () => {
     return null;
   }
 };
+
 const getTimezoneOffsetString = (timeZone: string, dateStr: string): string => {
   try {
     // Use noon of the given date to safely avoid DST crossover issues at midnight
@@ -83,7 +69,7 @@ const getTimezoneOffsetString = (timeZone: string, dateStr: string): string => {
 
     if (gmtPart) {
         // gmtPart.value is "GMT-07:00", "GMT+05:30", etc.
-        return gmtPart.value.replace('GMT', ''); // Returns "-07:00", "+05:30"
+        return gmtPart.value.replace('GMT', ''); 
     }
     
     console.warn(`Could not determine offset for ${timeZone} using 'longOffset'. Falling back to UTC.`);
@@ -98,10 +84,9 @@ const getTimezoneOffsetString = (timeZone: string, dateStr: string): string => {
 export const getAccountsFromFirebase = async (teamId: string): Promise<Account[]> => {
   const accountsCol = collection(db, 'user', teamId, 'accounts');
   const accountSnapshot = await getDocs(accountsCol);
-  // FIX: Cast doc.data() to object to resolve "Spread types may only be created from object types" error.
   const accountList = accountSnapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as Account));
   
-  // Sort by the order field, putting accounts without an order at the end.
+  // Sort by the order field
   accountList.sort((a, b) => {
       const orderA = typeof a.order === 'number' ? a.order : Infinity;
       const orderB = typeof b.order === 'number' ? b.order : Infinity;
@@ -110,24 +95,20 @@ export const getAccountsFromFirebase = async (teamId: string): Promise<Account[]
 
   return accountList;
 };
+
 export const saveAccountsToFirebase = async (teamId: string, accounts: Account[]): Promise<void> => {
   const batch = writeBatch(db);
   const accountsCollectionRef = collection(db, 'user', teamId, 'accounts');
   
-  // 1. Lấy danh sách ID hiện có trên Database
   const existingDocsSnapshot = await getDocs(accountsCollectionRef);
-  
-  // 2. Tạo Set các ID mới để tra cứu nhanh
   const newAccountIds = new Set(accounts.map(acc => acc.id));
 
-  // 3. Chỉ xóa những tài khoản KHÔNG có trong danh sách mới
   existingDocsSnapshot.forEach(doc => {
     if (!newAccountIds.has(doc.id)) {
       batch.delete(doc.ref);
     }
   });
 
-  // 4. Ghi đè/Cập nhật các tài khoản có trong danh sách mới
   accounts.forEach(acc => {
     const docRef = doc(db, 'user', teamId, 'accounts', acc.id);
     batch.set(docRef, acc);
@@ -145,18 +126,12 @@ export const updateAccountsInFirebase = async (teamId: string, accountsToUpdate:
         const { id, ...dataToUpdate } = accountUpdate;
         if (id && Object.keys(dataToUpdate).length > 0) {
             const accountRef = doc(db, 'user', teamId, 'accounts', id);
-            // SỬA ĐỔI: Dùng set với { merge: true } thay vì update
-            // Giúp tránh lỗi "No document to update" nếu tài khoản lỡ bị mất kết nối tạm thời
             batch.set(accountRef, dataToUpdate, { merge: true });
         }
     });
     await batch.commit();
 };
 
-/**
- * Updates specific fields for multiple records in Firestore in a single batch.
- * @param recordsToUpdate An array of records to update. Each object must have an `id`.
- */
 export const updateRecordsInFirebase = async (teamId: string, recordsToUpdate: (Partial<Record> & { id: string })[]): Promise<void> => {
     if (!recordsToUpdate || recordsToUpdate.length === 0) {
         return;
@@ -190,7 +165,6 @@ export const getRecordsForDateRange = async (teamId: string, startDate: string, 
   ); 
 
   const recordSnapshot = await getDocs(q);
-  // FIX: Cast doc.data() to object to resolve "Spread types may only be created from object types" error.
   const recordList = recordSnapshot.docs.map(doc => ({...(doc.data() as object), id: doc.id } as Record));
   return recordList;
 };
@@ -204,18 +178,13 @@ export const getAllRecordsForAccount = async (teamId: string, accountEmail: stri
 };
 
 export const deleteRecordsForAccounts = async (teamId: string, accountEmails: string[]): Promise<void> => {
-    if (accountEmails.length === 0) {
-        return;
-    }
+    if (accountEmails.length === 0) return;
 
     const recordsCollectionRef = collection(db, 'user', teamId, 'records');
     const q = query(recordsCollectionRef, where('account', 'in', accountEmails));
     const querySnapshot = await getDocs(q);
 
-    if (querySnapshot.empty) {
-        return;
-    }
-
+    if (querySnapshot.empty) return;
 
     const BATCH_LIMIT = 500;
     const promises: Promise<void>[] = [];
@@ -239,7 +208,7 @@ export const deleteRecordsForAccounts = async (teamId: string, accountEmails: st
     await Promise.all(promises);
 };
 
-// Helper to chunk arrays for Firestore 'in' query which has a 30-item limit.
+// Helper to chunk arrays
 const chunkArray = <T>(array: T[], size: number): T[][] => {
     const chunks: T[][] = [];
     for (let i = 0; i < array.length; i += size) {
@@ -248,7 +217,7 @@ const chunkArray = <T>(array: T[], size: number): T[][] => {
     return chunks;
 };
 
-
+// === [UPDATED] Hàm quan trọng: Lưu record với ID là email_id ===
 export const saveRecordsToFirebase = async (
     teamId: string,
     newlyFetchedRecords: Record[]
@@ -259,6 +228,8 @@ export const saveRecordsToFirebase = async (
 
     const existingEmailIds = new Set<string>();
 
+    // Vẫn giữ bước kiểm tra này để hạn chế write không cần thiết,
+    // nhưng bước lưu bên dưới sẽ đảm bảo tính Unique bằng Document ID.
     if (emailIdsToCheck.length > 0) {
         const IN_QUERY_LIMIT = 30;
         const idChunks = chunkArray(emailIdsToCheck, IN_QUERY_LIMIT);
@@ -266,16 +237,17 @@ export const saveRecordsToFirebase = async (
         
         for (const chunk of idChunks) {
             if (chunk.length > 0) {
+                // Lưu ý: Query này kiểm tra field 'email_id' bên trong document
                 const q = query(recordsRef, where('email_id', 'in', chunk));
                 const querySnapshot = await getDocs(q);
                 querySnapshot.forEach(doc => {
-                    // FIX: Cast doc.data() to access property and resolve "Property 'email_id' does not exist on type 'unknown'" error.
                     existingEmailIds.add((doc.data() as { email_id: string }).email_id);
                 });
             }
         }
     }
     
+    // Lọc ra các record chưa tồn tại để lưu
     const recordsToAdd = newlyFetchedRecords.filter(
         r => !r.email_id || !existingEmailIds.has(r.email_id)
     );
@@ -290,9 +262,22 @@ export const saveRecordsToFirebase = async (
         const addPromises: Promise<void>[] = [];
         let addBatch = writeBatch(db);
         let addCount = 0;
+        
         recordsToAdd.forEach((record) => {
-            const newRecordRef = doc(recordsCollectionRef);
-            addBatch.set(newRecordRef, record);
+            // --- THAY ĐỔI QUAN TRỌNG ---
+            // Nếu có email_id, dùng nó làm Document ID.
+            // Nếu không, mới để Firestore tự sinh ID.
+            const newRecordRef = record.email_id 
+                ? doc(recordsCollectionRef, record.email_id) 
+                : doc(recordsCollectionRef);
+            
+            // Xóa id ảo trong data để tránh lưu dư thừa
+            const { id, ...recordData } = record;
+
+            // Dùng set thay vì addDoc để có thể chỉ định ID
+            addBatch.set(newRecordRef, recordData);
+            // --------------------------
+
             addCount++;
             if (addCount >= BATCH_LIMIT) {
                 addPromises.push(addBatch.commit());
@@ -314,11 +299,10 @@ export const saveRecordsToFirebase = async (
 export const listenForNewRecords = (teamId: string, callback: (record: Record) => void): (() => void) => {
   const recordsCollectionRef = collection(db, 'user', teamId, 'records');
   const q = query(recordsCollectionRef, where("dt_local", ">", new Date().toISOString()));
-  // FIX: Explicitly type `snapshot` as QuerySnapshot to fix incorrect type inference and resolve "Property 'docChanges' does not exist" error.
+  
   const unsubscribe = onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => {
     snapshot.docChanges().forEach((change) => {
       if (change.type === "added" && !change.doc.metadata.hasPendingWrites) {
-        // FIX: Cast doc.data() to object to resolve "Spread types may only be created from object types" error.
         const newRecord = { ...(change.doc.data() as object), id: change.doc.id } as Record;
         callback(newRecord);
       }
@@ -327,9 +311,6 @@ export const listenForNewRecords = (teamId: string, callback: (record: Record) =
   return unsubscribe;
 };
 
-/**
- * Lấy tất cả các mục chi phí thủ công cho team.
- */
 export const getManualCosts = async (teamId: string): Promise<any[]> => {
   const costsCol = collection(db, 'user', teamId, 'manual_costs');
   const costSnapshot = await getDocs(costsCol);
@@ -340,9 +321,6 @@ export const getManualCosts = async (teamId: string): Promise<any[]> => {
   return costList;
 };
 
-/**
- * Thêm một mục chi phí thủ công mới.
- */
 export const addManualCost = async (teamId: string, entry: {
   providerName: string;
   cost: number;
@@ -351,16 +329,13 @@ export const addManualCost = async (teamId: string, entry: {
 }): Promise<string> => {
   const costEntry = {
     ...entry,
-    currency: 'USD', // Mặc định là USD như yêu cầu
+    currency: 'USD',
     createdAt: Timestamp.now(),
   };
   const docRef = await addDoc(collection(db, 'user', teamId, 'manual_costs'), costEntry);
   return docRef.id;
 };
 
-/**
- * Cập nhật một mục chi phí thủ công.
- */
 export const updateManualCost = async (teamId: string, costId: string, updatedData: {
   providerName: string;
   cost: number;
@@ -370,26 +345,16 @@ export const updateManualCost = async (teamId: string, costId: string, updatedDa
   await updateDoc(docRef, updatedData);
 };
 
-/**
- * Xóa một mục chi phí thủ công.
- */
 export const deleteManualCost = async (teamId: string, costId: string): Promise<void> => {
   const docRef = doc(db, 'user', teamId, 'manual_costs', costId);
   await deleteDoc(docRef);
 };
 
-/**
- * Deletes a single record by ID.
- */
 export const deleteRecord = async (teamId: string, recordId: string): Promise<void> => {
     const recordRef = doc(db, 'user', teamId, 'records', recordId);
     await deleteDoc(recordRef);
 };
 
-/**
- * Deletes ALL records that match a specific email_id. 
- * Used to clean up duplicates before re-saving.
- */
 export const deleteRecordsByEmailId = async (teamId: string, emailId: string): Promise<void> => {
     const recordsCol = collection(db, 'user', teamId, 'records');
     const q = query(recordsCol, where('email_id', '==', emailId));
@@ -404,13 +369,17 @@ export const deleteRecordsByEmailId = async (teamId: string, emailId: string): P
     await batch.commit();
 };
 
-/**
- * Adds a single record and returns it with the new ID.
- */
+// === [UPDATED] Hàm thêm 1 record, hỗ trợ Document ID ===
 export const addRecord = async (teamId: string, record: Record): Promise<Record> => {
     const recordsCollectionRef = collection(db, 'user', teamId, 'records');
-    // Remove 'id' from payload if it exists to let Firestore generate a new one
     const { id, ...data } = record; 
-    const docRef = await addDoc(recordsCollectionRef, data);
+    
+    // Nếu có email_id -> Dùng làm Document ID
+    const docRef = record.email_id 
+        ? doc(recordsCollectionRef, record.email_id)
+        : doc(recordsCollectionRef); // Fallback: Auto ID
+
+    // Dùng setDoc để ghi đè nếu đã tồn tại (hoặc tạo mới)
+    await setDoc(docRef, data);
     return { ...record, id: docRef.id };
 };

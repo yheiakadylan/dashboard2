@@ -45,7 +45,7 @@ async function getMicrosoftAccessToken(refreshToken: string): Promise<string | n
  * Lấy email cho 1 tài khoản Outlook
  */
 async function fetchMessagesForAccount(account: Account, accessToken: string, dateRange: { from: string, to: string }): Promise<(Partial<Record> & { account: string; source: string; })[]> {
-  
+
   const records: (Partial<Record> & { account: string; source: string; })[] = [];
 
   const fromISO = new Date(dateRange.from).toISOString();
@@ -62,7 +62,7 @@ async function fetchMessagesForAccount(account: Account, accessToken: string, da
     let filterParts = [`receivedDateTime ge ${fromISO}`, `receivedDateTime lt ${toISO}`];
     if (subjectQuery) filterParts.push(`contains(subject, '${subjectQuery.replace(/'/g, "''")}')`);
     if (fromQueryMatch?.[1]) filterParts.push(`startsWith(from/emailAddress/address, '${fromQueryMatch[1]}')`);
-    
+
     const filter = filterParts.join(' and ');
     let url: string | undefined =
       `https://graph.microsoft.com/v1.0/me/messages?$filter=${filter}&$select=id,receivedDateTime,subject,bodyPreview,body,from&$orderby=receivedDateTime desc&$top=100`;
@@ -82,7 +82,7 @@ async function fetchMessagesForAccount(account: Account, accessToken: string, da
           // IMPORTANT: Use raw content (HTML) if available, otherwise fallback.
           // Do NOT strip HTML here, as parsing rules might rely on HTML tags (e.g. Etsy).
           const body = message.body?.content || '';
-          
+
           const parsedData = parseMessage(rule, message.subject || '', message.bodyPreview || '', body);
           if (parsedData) {
             records.push({
@@ -139,7 +139,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log(`[sync-outlook] Found ${outlookAccounts.length} Outlook account(s) to sync.`);
 
     let allNewRecords: (Partial<Record> & { account: string; source: string; })[] = [];
-    
+
     // 3. Lặp qua từng tài khoản để lấy email
     for (const account of outlookAccounts) {
       const accessToken = await getMicrosoftAccessToken(account.token);
@@ -147,11 +147,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.warn(`[sync-outlook] Skipping account ${account.email} (failed to get token).`);
         continue;
       }
-      
+
       // Sync 2 ngày gần nhất để tránh bỏ sót
       const twoDaysAgo = new Date();
       twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-      
+
       const dateRange = {
         from: account.last_synced_at || twoDaysAgo.toISOString(),
         to: syncStartTime,
@@ -167,7 +167,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // 4. Lọc bỏ các email đã tồn tại (Copy logic từ firebaseService)
       const emailIdsToCheck = allNewRecords.map(r => r.email_id).filter(id => !!id) as string[];
       const existingEmailIds = new Set<string>();
-      
+
       if (emailIdsToCheck.length > 0) {
         const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
         const idChunks = chunkArray(emailIdsToCheck, 30); // Giới hạn 'in' của Firestore là 30
@@ -189,21 +189,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const batch = db.batch();
         const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
         recordsToAdd.forEach(record => {
-          const docRef = recordsRef.doc();
-          batch.set(docRef, record);
+          const docRef = record.email_id
+            ? recordsRef.doc(record.email_id)
+            : recordsRef.doc();
+          // Xóa id ảo nếu có trong object record
+          const { id, ...recordData } = record as any;
+          batch.set(docRef, recordData);
         });
-        
+
         // Cập nhật last_synced_at cho các tài khoản đã sync
         outlookAccounts.forEach(account => {
-            const accRef = accountsRef.doc(account.id);
-            batch.update(accRef, { last_synced_at: syncStartTime });
+          const accRef = accountsRef.doc(account.id);
+          batch.update(accRef, { last_synced_at: syncStartTime });
         });
-        
+
         await batch.commit();
       }
     }
-    
-    res.status(200).json({ 
+
+    res.status(200).json({
       message: 'Outlook sync complete.',
       accounts_synced: outlookAccounts.length,
       new_records_added: totalNewRecords
