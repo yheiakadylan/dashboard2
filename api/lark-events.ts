@@ -9,6 +9,8 @@ import {
 } from './_lib/larkHelper.js';
 import { getDb } from './_lib/firebaseAdminHelper.js';
 import { SHARED_USER_ID } from '../constants.js';
+// --- THÊM IMPORT NÀY ---
+import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -58,9 +60,6 @@ function parse(reqBody: any): Parsed {
   }
 
   // --- CARD ACTION (new interactive callback) ---
-  // Hai biến thể phổ biến:
-  // A) { "type":"interactive", "token":"...", "action":{...}, "form_value":{...}, "open_message_id": "om_xxx", "open_chat_id": "oc_xxx", "uuid": "..." }
-  // B) { "type":"interactive", "event": { "action":{...}, "form_value":{...}, "open_message_id":"...", "open_chat_id":"..." }, "header":{token:"..."} }
   if (
     reqBody?.type === 'interactive' &&
     (reqBody?.action || reqBody?.event?.action)
@@ -83,7 +82,6 @@ function parse(reqBody: any): Parsed {
   }
 
   // --- SCHEMA 2.0 MESSAGE EVENT ---
-  // { schema:"2.0", header:{token}, event:{ message:{...} } }
   if (reqBody?.schema === '2.0' && reqBody?.event?.message) {
     const token = reqBody?.header?.token;
     const msg = reqBody.event.message;
@@ -145,8 +143,6 @@ function parse(reqBody: any): Parsed {
   return { kind: 'unknown', verifyToken: vt };
 }
 
-/** Xác thực token linh hoạt: card dùng LARK_CARD_VERIFY_TOKEN, text dùng LARK_VERIFICATION_TOKEN.
- * Nếu bạn dùng chung một URL cho cả hai, chấp nhận một trong hai token. */
 function verifyToken(kind: Parsed['kind'], incoming?: string): boolean {
   const msgToken = process.env.LARK_VERIFICATION_TOKEN || '';
   const cardToken = process.env.LARK_CARD_VERIFY_TOKEN || msgToken;
@@ -301,7 +297,46 @@ async function onCardAction(messageId: string, value: any, form: Record<string, 
 
 /** MAIN */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  
+  // =====================================================================
+  // 🟢 TEST NOTIFICATION HANDLER (HIJACK GET REQUEST)
+  // Gọi bằng: /api/lark-events?action=test-push&secret=test1234
+  // =====================================================================
+  if (req.method === 'GET' && req.query.action === 'test-push') {
+    const { secret, teamId } = req.query;
+    if (secret !== 'test1234') { // Bạn có thể đổi 'test1234' thành gì tuỳ thích
+      return res.status(401).json({ error: 'Unauthorized Test' });
+    }
+
+    try {
+      const targetTeam = (teamId as string) || SHARED_USER_ID;
+      console.log(`[Lark-API] Manually triggering push notification test for ${targetTeam}`);
+      
+      await sendPushNotificationToUsers(targetTeam, 'order', {
+        title: '🔔 Test Notification (via Lark API)',
+        body: `Test push sent at ${new Date().toLocaleTimeString()}. If you see this, FCM is working!`,
+        url: '/'
+      });
+
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Push notification command executed.',
+        target: targetTeam
+      });
+    } catch (err: any) {
+      console.error('[Lark-API] Test push failed:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+  // =====================================================================
+
+  
   console.log('[lark-events] Received body:', JSON.stringify(req.body, null, 2));
+
+  // Vì method GET đã bị chặn ở trên, phần dưới này chỉ xử lý POST từ Lark
+  // Nếu Lark gửi verification GET (url challenge), nó sẽ không có ?action=test-push nên sẽ trôi xuống dưới này
+  // Nhưng Lark challenge thường là POST với { challenge: "..." }. 
+  // Nếu Lark gửi GET challenge (ít gặp với cấu hình hiện tại), logic parse(req.body) sẽ handle.
 
   const parsed = parse(req.body);
 
