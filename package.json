@@ -33,6 +33,10 @@
     "react-window": {
       "react": "$react",
       "react-dom": "$react-dom"
+    },
+    "react-virtualized-auto-sizer": {
+      "react": "$react",
+      "react-dom": "$react-dom"
     }
   }
 }
