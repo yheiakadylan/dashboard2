@@ -110,16 +110,29 @@ export const getAccountsFromFirebase = async (teamId: string): Promise<Account[]
 
   return accountList;
 };
-
 export const saveAccountsToFirebase = async (teamId: string, accounts: Account[]): Promise<void> => {
   const batch = writeBatch(db);
   const accountsCollectionRef = collection(db, 'user', teamId, 'accounts');
+  
+  // 1. Lấy danh sách ID hiện có trên Database
   const existingDocsSnapshot = await getDocs(accountsCollectionRef);
-  existingDocsSnapshot.forEach(doc => batch.delete(doc.ref));
+  
+  // 2. Tạo Set các ID mới để tra cứu nhanh
+  const newAccountIds = new Set(accounts.map(acc => acc.id));
+
+  // 3. Chỉ xóa những tài khoản KHÔNG có trong danh sách mới
+  existingDocsSnapshot.forEach(doc => {
+    if (!newAccountIds.has(doc.id)) {
+      batch.delete(doc.ref);
+    }
+  });
+
+  // 4. Ghi đè/Cập nhật các tài khoản có trong danh sách mới
   accounts.forEach(acc => {
     const docRef = doc(db, 'user', teamId, 'accounts', acc.id);
     batch.set(docRef, acc);
   });
+
   await batch.commit();
 };
 
@@ -132,7 +145,9 @@ export const updateAccountsInFirebase = async (teamId: string, accountsToUpdate:
         const { id, ...dataToUpdate } = accountUpdate;
         if (id && Object.keys(dataToUpdate).length > 0) {
             const accountRef = doc(db, 'user', teamId, 'accounts', id);
-            batch.update(accountRef, dataToUpdate);
+            // SỬA ĐỔI: Dùng set với { merge: true } thay vì update
+            // Giúp tránh lỗi "No document to update" nếu tài khoản lỡ bị mất kết nối tạm thời
+            batch.set(accountRef, dataToUpdate, { merge: true });
         }
     });
     await batch.commit();
