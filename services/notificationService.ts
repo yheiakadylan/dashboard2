@@ -1,17 +1,43 @@
-// services/notificationService.ts
+import { getToken } from "firebase/messaging";
+import { getMessagingInstance } from "./firebaseService"; 
+
+// VAPID Key của bạn (giữ nguyên)
+const VAPID_KEY = "BEdIPBCogmSpUUQuFNI3v2SM_j5-9gGHpD1WVNMB8WB2e9Zo_EY9o5IOs-pKv8noSf7RVJ3q2ajShI3cFJrHENs"; 
+
+export const requestForToken = async () => {
+  try {
+    // SỬA ĐOẠN NÀY: Gọi hàm getMessagingInstance()
+    const messaging = await getMessagingInstance();
+
+    if (!messaging) {
+      console.warn("Firebase Messaging is not supported or failed to initialize.");
+      return null;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      const token = await getToken(messaging, {
+        vapidKey: VAPID_KEY
+      });
+      console.log('FCM Token:', token);
+      return token;
+    } else {
+      console.log('Quyền thông báo bị từ chối.');
+      return null;
+    }
+  } catch (error) {
+    console.error('Lỗi khi lấy token:', error);
+    return null;
+  }
+};
 
 export const sendLarkLoginNotification = (
   email: string | null, 
   role: string
 ): void => {
-  
-  // 1. Chỉ gửi thông báo nếu là 'user' (kiểm tra ở đây để đỡ tốn 1 API call)
   if (role !== 'user') {
     return; 
   }
-
-  // 2. GỌI TỚI API ROUTE CỦA BẠN, KHÔNG GỌI LARK TRỰC TIẾP
-  // Đây là "fire-and-forget", không cần await
   fetch('/api/lark-login-notify', {
     method: 'POST',
     headers: {
@@ -19,7 +45,6 @@ export const sendLarkLoginNotification = (
     },
     body: JSON.stringify({ email, role }),
   }).catch(err => {
-    // Log lỗi ở client, không ảnh hưởng user
     console.error('Failed to trigger login notification:', err);
   });
 };

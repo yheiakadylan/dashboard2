@@ -20,6 +20,7 @@ import { DashboardProvider, useDashboard } from './contexts/DashboardContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { Record } from './api/_lib/types';
 import { reprocessRecord } from './services/emailService';
+import { requestForToken } from './services/notificationService';
 
 const DashboardLayout: React.FC = () => {
     const {
@@ -368,6 +369,7 @@ const App: React.FC = () => {
           await signOut(auth);
           setUser(null);
         }
+        requestForToken();
       }
       setAuthLoading(false);
     });

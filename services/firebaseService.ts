@@ -1,26 +1,25 @@
 
-// FIX: Updated to use Firebase SDK v9 modular syntax to match project dependencies and resolve import errors.
 import { initializeApp } from "firebase/app";
 import { 
     getFirestore, 
     collection, 
     getDocs, 
-    writeBatch,
-    doc,
-    query,
-    where,
-    onSnapshot,
-    QuerySnapshot,
-    DocumentData,
-    addDoc, // <-- THÊM
-    Timestamp, // <-- THÊM
-    updateDoc,
-    deleteDoc,
-    setDoc // <-- Added setDoc
+    writeBatch, 
+    doc, 
+    query, 
+    where, 
+    onSnapshot, 
+    QuerySnapshot, 
+    DocumentData, 
+    addDoc, 
+    Timestamp, 
+    updateDoc, 
+    deleteDoc, 
+    setDoc 
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import { getMessaging, isSupported } from "firebase/messaging";
 import { Account, Record } from '../api/_lib/types';
-
 
 const firebaseConfig = {
 
@@ -53,11 +52,24 @@ const firebaseConfig = {
 
 };*/
 // Initialize Firebase and Firestore.
-// Use named import for initializeApp
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 
+// HÀM QUAN TRỌNG: Khởi tạo messaging an toàn
+export const getMessagingInstance = async () => {
+  try {
+    const supported = await isSupported();
+    if (supported) {
+      return getMessaging(app);
+    }
+    console.warn("Firebase Messaging is not supported in this browser.");
+    return null;
+  } catch (err) {
+    console.error("Error checking messaging support:", err);
+    return null;
+  }
+};
 const getTimezoneOffsetString = (timeZone: string, dateStr: string): string => {
   try {
     // Use noon of the given date to safely avoid DST crossover issues at midnight

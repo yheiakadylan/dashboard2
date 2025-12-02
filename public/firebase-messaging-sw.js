@@ -17,25 +17,25 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Received background message ', payload);
-  
+
   const notificationTitle = payload.notification.title;
   const notificationOptions = {
     body: payload.notification.body,
-    icon: '/icon.svg', // Assuming you have an icon
+    icon: '/pwa-192x192.png',
     data: payload.data // Pass data like URL
   };
 
   self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
-self.addEventListener('notificationclick', function(event) {
+self.addEventListener('notificationclick', function (event) {
   event.notification.close();
-  
+
   // Open the URL passed in data or default to root
   const urlToOpen = event.notification.data?.url || '/';
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(windowClients) {
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (windowClients) {
       // Check if there is already a window/tab open with the target URL
       for (var i = 0; i < windowClients.length; i++) {
         var client = windowClients[i];

@@ -1,12 +1,13 @@
+
 import React, { useState, useEffect } from 'react';
-import { getMessaging, getToken } from 'firebase/messaging';
+import { getToken } from 'firebase/messaging';
 import { doc, getDoc, updateDoc, arrayUnion, setDoc } from 'firebase/firestore';
 import { db, auth } from '../services/firebaseService';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useNotification } from '../contexts/NotificationContext';
-
+import { getMessagingInstance } from '../services/firebaseService';
 // VAPID Key from Firebase Console -> Project Settings -> Cloud Messaging -> Web Configuration
-const VAPID_KEY = "BEdIPBCogmSpUUQuFNI3v2SM_j5-9gGHpD1WVNMB8WB2e9Zo_EY9o5IOs-pKv8noSf7RVJ3q2ajShI3cFJrHENs"; 
+const VAPID_KEY = "BEdIPBCogmSpUUQuFNI3v2SM_j5-9gGHpD1WVNMB8WB2e9Zo_EY9o5IOs-pKv8noSf7RVJ3q2ajShI3cFJrHENs";
 
 interface NotificationPrefs {
   order: boolean;
@@ -27,7 +28,7 @@ const NotificationSettings: React.FC = () => {
 
   useEffect(() => {
     if (!user) return;
-    
+
     // Load settings from Firestore
     const loadSettings = async () => {
       try {
@@ -49,21 +50,45 @@ const NotificationSettings: React.FC = () => {
   const requestPermission = async () => {
     setLoading(true);
     try {
-      const messaging = getMessaging();
+      // 1. Lấy instance messaging an toàn
+      const messaging = await getMessagingInstance();
+
+      if (!messaging) {
+        addNotification("Notifications not supported on this device/browser.", "error");
+        setLoading(false);
+        return;
+      }
+
+      // 2. Xin quyền trình duyệt
+      const permissionResult = await Notification.requestPermission();
+      if (permissionResult !== 'granted') {
+        addNotification("Permission denied. Please enable notifications in browser settings.", "info");
+        setLoading(false);
+        return;
+      }
+
+      // 3. Lấy Token
       const currentToken = await getToken(messaging, { vapidKey: VAPID_KEY });
-      
+
       if (currentToken) {
         setPermission('granted');
-        
-        // Save Token to Firestore
+
         const userRef = doc(db, 'user_roles', user.uid);
         await updateDoc(userRef, {
-          fcmTokens: arrayUnion(currentToken)
+          fcmTokens: arrayUnion(currentToken),
+          // Mặc định bật thông báo khi mới đăng ký
+          notificationSettings: {
+            order: true,
+            funds: true,
+            summary: true
+          }
         });
-        
+        // Cập nhật UI state local để phản ánh ngay lập tức
+        setPrefs({ order: true, funds: true, summary: true });
+
         addNotification("Notifications enabled successfully!", "success");
       } else {
-        addNotification("No registration token available. Request permission to generate one.", "error");
+        addNotification("No registration token available.", "error");
       }
     } catch (err) {
       console.error('An error occurred while retrieving token. ', err);
@@ -90,7 +115,7 @@ const NotificationSettings: React.FC = () => {
     } catch (err) {
       console.error("Error saving settings", err);
       // Revert UI on error
-      setPrefs(prefs); 
+      setPrefs(prefs);
       addNotification("Failed to save settings.", "error");
     }
   };
@@ -121,7 +146,7 @@ const NotificationSettings: React.FC = () => {
         <h3 className="font-semibold text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">
           Notification Preferences
         </h3>
-        
+
         <div className="flex items-center justify-between">
           <div>
             <p className="font-medium text-gray-800 dark:text-gray-200">New Orders</p>
@@ -129,14 +154,12 @@ const NotificationSettings: React.FC = () => {
           </div>
           <button
             onClick={() => handleToggle('order')}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-              prefs.order ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
-            }`}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.order ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
+              }`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                prefs.order ? 'translate-x-6' : 'translate-x-1'
-              }`}
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.order ? 'translate-x-6' : 'translate-x-1'
+                }`}
             />
           </button>
         </div>
@@ -148,14 +171,12 @@ const NotificationSettings: React.FC = () => {
           </div>
           <button
             onClick={() => handleToggle('funds')}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-              prefs.funds ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
-            }`}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.funds ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
+              }`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                prefs.funds ? 'translate-x-6' : 'translate-x-1'
-              }`}
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.funds ? 'translate-x-6' : 'translate-x-1'
+                }`}
             />
           </button>
         </div>
@@ -167,14 +188,12 @@ const NotificationSettings: React.FC = () => {
           </div>
           <button
             onClick={() => handleToggle('summary')}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-              prefs.summary ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
-            }`}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.summary ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
+              }`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                prefs.summary ? 'translate-x-6' : 'translate-x-1'
-              }`}
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.summary ? 'translate-x-6' : 'translate-x-1'
+                }`}
             />
           </button>
         </div>

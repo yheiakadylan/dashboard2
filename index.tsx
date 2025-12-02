@@ -49,4 +49,5 @@ if (!handleAuthCallback()) {
       <App />
     </React.StrictMode>
   );
+  
 }
