@@ -36,8 +36,7 @@ interface DashboardContextType {
   isSyncing: boolean;
   isFetchingNewRange: boolean;
   isSavingAccounts: boolean;
-  // Thay đổi status thành syncState (nullable string)
-  syncState: string | null; 
+  syncState: string | null;
   isAccountManagerOpen: boolean;
   setIsAccountManagerOpen: React.Dispatch<React.SetStateAction<boolean>>;
   dayFilter: string | null;
@@ -58,6 +57,7 @@ interface DashboardContextType {
   setManualCosts: React.Dispatch<React.SetStateAction<any[]>>;
   searchTerm: string;
   setSearchTerm: React.Dispatch<React.SetStateAction<string>>;
+  handleResyncAccount: (account: Account) => Promise<void>;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -90,10 +90,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isSavingAccounts, setIsSavingAccounts] = useState<boolean>(false);
   const [isFetchingNewRange, setIsFetchingNewRange] = useState<boolean>(false);
-  
+
   // New State for Activity Indicator
   const [syncState, setSyncState] = useState<string | null>('Initializing...');
-  
+
   const [isAccountManagerOpen, setIsAccountManagerOpen] = useState<boolean>(false);
   const isInitialMount = useRef(true);
   const [dayFilter, setDayFilter] = useState<string | null>(null);
@@ -217,7 +217,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   const runHistoricalSync = useCallback(async (accountsToSync: Account[], initialRecords: Record[]) => {
     const accountsNeedingSync = accountsToSync.filter(a => !a.historical_sync_complete);
     if (accountsNeedingSync.length === 0) return;
-    
+
     // Note: Historical sync updates syncState but keeps it quiet for Toast unless error/complete
     setSyncState(`Background Sync: ${accountsNeedingSync.length} account(s)`);
 
@@ -258,9 +258,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         const currentSyncStart = new Date(currentSyncEnd); currentSyncStart.setDate(currentSyncStart.getDate() - 7);
         const effectiveSyncStart = currentSyncStart < finalSyncEnd ? finalSyncEnd : currentSyncStart;
         const dateRange = { from: effectiveSyncStart.toISOString(), to: currentSyncEnd.toISOString() };
-        
+
         setSyncState(`[${account.email}] History: ${effectiveSyncStart.toLocaleDateString()} - ${currentSyncEnd.toLocaleDateString()}`);
-        
+
         try {
           const fetchedChunk = await runSync([account], currentExistingRecords, dateRange);
           if (fetchedChunk.length > 0) currentExistingRecords.push(...fetchedChunk);
@@ -391,7 +391,33 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setSyncState(null);
     });
   };
+  const handleResyncAccount = async (account: Account) => {
+    if (!user) return;
 
+    // A. Reset trạng thái trên Firebase
+    const resetData = {
+      id: account.id,
+      historical_sync_complete: false,
+      history_synced_until: null,
+      last_synced_at: null,
+      scan_start_date: null // Reset cả ngày bắt đầu quét để dò lại từ đầu
+    };
+
+    try {
+      setSyncState(`Resetting ${account.email}...`);
+      await updateAccountsInFirebase(teamId, [resetData]);
+      const updatedAccount = { ...account, ...resetData } as Account; // Ép kiểu để TS không báo lỗi null
+      setAllAccounts(prev => prev.map(a => a.id === account.id ? updatedAccount : a));
+      setSyncState(`Starting re-sync for ${account.email}...`);
+      const initialRecords = await runSync([updatedAccount], records);
+      runHistoricalSync([updatedAccount], [...records, ...initialRecords]);
+      addNotification(`Re-sync started for ${account.email}`, "success");
+    } catch (error: any) {
+      console.error("Resync error:", error);
+      addNotification("Failed to start re-sync.", "error");
+      setSyncState(null);
+    }
+  };
   const handleSaveAccounts = async (updatedAccounts: Account[]) => {
     if (!user) return;
     setIsSavingAccounts(true);
@@ -411,7 +437,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setAllAccounts(updatedAccounts);
       setIsAccountManagerOpen(false);
       addNotification('Accounts saved successfully.', "success");
-      
+
       const newAccounts = updatedAccounts.filter(acc => !originalAccounts.some(orig => orig.id === acc.id));
       if (newAccounts.length > 0) {
         setSyncState(`Syncing new account(s)...`);
@@ -458,7 +484,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   const filteredRecords = useMemo(() => {
     const allowedEmails = new Set(visibleAccounts.map(a => a.email));
     let baseFiltered = records.filter(record => allowedEmails.has(record.account));
-    
+
     // 1. Account Filter
     if (selectedAccountId !== 'all') {
       baseFiltered = baseFiltered.filter(record => record.account === selectedAccountId);
@@ -473,12 +499,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         const custEmail = (r.details?.customerEmail || '').toLowerCase();
         const prodName = (r.product_name || r.details?.items?.[0]?.name || '').toLowerCase();
         const ffCode = (r.ff_code || '').toLowerCase();
-        
-        return oid.includes(lowerTerm) || 
-               custName.includes(lowerTerm) || 
-               custEmail.includes(lowerTerm) ||
-               prodName.includes(lowerTerm) ||
-               ffCode.includes(lowerTerm);
+
+        return oid.includes(lowerTerm) ||
+          custName.includes(lowerTerm) ||
+          custEmail.includes(lowerTerm) ||
+          prodName.includes(lowerTerm) ||
+          ffCode.includes(lowerTerm);
       });
     }
 
@@ -489,31 +515,27 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     if (!previousPeriodRecords) return null;
     const allowedEmails = new Set(visibleAccounts.map(a => a.email));
     let baseFiltered = previousPeriodRecords.filter(record => allowedEmails.has(record.account));
-    
+
     if (selectedAccountId !== 'all') {
       baseFiltered = baseFiltered.filter(record => record.account === selectedAccountId);
     }
     
-    // Do NOT filter previous records by Search Term for KPI comparison context, 
-    // or DO filter if we want exact apple-to-apple comparison?
-    // Usually, comparing searched subset vs previous period full set is wrong.
-    // Let's filter previous records by search term too for consistency.
     if (searchTerm.trim()) {
-        const lowerTerm = searchTerm.toLowerCase();
-        baseFiltered = baseFiltered.filter(r => {
-          const oid = (r.order_id || '').toLowerCase();
-          const custName = (r.details?.customerName || '').toLowerCase();
-          const custEmail = (r.details?.customerEmail || '').toLowerCase();
-          const prodName = (r.product_name || r.details?.items?.[0]?.name || '').toLowerCase();
-          const ffCode = (r.ff_code || '').toLowerCase();
-          
-          return oid.includes(lowerTerm) || 
-                 custName.includes(lowerTerm) || 
-                 custEmail.includes(lowerTerm) ||
-                 prodName.includes(lowerTerm) ||
-                 ffCode.includes(lowerTerm);
-        });
-      }
+      const lowerTerm = searchTerm.toLowerCase();
+      baseFiltered = baseFiltered.filter(r => {
+        const oid = (r.order_id || '').toLowerCase();
+        const custName = (r.details?.customerName || '').toLowerCase();
+        const custEmail = (r.details?.customerEmail || '').toLowerCase();
+        const prodName = (r.product_name || r.details?.items?.[0]?.name || '').toLowerCase();
+        const ffCode = (r.ff_code || '').toLowerCase();
+
+        return oid.includes(lowerTerm) ||
+          custName.includes(lowerTerm) ||
+          custEmail.includes(lowerTerm) ||
+          prodName.includes(lowerTerm) ||
+          ffCode.includes(lowerTerm);
+      });
+    }
 
     return baseFiltered;
   }, [previousPeriodRecords, selectedAccountId, visibleAccounts, searchTerm]);
@@ -550,6 +572,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     setManualCosts,
     searchTerm,
     setSearchTerm,
+    handleResyncAccount,
   };
 
   return <DashboardContext.Provider value={value}>{children}</DashboardContext.Provider>;

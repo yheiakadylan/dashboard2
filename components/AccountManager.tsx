@@ -16,34 +16,34 @@ const decodeQP = (input: string): string => {
   const clean = input.replace(/=\r?\n/g, '');
   const bytes: number[] = [];
   for (let i = 0; i < clean.length; i++) {
-      if (clean[i] === '=') {
-          const hex = clean.substring(i + 1, i + 3);
-          if (/^[0-9A-F]{2}$/i.test(hex)) {
-              bytes.push(parseInt(hex, 16));
-              i += 2;
-              continue;
-          }
+    if (clean[i] === '=') {
+      const hex = clean.substring(i + 1, i + 3);
+      if (/^[0-9A-F]{2}$/i.test(hex)) {
+        bytes.push(parseInt(hex, 16));
+        i += 2;
+        continue;
       }
-      bytes.push(clean.charCodeAt(i));
+    }
+    bytes.push(clean.charCodeAt(i));
   }
   try {
-      return new TextDecoder('utf-8').decode(new Uint8Array(bytes));
+    return new TextDecoder('utf-8').decode(new Uint8Array(bytes));
   } catch (e) {
-      return clean;
+    return clean;
   }
 };
 
 const decodeBase64 = (input: string): string => {
   try {
-      const clean = input.replace(/\s/g, '');
-      const binaryString = atob(clean);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-      }
-      return new TextDecoder('utf-8').decode(bytes);
+    const clean = input.replace(/\s/g, '');
+    const binaryString = atob(clean);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return new TextDecoder('utf-8').decode(bytes);
   } catch (e) {
-      return input;
+    return input;
   }
 };
 
@@ -58,27 +58,27 @@ const parseEmlContent = (eml: string): { subject: string; htmlBody: string } => 
   const htmlStartMatch = eml.match(htmlContentTypeRegex);
 
   if (htmlStartMatch && htmlStartMatch.index !== undefined) {
-      const sectionStart = htmlStartMatch.index;
-      const followingText = eml.substring(sectionStart);
-      const encodingMatch = followingText.match(/Content-Transfer-Encoding:\s*(\S+)/i);
-      const encoding = encodingMatch ? encodingMatch[1].toLowerCase() : "7bit";
-      const headerEndMatch = followingText.match(/\r?\n\r?\n/);
-      
-      if (headerEndMatch && headerEndMatch.index !== undefined) {
-          const bodyStartIndex = headerEndMatch.index + headerEndMatch[0].length;
-          let rawBody = followingText.substring(bodyStartIndex);
-          const boundaryMatch = rawBody.match(/^\s*--/m);
-          if (boundaryMatch && boundaryMatch.index !== undefined) {
-              rawBody = rawBody.substring(0, boundaryMatch.index);
-          }
+    const sectionStart = htmlStartMatch.index;
+    const followingText = eml.substring(sectionStart);
+    const encodingMatch = followingText.match(/Content-Transfer-Encoding:\s*(\S+)/i);
+    const encoding = encodingMatch ? encodingMatch[1].toLowerCase() : "7bit";
+    const headerEndMatch = followingText.match(/\r?\n\r?\n/);
 
-          if (encoding === 'base64') htmlBody = decodeBase64(rawBody);
-          else if (encoding === 'quoted-printable') htmlBody = decodeQP(rawBody);
-          else htmlBody = rawBody;
+    if (headerEndMatch && headerEndMatch.index !== undefined) {
+      const bodyStartIndex = headerEndMatch.index + headerEndMatch[0].length;
+      let rawBody = followingText.substring(bodyStartIndex);
+      const boundaryMatch = rawBody.match(/^\s*--/m);
+      if (boundaryMatch && boundaryMatch.index !== undefined) {
+        rawBody = rawBody.substring(0, boundaryMatch.index);
       }
+
+      if (encoding === 'base64') htmlBody = decodeBase64(rawBody);
+      else if (encoding === 'quoted-printable') htmlBody = decodeQP(rawBody);
+      else htmlBody = rawBody;
+    }
   } else {
-      const htmlTagIdx = eml.indexOf('<html');
-      if (htmlTagIdx > -1) htmlBody = eml.substring(htmlTagIdx);
+    const htmlTagIdx = eml.indexOf('<html');
+    if (htmlTagIdx > -1) htmlBody = eml.substring(htmlTagIdx);
   }
   return { subject, htmlBody };
 };
@@ -86,19 +86,20 @@ const parseEmlContent = (eml: string): { subject: string; htmlBody: string } => 
 
 // --- MAIL MANAGER COMPONENT ---
 const MailManager: React.FC = () => {
-  const { 
-    teamId, 
-    accounts, 
-    handleSaveAccounts, 
-    isSavingAccounts, 
-    syncState, 
-    timeZone, 
-    setRecords, 
-    setAccounts 
+  const {
+    teamId,
+    accounts,
+    handleSaveAccounts,
+    isSavingAccounts,
+    syncState,
+    timeZone,
+    setRecords,
+    setAccounts,
+    handleResyncAccount
   } = useDashboard();
-  
-  const { addNotification } = useNotification(); 
-  
+
+  const { addNotification } = useNotification();
+
   const [localAccounts, setLocalAccounts] = useState<Account[]>([]);
   const [isAuthenticating, setIsAuthenticating] = useState<false | 'google' | 'microsoft'>(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -112,49 +113,49 @@ const MailManager: React.FC = () => {
 
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
-  
+
   const getAccountSyncStatus = (account: Account): { text: string; color: string; icon: React.ReactNode; title: string } => {
-      if (syncState && syncState.includes(account.email)) {
-          return {
-              text: 'Syncing...',
-              color: 'text-blue-500 dark:text-blue-400',
-              icon: <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>,
-              title: `System is actively processing ${account.email}. Status: ${syncState}`
-          };
-      }
+    if (syncState && syncState.includes(account.email)) {
+      return {
+        text: 'Syncing...',
+        color: 'text-blue-500 dark:text-blue-400',
+        icon: <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>,
+        title: `System is actively processing ${account.email}. Status: ${syncState}`
+      };
+    }
 
-      if (account.historical_sync_complete === false) {
-          const progressDate = account.history_synced_until ? new Date(account.history_synced_until).toLocaleDateString() : 'start';
-          return {
-              text: 'History Sync...',
-              color: 'text-purple-500 dark:text-purple-400',
-              icon: <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>,
-              title: `Background historical sync in progress. Reached: ${progressDate}`
-          };
-      }
-      
-      if (account.last_synced_at) {
-          const lastSyncDate = new Date(account.last_synced_at);
-          const formattedTime = new Intl.DateTimeFormat('en-US', {
-              timeZone: timeZone,
-              year: 'numeric', month: '2-digit', day: '2-digit',
-              hour: '2-digit', minute: '2-digit'
-          }).format(lastSyncDate);
+    if (account.historical_sync_complete === false) {
+      const progressDate = account.history_synced_until ? new Date(account.history_synced_until).toLocaleDateString() : 'start';
+      return {
+        text: 'History Sync...',
+        color: 'text-purple-500 dark:text-purple-400',
+        icon: <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>,
+        title: `Background historical sync in progress. Reached: ${progressDate}`
+      };
+    }
 
-          return {
-              text: 'Synced',
-              color: 'text-green-600 dark:text-green-500',
-              icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414L11 9.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>,
-              title: `Last synced: ${formattedTime}`
-          };
-      }
+    if (account.last_synced_at) {
+      const lastSyncDate = new Date(account.last_synced_at);
+      const formattedTime = new Intl.DateTimeFormat('en-US', {
+        timeZone: timeZone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit'
+      }).format(lastSyncDate);
 
       return {
-          text: 'Pending',
-          color: 'text-gray-500 dark:text-gray-400',
-          icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.415L11 9.586V6z" clipRule="evenodd" /></svg>,
-          title: 'Waiting for initial sync.'
+        text: 'Synced',
+        color: 'text-green-600 dark:text-green-500',
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414L11 9.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>,
+        title: `Last synced: ${formattedTime}`
       };
+    }
+
+    return {
+      text: 'Pending',
+      color: 'text-gray-500 dark:text-gray-400',
+      icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.415L11 9.586V6z" clipRule="evenodd" /></svg>,
+      title: 'Waiting for initial sync.'
+    };
   };
 
   const handleAuth = async (provider: 'google' | 'microsoft') => {
@@ -191,26 +192,23 @@ const MailManager: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if(window.confirm("Remove this account? This action applies after Saving.")) {
-        setLocalAccounts(localAccounts.filter(acc => acc.id !== id));
+    if (window.confirm("Remove this account? This action applies after Saving.")) {
+      setLocalAccounts(localAccounts.filter(acc => acc.id !== id));
     }
   };
-  
+
   const handleReSync = async (account: Account) => {
     if (window.confirm(`Re-sync entire history for ${account.email}? This runs in background.`)) {
-      try {
-        await updateAccountsInFirebase(teamId, [{
-          id: account.id,
-          historical_sync_complete: false,
-          history_synced_until: null,
-          last_synced_at: null,
-        }]);
-        setLocalAccounts(prev => prev.map(acc => acc.id === account.id ? {...acc, historical_sync_complete: false} : acc));
-        addNotification(`Sync reset for ${account.email}. Will start shortly.`, "success");
-      } catch (error) {
-        console.error("Failed to reset sync status:", error);
-        addNotification("Failed to reset sync status.", "error");
-      }
+      // Gọi hàm xử lý trọn gói bên Context
+      await handleResyncAccount(account);
+
+      // Cập nhật lại UI local để hiện trạng thái 'History Sync...'
+      setLocalAccounts(prev => prev.map(acc => acc.id === account.id ? {
+        ...acc,
+        historical_sync_complete: false,
+        history_synced_until: null, //null
+        last_synced_at: null
+      } : acc));
     }
   };
 
@@ -219,51 +217,51 @@ const MailManager: React.FC = () => {
     if (!confirmFetch) return;
 
     try {
-        setBulkUpdateState({ accountId: account.id, current: 0, total: 0 });
-        const allAccountRecords = await getAllRecordsForAccount(teamId, account.email);
-        
-        const uniqueOrdersMap = new Map();
-        allAccountRecords.forEach(r => {
-            if(r.kind === 'order' && r.email_id) {
-                uniqueOrdersMap.set(r.email_id, r);
-            }
-        });
-        const accountOrders = Array.from(uniqueOrdersMap.values());
-        
-        if (accountOrders.length === 0) {
-          addNotification(`No processable orders found for ${account.email}.`, "info");
-          setBulkUpdateState(null);
-          return;
-        }
+      setBulkUpdateState({ accountId: account.id, current: 0, total: 0 });
+      const allAccountRecords = await getAllRecordsForAccount(teamId, account.email);
 
-        addNotification(`Starting batch update for ${accountOrders.length} orders...`, "info");
-        setBulkUpdateState({ accountId: account.id, current: 0, total: accountOrders.length });
-        
-        for (let i = 0; i < accountOrders.length; i++) {
-            const order = accountOrders[i] as Record;
-            try {
-                const updatedRecord = await reprocessRecord(teamId, account, order);
-                if (updatedRecord) {
-                    setRecords(prev => {
-                        const filtered = prev.filter(r => r.email_id !== order.email_id);
-                        return [...filtered, updatedRecord];
-                    });
-                } else {
-                    setRecords(prev => prev.filter(r => r.email_id !== order.email_id));
-                }
-            } catch (e) {
-                console.error(`Failed to reprocess order ${order.order_id}:`, e);
-            }
-            setBulkUpdateState(prev => prev ? ({ ...prev, current: i + 1 }) : null);
-            await new Promise(r => setTimeout(r, 100)); // Slight delay
+      const uniqueOrdersMap = new Map();
+      allAccountRecords.forEach(r => {
+        if (r.kind === 'order' && r.email_id) {
+          uniqueOrdersMap.set(r.email_id, r);
         }
+      });
+      const accountOrders = Array.from(uniqueOrdersMap.values());
 
-        addNotification(`Batch update complete for ${account.email}.`, "success");
-    } catch (error) {
-        console.error("Error fetching/updating records:", error);
-        addNotification("An error occurred during batch update.", "error");
-    } finally {
+      if (accountOrders.length === 0) {
+        addNotification(`No processable orders found for ${account.email}.`, "info");
         setBulkUpdateState(null);
+        return;
+      }
+
+      addNotification(`Starting batch update for ${accountOrders.length} orders...`, "info");
+      setBulkUpdateState({ accountId: account.id, current: 0, total: accountOrders.length });
+
+      for (let i = 0; i < accountOrders.length; i++) {
+        const order = accountOrders[i] as Record;
+        try {
+          const updatedRecord = await reprocessRecord(teamId, account, order);
+          if (updatedRecord) {
+            setRecords(prev => {
+              const filtered = prev.filter(r => r.email_id !== order.email_id);
+              return [...filtered, updatedRecord];
+            });
+          } else {
+            setRecords(prev => prev.filter(r => r.email_id !== order.email_id));
+          }
+        } catch (e) {
+          console.error(`Failed to reprocess order ${order.order_id}:`, e);
+        }
+        setBulkUpdateState(prev => prev ? ({ ...prev, current: i + 1 }) : null);
+        await new Promise(r => setTimeout(r, 100)); // Slight delay
+      }
+
+      addNotification(`Batch update complete for ${account.email}.`, "success");
+    } catch (error) {
+      console.error("Error fetching/updating records:", error);
+      addNotification("An error occurred during batch update.", "error");
+    } finally {
+      setBulkUpdateState(null);
     }
   };
 
@@ -286,7 +284,7 @@ const MailManager: React.FC = () => {
       ...acc,
       order: index
     }));
-    handleSaveAccounts(orderedAccounts); 
+    handleSaveAccounts(orderedAccounts);
   };
 
   return (
@@ -298,7 +296,7 @@ const MailManager: React.FC = () => {
             const syncStatus = getAccountSyncStatus(acc);
             const isUpdatingThis = bulkUpdateState && bulkUpdateState.accountId === acc.id;
             const progressText = bulkUpdateState?.total === 0 ? 'Fetching...' : `${bulkUpdateState?.current} / ${bulkUpdateState?.total}`;
-            
+
             return (
               <div
                 key={acc.id}
@@ -326,28 +324,28 @@ const MailManager: React.FC = () => {
                       placeholder="Enter Shop Name"
                     />
                     <p className="text-sm text-gray-500 dark:text-gray-400 px-1 truncate">{acc.email}</p>
-                    
+
                     <div className={`flex items-center gap-1.5 px-1 text-xs font-medium ${syncStatus.color}`} title={syncStatus.title}>
                       {syncStatus.icon}
                       <span>{syncStatus.text}</span>
                     </div>
 
                     {isUpdatingThis && (
-                        <div className="px-1 mt-1">
-                            <div className="w-full bg-gray-300 dark:bg-gray-600 rounded-full h-2 overflow-hidden">
-                                <div 
-                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
-                                    style={{ width: bulkUpdateState.total > 0 ? `${(bulkUpdateState.current / bulkUpdateState.total) * 100}%` : '0%' }}
-                                ></div>
-                            </div>
-                            <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5 text-right">{progressText}</p>
+                      <div className="px-1 mt-1">
+                        <div className="w-full bg-gray-300 dark:bg-gray-600 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: bulkUpdateState.total > 0 ? `${(bulkUpdateState.current / bulkUpdateState.total) * 100}%` : '0%' }}
+                          ></div>
                         </div>
+                        <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5 text-right">{progressText}</p>
+                      </div>
                     )}
                   </div>
                 </div>
 
                 <div className="flex items-center flex-shrink-0 gap-2">
-                  <button 
+                  <button
                     onClick={() => handleBatchUpdate(acc)}
                     disabled={!!bulkUpdateState}
                     className="text-teal-600 dark:text-teal-400 hover:text-teal-500 dark:hover:text-teal-300 font-semibold px-3 py-1 rounded-md transition-colors text-sm disabled:opacity-50"
@@ -355,16 +353,16 @@ const MailManager: React.FC = () => {
                   >
                     {isUpdatingThis ? 'Running...' : 'Update'}
                   </button>
-                  <button 
-                    onClick={() => handleReSync(acc)} 
+                  <button
+                    onClick={() => handleReSync(acc)}
                     disabled={!!bulkUpdateState}
                     className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 font-semibold px-3 py-1 rounded-md transition-colors text-sm disabled:opacity-50"
                     title="Re-sync History"
                   >
                     Re-sync
                   </button>
-                  <button 
-                    onClick={() => handleDelete(acc.id)} 
+                  <button
+                    onClick={() => handleDelete(acc.id)}
                     disabled={!!bulkUpdateState}
                     className="text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 font-semibold px-3 py-1 rounded-md transition-colors text-sm disabled:opacity-50"
                   >
@@ -396,13 +394,13 @@ const MailManager: React.FC = () => {
             {isAuthenticating === 'microsoft' ? 'Authenticating...' : 'Sign in with Microsoft'}
           </button>
         </div>
-        
+
 
         {authError && <p className="text-red-500 dark:text-red-400 text-sm mt-3 text-center">{authError}</p>}
 
         <div className="flex justify-end gap-4 mt-6">
-          <button 
-            onClick={handleSaveChanges} 
+          <button
+            onClick={handleSaveChanges}
             disabled={isSavingAccounts}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold disabled:opacity-50 disabled:cursor-wait flex items-center justify-center min-w-[170px]"
           >
@@ -459,18 +457,18 @@ const AccountManager: React.FC = () => {
           </button>
           {role === 'owner' && (
             <>
-                <button
-                    onClick={() => setActiveTab('users')}
-                    className={`flex-1 py-3 px-4 font-semibold text-center transition-colors whitespace-nowrap ${activeTab === 'users' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-                >
-                    User Management
-                </button>
-                <button
-                    onClick={() => setActiveTab('costs')}
-                    className={`flex-1 py-3 px-4 font-semibold text-center transition-colors whitespace-nowrap ${activeTab === 'costs' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-                >
-                    Manual Costs
-                </button>
+              <button
+                onClick={() => setActiveTab('users')}
+                className={`flex-1 py-3 px-4 font-semibold text-center transition-colors whitespace-nowrap ${activeTab === 'users' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+              >
+                User Management
+              </button>
+              <button
+                onClick={() => setActiveTab('costs')}
+                className={`flex-1 py-3 px-4 font-semibold text-center transition-colors whitespace-nowrap ${activeTab === 'costs' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+              >
+                Manual Costs
+              </button>
             </>
           )}
         </div>
