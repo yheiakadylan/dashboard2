@@ -38,6 +38,9 @@
     "react-virtualized-auto-sizer": {
       "react": "$react",
       "react-dom": "$react-dom"
+    },
+    "vite-plugin-pwa": {
+      "vite": "$vite"
     }
   }
 }
