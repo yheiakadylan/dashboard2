@@ -2,7 +2,7 @@ import { getToken } from "firebase/messaging";
 import { getMessagingInstance } from "./firebaseService"; 
 
 // VAPID Key của bạn (giữ nguyên)
-const VAPID_KEY = "BEdIPBCogmSpUUQuFNI3v2SM_j5-9gGHpD1WVNMB8WB2e9Zo_EY9o5IOs-pKv8noSf7RVJ3q2ajShI3cFJrHENs"; 
+const VAPID_KEY = "BEbquJkOmEQNEhC5mOvCxcg9hpIR4fryuHqOCrIfABh_g5CixXo_Xiw_VS_pDn2OhaJRUT5nJ1EVAincHXI_QVM"; 
 
 export const requestForToken = async () => {
   try {
