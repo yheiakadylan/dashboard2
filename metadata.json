@@ -1,0 +1,5 @@
+{
+  "name": "Copy of DashboardVikcomltd",
+  "description": "A web-based dashboard to visualize and manage e-commerce sales, funds, and support cases by syncing data from various sources. It provides an overview, detailed order lists, platform-specific views, and a summary of key performance indicators.",
+  "requestFramePermissions": []
+}
