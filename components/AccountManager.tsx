@@ -95,7 +95,8 @@ const MailManager: React.FC = () => {
     timeZone,
     setRecords,
     setAccounts,
-    handleResyncAccount
+    handleResyncAccount,
+    handleQuickSync // Add new handler
   } = useDashboard();
 
   const { addNotification } = useNotification();
@@ -104,8 +105,6 @@ const MailManager: React.FC = () => {
   const [isAuthenticating, setIsAuthenticating] = useState<false | 'google' | 'microsoft'>(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [bulkUpdateState, setBulkUpdateState] = useState<{ accountId: string; current: number; total: number } | null>(null);
 
   useEffect(() => {
     setLocalAccounts(JSON.parse(JSON.stringify(accounts)));
@@ -212,57 +211,8 @@ const MailManager: React.FC = () => {
     }
   };
 
-  const handleBatchUpdate = async (account: Account) => {
-    const confirmFetch = window.confirm(`Update ALL historical order details for ${account.email}? This may take time.`);
-    if (!confirmFetch) return;
-
-    try {
-      setBulkUpdateState({ accountId: account.id, current: 0, total: 0 });
-      const allAccountRecords = await getAllRecordsForAccount(teamId, account.email);
-
-      const uniqueOrdersMap = new Map();
-      allAccountRecords.forEach(r => {
-        if (r.kind === 'order' && r.email_id) {
-          uniqueOrdersMap.set(r.email_id, r);
-        }
-      });
-      const accountOrders = Array.from(uniqueOrdersMap.values());
-
-      if (accountOrders.length === 0) {
-        addNotification(`No processable orders found for ${account.email}.`, "info");
-        setBulkUpdateState(null);
-        return;
-      }
-
-      addNotification(`Starting batch update for ${accountOrders.length} orders...`, "info");
-      setBulkUpdateState({ accountId: account.id, current: 0, total: accountOrders.length });
-
-      for (let i = 0; i < accountOrders.length; i++) {
-        const order = accountOrders[i] as Record;
-        try {
-          const updatedRecord = await reprocessRecord(teamId, account, order);
-          if (updatedRecord) {
-            setRecords(prev => {
-              const filtered = prev.filter(r => r.email_id !== order.email_id);
-              return [...filtered, updatedRecord];
-            });
-          } else {
-            setRecords(prev => prev.filter(r => r.email_id !== order.email_id));
-          }
-        } catch (e) {
-          console.error(`Failed to reprocess order ${order.order_id}:`, e);
-        }
-        setBulkUpdateState(prev => prev ? ({ ...prev, current: i + 1 }) : null);
-        await new Promise(r => setTimeout(r, 100)); // Slight delay
-      }
-
-      addNotification(`Batch update complete for ${account.email}.`, "success");
-    } catch (error) {
-      console.error("Error fetching/updating records:", error);
-      addNotification("An error occurred during batch update.", "error");
-    } finally {
-      setBulkUpdateState(null);
-    }
+  const handleQuickSyncClick = (account: Account) => {
+    handleQuickSync(account);
   };
 
   const handleDrop = () => {
@@ -294,8 +244,6 @@ const MailManager: React.FC = () => {
         <div className="space-y-2">
           {localAccounts.map((acc, index) => {
             const syncStatus = getAccountSyncStatus(acc);
-            const isUpdatingThis = bulkUpdateState && bulkUpdateState.accountId === acc.id;
-            const progressText = bulkUpdateState?.total === 0 ? 'Fetching...' : `${bulkUpdateState?.current} / ${bulkUpdateState?.total}`;
 
             return (
               <div
@@ -329,33 +277,19 @@ const MailManager: React.FC = () => {
                       {syncStatus.icon}
                       <span>{syncStatus.text}</span>
                     </div>
-
-                    {isUpdatingThis && (
-                      <div className="px-1 mt-1">
-                        <div className="w-full bg-gray-300 dark:bg-gray-600 rounded-full h-2 overflow-hidden">
-                          <div
-                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                            style={{ width: bulkUpdateState.total > 0 ? `${(bulkUpdateState.current / bulkUpdateState.total) * 100}%` : '0%' }}
-                          ></div>
-                        </div>
-                        <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5 text-right">{progressText}</p>
-                      </div>
-                    )}
                   </div>
                 </div>
 
                 <div className="flex items-center flex-shrink-0 gap-2">
                   <button
-                    onClick={() => handleBatchUpdate(acc)}
-                    disabled={!!bulkUpdateState}
-                    className="text-teal-600 dark:text-teal-400 hover:text-teal-500 dark:hover:text-teal-300 font-semibold px-3 py-1 rounded-md transition-colors text-sm disabled:opacity-50"
-                    title="Update Details (Re-parse)"
+                    onClick={() => handleQuickSyncClick(acc)}
+                    className="text-teal-600 dark:text-teal-400 hover:text-teal-500 dark:hover:text-teal-300 font-semibold px-3 py-1 rounded-md transition-colors text-sm"
+                    title="Sync data for the last 7 days"
                   >
-                    {isUpdatingThis ? 'Running...' : 'Update'}
+                    Sync 7 Days
                   </button>
                   <button
                     onClick={() => handleReSync(acc)}
-                    disabled={!!bulkUpdateState}
                     className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 font-semibold px-3 py-1 rounded-md transition-colors text-sm disabled:opacity-50"
                     title="Re-sync History"
                   >
@@ -363,7 +297,6 @@ const MailManager: React.FC = () => {
                   </button>
                   <button
                     onClick={() => handleDelete(acc.id)}
-                    disabled={!!bulkUpdateState}
                     className="text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 font-semibold px-3 py-1 rounded-md transition-colors text-sm disabled:opacity-50"
                   >
                     Delete

@@ -57,6 +57,7 @@ interface DashboardContextType {
   searchTerm: string;
   setSearchTerm: React.Dispatch<React.SetStateAction<string>>;
   handleResyncAccount: (account: Account) => Promise<void>;
+  handleQuickSync: (account: Account) => Promise<void>;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -271,7 +272,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       let currentExistingRecords = [...initialRecords];
       while (currentSyncEnd > finalSyncEnd) {
         const currentSyncStart = new Date(currentSyncEnd);
-        currentSyncStart.setDate(currentSyncStart.getDate() - 2);
+        currentSyncStart.setDate(currentSyncStart.getDate() - 7);
 
         const effectiveSyncStart = currentSyncStart < finalSyncEnd ? finalSyncEnd : currentSyncStart;
         const dateRange = { from: effectiveSyncStart.toISOString(), to: currentSyncEnd.toISOString() };
@@ -457,6 +458,39 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     addNotification(`Queued re-sync for ${account.email}. It will start soon.`, "info");
   };
 
+  const handleQuickSync = async (account: Account) => {
+    if (!user) return;
+
+    // Tính toán khoảng thời gian 7 ngày
+    const toDate = new Date();
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - 7);
+
+    const dateRange = {
+      from: fromDate.toISOString(),
+      to: toDate.toISOString()
+    };
+
+    // Đẩy vào hàng đợi để tránh treo máy nếu bấm nhiều lần
+    enqueueSyncTask(`Quick Sync 7 Days - ${account.email}`, async () => {
+      try {
+        setSyncState(`[Queue] Syncing last 7 days for ${account.email}...`);
+        
+        // Gọi runSync với overrideDateRange
+        await runSync([account], records, dateRange);
+        
+        addNotification(`Synced last 7 days for ${account.email} successfully.`, "success");
+      } catch (error: any) {
+        console.error("Quick sync error:", error);
+        addNotification(`Failed to sync ${account.email}: ${error.message}`, "error");
+      } finally {
+        setSyncState(null);
+      }
+    });
+
+    addNotification(`Queued 7-day sync for ${account.email}.`, "info");
+  };
+
   const handleSaveAccounts = async (updatedAccounts: Account[]) => {
     if (!user) return;
     setIsSavingAccounts(true);
@@ -598,7 +632,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     setManualCosts,
     searchTerm,
     setSearchTerm,
-    handleResyncAccount
+    handleResyncAccount,
+    handleQuickSync
   };
 
   return (

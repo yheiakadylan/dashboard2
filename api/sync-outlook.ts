@@ -150,7 +150,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Sync 2 ngày gần nhất để tránh bỏ sót
       const twoDaysAgo = new Date();
-      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+      twoDaysAgo.setDate(twoDaysAgo.getDate() - 7);
 
       const dateRange = {
         from: account.last_synced_at || twoDaysAgo.toISOString(),
