@@ -1,4 +1,3 @@
-
 // emailService.ts
 import { Account, Record } from '../api/_lib/types';
 import { Rule, RULES, parseMessage } from './rules';
@@ -11,16 +10,13 @@ import { updateAccountsInFirebase, deleteRecordsByEmailId, addRecord } from './f
 const urlSafeBase64Decode = (str: string): string => {
     if (!str) return "";
     try {
-        // đổi từ url-safe sang base64 chuẩn
         let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
         while (base64.length % 4) {
             base64 += '=';
         }
 
-        // nếu là browser → dùng atob
         if (typeof window !== 'undefined' && typeof window.atob === 'function') {
             const binary = window.atob(base64);
-            // chuyển binary -> utf8
             const bytes = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) {
                 bytes[i] = binary.charCodeAt(i);
@@ -29,14 +25,12 @@ const urlSafeBase64Decode = (str: string): string => {
             return decoder.decode(bytes);
         }
 
-        // nếu là node
         // @ts-ignore
         if (typeof Buffer !== 'undefined') {
             // @ts-ignore
             return Buffer.from(base64, 'base64').toString('utf-8');
         }
 
-        // fallback rất cũ
         return base64;
     } catch (e) {
         console.error("Base64 decode failed:", e, "Input:", str);
@@ -45,9 +39,6 @@ const urlSafeBase64Decode = (str: string): string => {
 };
 
 
-/**
- * Unwrap kiểu quoted-printable đơn giản giống Python
- */
 const qpSoftBreak = /=\r?\n/g;
 const qpUnwrapHtml = (s: string): string => {
     if (!s) return "";
@@ -56,9 +47,6 @@ const qpUnwrapHtml = (s: string): string => {
     return s;
 };
 
-/**
- * Unescape HTML đơn giản (Node)
- */
 const htmlUnescape = (s: string): string => {
     if (!s) return "";
     return s
@@ -70,9 +58,6 @@ const htmlUnescape = (s: string): string => {
         .replace(/&quot;/gi, '"');
 };
 
-/**
- * Strip HTML -> text giống bản Python
- */
 const stripHtmlToText = (htmlSrc: string): string => {
     if (!htmlSrc) return "";
     let txt = qpUnwrapHtml(htmlSrc);
@@ -86,13 +71,9 @@ const stripHtmlToText = (htmlSrc: string): string => {
     return txt.trim();
 };
 
-/**
- * LẤY HTML GỐC từ Gmail payload (giống _extract_html_from_payload bên Python)
- */
 const getHtmlFromGmailPayload = (payload: any): string => {
     if (!payload) return "";
 
-    // mail không multipart
     if (payload.body?.data && !payload.parts) {
         if ((payload.mimeType || '').toLowerCase() === 'text/html') {
             return urlSafeBase64Decode(payload.body.data);
@@ -100,7 +81,6 @@ const getHtmlFromGmailPayload = (payload: any): string => {
         return "";
     }
 
-    // multipart/*
     const stack = payload.parts ? [...payload.parts] : [];
     const htmlParts: string[] = [];
 
@@ -109,7 +89,6 @@ const getHtmlFromGmailPayload = (payload: any): string => {
         if (!part) continue;
 
         if (part.parts && part.parts.length) {
-            // multipart con
             stack.push(...part.parts);
             continue;
         }
@@ -127,15 +106,11 @@ const getHtmlFromGmailPayload = (payload: any): string => {
     return htmlParts.join('\n');
 };
 
-/**
- * LẤY PLAIN TEXT (cũ) — vẫn giữ để fallback
- */
 const getPlainTextFromGmailPayload = (payload: any): string => {
     if (!payload) return "";
     if (payload.body?.data && !payload.parts) {
         if (payload.mimeType === 'text/plain') return urlSafeBase64Decode(payload.body.data);
         if (payload.mimeType === 'text/html') {
-            // bản cũ: convert html -> text
             return stripHtmlToText(urlSafeBase64Decode(payload.body.data));
         }
         return "";
@@ -152,7 +127,6 @@ const getPlainTextFromGmailPayload = (payload: any): string => {
         }
     }
     if (plainText.trim()) return plainText.trim();
-    // fallback HTML
     const htmlPart = (payload.parts || []).find((p: any) => p.mimeType === 'text/html' && p.body?.data);
     if (htmlPart) {
         const htmlText = urlSafeBase64Decode(htmlPart.body.data);
@@ -161,10 +135,7 @@ const getPlainTextFromGmailPayload = (payload: any): string => {
     return "";
 };
 
-// Hàm helper để tạo authorized fetcher cho Gmail
 const createGmailFetcher = (account: Account) => {
-    // This promise helps prevent race conditions where multiple API calls
-    // might try to fetch a new token simultaneously.
     let currentTokenPromise: Promise<string> | null = null;
 
     const getFreshToken = (isRetry = false): Promise<string> => {
@@ -181,11 +152,8 @@ const createGmailFetcher = (account: Account) => {
 
             if (response.status === 401 && !isRetry) {
                 console.warn(`Gmail token may have expired for ${account.email}. Retrying with a fresh token.`);
-                // The next call will be a retry, forcing a new token fetch from the backend.
                 return authorizedFetch(url, true);
             }
-            // If the request succeeds or is a failed retry, clear the promise
-            // so the next non-retry request doesn't use a potentially stale token.
             if (response.ok || isRetry) {
                 currentTokenPromise = null;
             }
@@ -210,11 +178,14 @@ async function fetchGmailMessages(account: Account, rule: Rule, dateRange: { fro
     const query = `${rule.query} after:${fromTimestamp} before:${toTimestamp}`;
 
     let fetchedCount = 0;
-    const MAX_MESSAGES_TO_FETCH_PER_RULE = 2000;
+    // --- GIỚI HẠN ĐỘNG ---
+    // Nếu là help/case thì giới hạn 100 tin, còn lại 2000
+    const LIMIT = (rule.kind === 'help' || rule.kind === 'case') ? 100 : 2000;
 
     do {
-        if (fetchedCount >= MAX_MESSAGES_TO_FETCH_PER_RULE) {
-            console.warn(`Reached fetch limit (${MAX_MESSAGES_TO_FETCH_PER_RULE}) for rule "${rule.name}".`);
+        // Kiểm tra giới hạn trước khi gọi API list
+        if (fetchedCount >= LIMIT) {
+            console.warn(`Reached fetch limit (${LIMIT}) for rule "${rule.name}".`);
             break;
         }
 
@@ -235,7 +206,9 @@ async function fetchGmailMessages(account: Account, rule: Rule, dateRange: { fro
         if (messages.length === 0) break;
 
         for (const messageHeader of messages) {
-            if (fetchedCount >= MAX_MESSAGES_TO_FETCH_PER_RULE) break;
+            // Kiểm tra giới hạn trong vòng lặp
+            if (fetchedCount >= LIMIT) break;
+            
             try {
                 const msgUrl =
                     `https://www.googleapis.com/gmail/v1/users/me/messages/${messageHeader.id}` +
@@ -247,6 +220,9 @@ async function fetchGmailMessages(account: Account, rule: Rule, dateRange: { fro
                     continue;
                 }
                 const msgData = await msgResponse.json();
+
+                // --- QUAN TRỌNG: Tăng biến đếm ngay sau khi lấy được tin nhắn ---
+                fetchedCount++;
 
                 const subject =
                     msgData.payload?.headers?.find((h: any) => h.name.toLowerCase() === 'subject')?.value || '';
@@ -268,7 +244,7 @@ async function fetchGmailMessages(account: Account, rule: Rule, dateRange: { fro
                         email_id: msgData.id,
                         dt_local: new Date(parseInt(msgData.internalDate)).toISOString(),
                     });
-                    fetchedCount++;
+                    // KHÔNG tăng fetchedCount ở đây nữa
                 }
             } catch (e: any) {
                 if (e.message?.includes("Authentication failed")) throw e;
@@ -309,11 +285,13 @@ async function fetchOutlookMessages(account: Account, rule: Rule, dateRange: { f
         `https://graph.microsoft.com/v1.0/me/messages?$filter=${filter}&$select=id,receivedDateTime,subject,bodyPreview,body,from&$orderby=receivedDateTime desc&$top=100`;
 
     let fetchedCount = 0;
-    const MAX_MESSAGES_TO_FETCH_PER_RULE = 2000;
+    // --- GIỚI HẠN ĐỘNG ---
+    const LIMIT = (rule.kind === 'help' || rule.kind === 'case') ? 100 : 2000;
 
     while (url) {
-        if (fetchedCount >= MAX_MESSAGES_TO_FETCH_PER_RULE) {
-            console.warn(`Reached fetch limit for rule "${rule.name}" and account ${account.email}.`);
+        // Kiểm tra giới hạn trước khi gọi API list
+        if (fetchedCount >= LIMIT) {
+            console.warn(`Reached fetch limit (${LIMIT}) for rule "${rule.name}" and account ${account.email}.`);
             break;
         }
         const response = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
@@ -325,12 +303,14 @@ async function fetchOutlookMessages(account: Account, rule: Rule, dateRange: { f
         if (messages.length === 0) break;
 
         for (const message of messages) {
-            if (fetchedCount >= MAX_MESSAGES_TO_FETCH_PER_RULE) break;
+            // Kiểm tra giới hạn trong vòng lặp
+            if (fetchedCount >= LIMIT) break;
+            
+            // --- QUAN TRỌNG: Tăng biến đếm ngay lập tức ---
+            fetchedCount++;
+
             try {
-                // IMPORTANT: Use raw content (HTML) if available, otherwise fallback.
-                // Do NOT strip HTML here, as parsing rules might rely on HTML tags (e.g. Etsy).
                 const body = message.body?.content || '';
-                
                 const parsedData = parseMessage(rule, message.subject || '', message.bodyPreview || '', body);
                 if (parsedData) {
                     records.push({
@@ -338,7 +318,7 @@ async function fetchOutlookMessages(account: Account, rule: Rule, dateRange: { f
                         email_id: message.id,
                         dt_local: new Date(message.receivedDateTime).toISOString(),
                     });
-                    fetchedCount++;
+                    // KHÔNG tăng fetchedCount ở đây nữa
                 }
             } catch (e) {
                 console.error(`Failed to process Outlook message ${message.id}`, e);
@@ -350,7 +330,6 @@ async function fetchOutlookMessages(account: Account, rule: Rule, dateRange: { f
     return records;
 }
 
-// UPDATE: Hàm mới để kiểm tra sự tồn tại của email một cách nhanh chóng.
 export const checkEmailsExistInRange = async (account: Account, dateRange: { from: string, to: string }): Promise<boolean> => {
     for (const rule of RULES) {
         try {
@@ -399,14 +378,9 @@ export const checkEmailsExistInRange = async (account: Account, dateRange: { fro
             console.error(`Error checking emails for rule "${rule.name}" for ${account.email}:`, error);
         }
     }
-    return false; // Không tìm thấy email nào khớp với bất kỳ rule nào
+    return false;
 };
 
-/**
- * Sets up the Gmail webhook (watch) for a single account.
- * This should be called once on app load and once when a new account is added.
- */
-// FIX: Added teamId parameter to correctly call updateAccountsInFirebase which requires it.
 export const setupGmailWatch = async (teamId: string, account: Account): Promise<void> => {
     if (account.provider !== 'gmail') {
         return;
@@ -434,7 +408,6 @@ export const setupGmailWatch = async (teamId: string, account: Account): Promise
              const data = await watchResponse.json();
              const historyId = data.historyId;
              if (historyId) {
-                 // Save historyId to DB for webhook to use as a starting point
                  await updateAccountsInFirebase(teamId, [{ 
                      id: account.id, 
                      lastKnownHistoryId: historyId 
@@ -526,14 +499,13 @@ export const fetchAllRecords = async (
     return allRecords;
 };
 
-// --- New Function: Resync a single record ---
 export const reprocessRecord = async (teamId: string, account: Account, record: Record): Promise<Record | null> => {
     if (!record.email_id) throw new Error("Record has no email_id");
 
     let body = "";
     let subject = "";
     let snippet = "";
-    let internalDate = record.dt_local; // Fallback
+    let internalDate = record.dt_local;
 
     if (account.provider === 'gmail') {
         const authorizedFetch = createGmailFetcher(account);
@@ -547,7 +519,6 @@ export const reprocessRecord = async (teamId: string, account: Account, record: 
         const htmlBody = getHtmlFromGmailPayload(msgData.payload);
         const plainBody = getPlainTextFromGmailPayload(msgData.payload);
         body = htmlBody || plainBody || '';
-        // internalDate is ms string
         if (msgData.internalDate) internalDate = new Date(parseInt(msgData.internalDate)).toISOString();
 
     } else if (account.provider === 'outlook') {
@@ -559,22 +530,18 @@ export const reprocessRecord = async (teamId: string, account: Account, record: 
         
         subject = msgData.subject || '';
         snippet = msgData.bodyPreview || '';
-        // For re-processing, we prefer raw body to support rules like Etsy that parse HTML structure
         body = msgData.body?.content || '';
         
         if (msgData.receivedDateTime) internalDate = new Date(msgData.receivedDateTime).toISOString();
     }
 
-    // Re-parse
     let parsedData: Partial<Record> | null = null;
     
-    // Try specific rule first if known
     const sourceRule = RULES.find(r => r.name === record.source);
     if (sourceRule) {
         parsedData = parseMessage(sourceRule, subject, snippet, body);
     }
     
-    // If not found or failed, try all rules
     if (!parsedData) {
         for (const rule of RULES) {
             parsedData = parseMessage(rule, subject, snippet, body);
@@ -582,29 +549,22 @@ export const reprocessRecord = async (teamId: string, account: Account, record: 
         }
     }
 
-    // WIPE & REPLACE LOGIC
-    // 1. Luôn xóa TẤT CẢ record có cùng email_id (để dọn sạch rác/duplicate do lỗi cũ)
     await deleteRecordsByEmailId(teamId, record.email_id);
 
-    // 2. Nếu parse thành công, tạo lại 1 record chuẩn
     if (parsedData) {
         const newRecordData: Record = {
             ...record,
             ...parsedData,
-            dt_local: internalDate, // Update timestamp just in case
+            dt_local: internalDate, 
         };
         
-        // Ensure email_id is preserved, id is removed to allow generation of new one
         newRecordData.email_id = record.email_id;
         delete newRecordData.id;
 
-        // Add as new record
         const savedRecord = await addRecord(teamId, newRecordData);
         
         return savedRecord;
     }
 
-    // 3. Nếu parse thất bại (null), nghĩa là email này không còn hợp lệ (do rule chặt chẽ hơn).
-    // Ta đã xóa nó ở bước 1, nên chỉ cần trả về null.
     return null;
 };
