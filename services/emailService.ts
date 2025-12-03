@@ -210,7 +210,7 @@ async function fetchGmailMessages(account: Account, rule: Rule, dateRange: { fro
     const query = `${rule.query} after:${fromTimestamp} before:${toTimestamp}`;
 
     let fetchedCount = 0;
-    const MAX_MESSAGES_TO_FETCH_PER_RULE = 500;
+    const MAX_MESSAGES_TO_FETCH_PER_RULE = 2000;
 
     do {
         if (fetchedCount >= MAX_MESSAGES_TO_FETCH_PER_RULE) {
@@ -309,7 +309,7 @@ async function fetchOutlookMessages(account: Account, rule: Rule, dateRange: { f
         `https://graph.microsoft.com/v1.0/me/messages?$filter=${filter}&$select=id,receivedDateTime,subject,bodyPreview,body,from&$orderby=receivedDateTime desc&$top=100`;
 
     let fetchedCount = 0;
-    const MAX_MESSAGES_TO_FETCH_PER_RULE = 500;
+    const MAX_MESSAGES_TO_FETCH_PER_RULE = 2000;
 
     while (url) {
         if (fetchedCount >= MAX_MESSAGES_TO_FETCH_PER_RULE) {
