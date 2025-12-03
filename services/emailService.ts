@@ -427,9 +427,11 @@ export const fetchAllRecords = async (
     let allRecords: Record[] = [];
     setStatus(`Starting sync for ${accounts.length} account(s)...`);
 
-    const results = await Promise.allSettled(accounts.map(async (account) => {
-        let accountRecords: Record[] = [];
+    let totalFetched = 0;
 
+    // --- SỬA ĐỔI: Dùng vòng lặp for...of để chạy TUẦN TỰ từng account ---
+    for (const account of accounts) {
+        let accountRecords: Record[] = [];
         let syncFromDate: string;
         const syncRunToDate = overrideDateRange?.to || new Date().toISOString();
 
@@ -437,7 +439,7 @@ export const fetchAllRecords = async (
             syncFromDate = overrideDateRange.from;
         } else if (account.last_synced_at) {
             syncFromDate = account.last_synced_at;
-            setStatus(`[${account.email}] Syncing new data since ${new Date(syncFromDate).toLocaleString()}...`);
+            setStatus(`[${account.email}] Syncing new data...`);
         } else {
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -447,15 +449,17 @@ export const fetchAllRecords = async (
 
         const accountDateRange = { from: syncFromDate, to: syncRunToDate };
 
-        for (const rule of RULES) {
-            try {
-                setStatus(`[${account.email}] Applying rule: ${rule.name}...`);
+        try {
+            for (const rule of RULES) {
+                // setStatus(`[${account.email}] Rule: ${rule.name}...`); // Có thể comment bớt để đỡ giật UI
                 let fetchedRecords: Partial<Record>[] = [];
+                
                 if (account.provider === 'gmail') {
                     fetchedRecords = await fetchGmailMessages(account, rule, accountDateRange);
                 } else if (account.provider === 'outlook') {
                     fetchedRecords = await fetchOutlookMessages(account, rule, accountDateRange);
                 }
+
                 const completeRecords = fetchedRecords.map(r => ({
                     ...(r as Partial<Record>),
                     account: account.email,
@@ -467,35 +471,28 @@ export const fetchAllRecords = async (
                     dt_local: r.dt_local || new Date().toISOString(),
                     email_id: r.email_id ?? undefined,
                 } as Record));
+                
                 accountRecords.push(...completeRecords);
-                await new Promise(resolve => setTimeout(resolve, 200));
-            } catch (error: any) {
-                const errorMsg = error.message || "Unknown error";
-                setStatus(`ERROR on rule "${rule.name}" for ${account.email}: ${errorMsg.substring(0, 100)}...`);
-                if (errorMsg.includes("Authentication failed")) {
-                    throw new Error(`Authentication failed for ${account.email}. Please re-authenticate.`);
-                }
-                await new Promise(resolve => setTimeout(resolve, 500));
+                // Nghỉ 1 chút giữa các rule của cùng 1 account
+                await new Promise(resolve => setTimeout(resolve, 100)); 
             }
-        }
-        return accountRecords;
-    }));
+            
+            // Xử lý xong 1 account, đẩy vào danh sách tổng
+            allRecords.push(...accountRecords);
+            totalFetched += accountRecords.length;
 
-    let totalFetched = 0;
-    results.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-            allRecords.push(...result.value);
-            totalFetched += result.value.length;
-        } else {
-            const accountEmail = accounts[index]?.email || 'unknown account';
-            const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
-            setStatus(`Failed to process account ${accountEmail}: ${reason}`);
-            console.error(`Failed to process account ${accountEmail}:`, result.reason);
+        } catch (error: any) {
+            const errorMsg = error.message || "Unknown error";
+            setStatus(`Failed [${account.email}]: ${errorMsg.substring(0, 50)}...`);
+            console.error(`Failed to process account ${account.email}:`, error);
         }
-    });
+        
+        // --- QUAN TRỌNG: Nghỉ 500ms trước khi qua account tiếp theo để trình duyệt thở ---
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
 
     allRecords.sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
-    setStatus(`Sync process finished. Total valid records fetched: ${totalFetched}.`);
+    setStatus(`Sync process finished. Total: ${totalFetched}.`);
     return allRecords;
 };
 

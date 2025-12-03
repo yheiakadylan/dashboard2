@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext, ReactNode } from 'react';
 import { signOut, type User } from 'firebase/auth';
 import { Record, Account, Tab, ProcessedData, CostData } from '../api/_lib/types';
@@ -114,6 +113,22 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const todayISO = todayInTimezone.toISOString().split('T')[0];
     return { from: todayISO, to: todayISO };
   });
+
+  // 1. THÊM: Tạo ref để lưu hàng đợi promise
+  const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  // 2. THÊM: Hàm helper để đẩy tác vụ vào hàng đợi
+  const enqueueSyncTask = (taskName: string, task: () => Promise<void>) => {
+    // Nối tiếp promise hiện tại với task mới
+    syncQueueRef.current = syncQueueRef.current
+      .then(async () => {
+        console.log(`Starting queued task: ${taskName}`);
+        await task();
+      })
+      .catch((err) => {
+        console.error(`Error in queued task ${taskName}:`, err);
+      });
+  };
 
   useEffect(() => { localStorage.setItem('activeTab', activeTab); }, [activeTab]);
   useEffect(() => { localStorage.setItem('timeZone', timeZone); }, [timeZone]);
@@ -399,33 +414,49 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setSyncState(null);
     });
   };
+
   const handleResyncAccount = async (account: Account) => {
     if (!user) return;
 
-    // A. Reset trạng thái trên Firebase
-    const resetData = {
-      id: account.id,
-      historical_sync_complete: false,
-      history_synced_until: null,
-      last_synced_at: null,
-      scan_start_date: null // Reset cả ngày bắt đầu quét để dò lại từ đầu
-    };
+    // Đẩy việc re-sync vào hàng đợi thay vì chạy ngay lập tức (await trực tiếp)
+    enqueueSyncTask(`Resync ${account.email}`, async () => {
+        const resetData = {
+          id: account.id,
+          historical_sync_complete: false,
+          history_synced_until: null,
+          last_synced_at: null,
+          scan_start_date: null 
+        };
 
-    try {
-      setSyncState(`Resetting ${account.email}...`);
-      await updateAccountsInFirebase(teamId, [resetData]);
-      const updatedAccount = { ...account, ...resetData } as Account; // Ép kiểu để TS không báo lỗi null
-      setAllAccounts(prev => prev.map(a => a.id === account.id ? updatedAccount : a));
-      setSyncState(`Starting re-sync for ${account.email}...`);
-      const initialRecords = await runSync([updatedAccount], records);
-      runHistoricalSync([updatedAccount], [...records, ...initialRecords]);
-      addNotification(`Re-sync started for ${account.email}`, "success");
-    } catch (error: any) {
-      console.error("Resync error:", error);
-      addNotification("Failed to start re-sync.", "error");
-      setSyncState(null);
-    }
+        try {
+          setSyncState(`[Queue] Resetting ${account.email}...`);
+          await updateAccountsInFirebase(teamId, [resetData]);
+          const updatedAccount = { ...account, ...resetData } as Account; 
+          
+          // Cập nhật state local ngay để UI hiển thị spinner
+          setAllAccounts(prev => prev.map(a => a.id === account.id ? updatedAccount : a));
+          
+          setSyncState(`[Queue] Starting re-sync for ${account.email}...`);
+          
+          // Chạy sync (đã được bọc trong queue nên an toàn)
+          const initialRecords = await runSync([updatedAccount], records);
+          
+          // Chạy historical sync (cũng nằm trong luồng tuần tự này)
+          await runHistoricalSync([updatedAccount], [...records, ...initialRecords]);
+          
+          addNotification(`Re-sync finished for ${account.email}`, "success");
+        } catch (error: any) {
+          console.error("Resync error:", error);
+          addNotification(`Failed to re-sync ${account.email}`, "error");
+        } finally {
+            setSyncState(null);
+        }
+    });
+    
+    // Thông báo cho user biết là đã tiếp nhận lệnh
+    addNotification(`Queued re-sync for ${account.email}. It will start soon.`, "info");
   };
+
   const handleSaveAccounts = async (updatedAccounts: Account[]) => {
     if (!user) return;
     setIsSavingAccounts(true);
@@ -515,57 +546,42 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           ffCode.includes(lowerTerm);
       });
     }
-
     return baseFiltered;
-  }, [records, selectedAccountId, visibleAccounts, searchTerm]);
+  }, [records, visibleAccounts, selectedAccountId, searchTerm]);
 
-  const previousFilteredRecords = useMemo(() => {
-    if (!previousPeriodRecords) return null;
-    const allowedEmails = new Set(visibleAccounts.map(a => a.email));
-    let baseFiltered = previousPeriodRecords.filter(record => allowedEmails.has(record.account));
+  const processedData = useMemo(() => {
+    return processData(
+      filteredRecords,
+      previousPeriodRecords,
+      visibleAccounts,
+      filterDateRange,
+      timeZone,
+      role,
+      permissions,
+      manualCosts
+    );
+  }, [filteredRecords, previousPeriodRecords, visibleAccounts, filterDateRange, timeZone, role, permissions, manualCosts]);
 
-    if (selectedAccountId !== 'all') {
-      baseFiltered = baseFiltered.filter(record => record.account === selectedAccountId);
-    }
-
-    if (searchTerm.trim()) {
-      const lowerTerm = searchTerm.toLowerCase();
-      baseFiltered = baseFiltered.filter(r => {
-        const oid = (r.order_id || '').toLowerCase();
-        const custName = (r.details?.customerName || '').toLowerCase();
-        const custEmail = (r.details?.customerEmail || '').toLowerCase();
-        const prodName = (r.product_name || r.details?.items?.[0]?.name || '').toLowerCase();
-        const ffCode = (r.ff_code || '').toLowerCase();
-
-        return oid.includes(lowerTerm) ||
-          custName.includes(lowerTerm) ||
-          custEmail.includes(lowerTerm) ||
-          prodName.includes(lowerTerm) ||
-          ffCode.includes(lowerTerm);
-      });
-    }
-
-    return baseFiltered;
-  }, [previousPeriodRecords, selectedAccountId, visibleAccounts, searchTerm]);
-
-  const processedData: ProcessedData = useMemo(() => processData(filteredRecords, previousFilteredRecords, visibleAccounts, filterDateRange, timeZone, role, permissions, manualCosts), [filteredRecords, previousFilteredRecords, visibleAccounts, filterDateRange, timeZone, role, permissions, manualCosts]);
-
-  const value: DashboardContextType = {
-    user,
-    teamId,
-    accounts: visibleAccounts,
+  const value = {
+    accounts: allAccounts,
     setAccounts: setAllAccounts,
-    records, setRecords,
-    activeTab, setActiveTab,
-    selectedAccountId, setSelectedAccountId,
-    filterDateRange, setFilterDateRange,
+    records: filteredRecords,
+    setRecords,
+    activeTab,
+    setActiveTab,
+    selectedAccountId,
+    setSelectedAccountId,
+    filterDateRange,
+    setFilterDateRange,
     isLoading,
     isSyncing,
     isFetchingNewRange,
     isSavingAccounts,
-    syncState, // Exposed for Header
-    isAccountManagerOpen, setIsAccountManagerOpen,
-    dayFilter, setDayFilter,
+    syncState,
+    isAccountManagerOpen,
+    setIsAccountManagerOpen,
+    dayFilter,
+    setDayFilter,
     processedData,
     handleSaveAccounts,
     handleSyncClick,
@@ -574,21 +590,27 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     handleViewDayDetails,
     timeZone,
     setTimeZone,
+    user,
+    teamId,
     role,
     permissions,
     manualCosts,
     setManualCosts,
     searchTerm,
     setSearchTerm,
-    handleResyncAccount,
+    handleResyncAccount
   };
 
-  return <DashboardContext.Provider value={value}>{children}</DashboardContext.Provider>;
+  return (
+    <DashboardContext.Provider value={value}>
+      {children}
+    </DashboardContext.Provider>
+  );
 };
 
 export const useDashboard = () => {
   const context = useContext(DashboardContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useDashboard must be used within a DashboardProvider');
   }
   return context;
