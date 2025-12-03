@@ -78,7 +78,7 @@ export const RULES: Rule[] = [
   {
     name: "Etsy_Case",
     kind: "case",
-    query: 'subject:"opened a case for Order #"', // để Gmail tìm được
+    query: 'subject:"opened a case for Order "', // để Gmail tìm được
     // Debbie opened a case for Order #3791747494
     amountOrderRe: new RegExp(
       `^(?<cust>.+?)\\s+opened\\s+a\\s+case\\s+for\\s+Order\\s*#(?<oid>\\d+)\\b`,
