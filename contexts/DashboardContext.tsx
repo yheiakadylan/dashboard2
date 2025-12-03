@@ -255,20 +255,28 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       }
       let currentExistingRecords = [...initialRecords];
       while (currentSyncEnd > finalSyncEnd) {
-        const currentSyncStart = new Date(currentSyncEnd); currentSyncStart.setDate(currentSyncStart.getDate() - 7);
+        const currentSyncStart = new Date(currentSyncEnd);
+        currentSyncStart.setDate(currentSyncStart.getDate() - 2);
+
         const effectiveSyncStart = currentSyncStart < finalSyncEnd ? finalSyncEnd : currentSyncStart;
         const dateRange = { from: effectiveSyncStart.toISOString(), to: currentSyncEnd.toISOString() };
 
         setSyncState(`[${account.email}] History: ${effectiveSyncStart.toLocaleDateString()} - ${currentSyncEnd.toLocaleDateString()}`);
 
         try {
+          // Hàm này sẽ gọi saveRecordsToFirebase ngay sau khi fetch xong 
           const fetchedChunk = await runSync([account], currentExistingRecords, dateRange);
+
           if (fetchedChunk.length > 0) currentExistingRecords.push(...fetchedChunk);
+
           const newSyncedUntil = effectiveSyncStart.toISOString();
           const accountUpdate = { id: account.id, history_synced_until: newSyncedUntil };
           await updateAccountsInFirebase(teamId, [accountUpdate]);
+
           setAllAccounts(prevAccounts => prevAccounts.map(acc => acc.id === account.id ? { ...acc, history_synced_until: newSyncedUntil } : acc));
           currentSyncEnd = effectiveSyncStart;
+          // -Cho trình duyệt nghỉ 1 chút để không bị treo UI ---
+          await new Promise(resolve => setTimeout(resolve, 500));
         } catch (chunkError: any) {
           console.error(`Error syncing history chunk for ${account.email}`, chunkError);
           addNotification(`[${account.email}] History sync paused: ${chunkError.message}`, "error");
@@ -519,7 +527,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     if (selectedAccountId !== 'all') {
       baseFiltered = baseFiltered.filter(record => record.account === selectedAccountId);
     }
-    
+
     if (searchTerm.trim()) {
       const lowerTerm = searchTerm.toLowerCase();
       baseFiltered = baseFiltered.filter(r => {
