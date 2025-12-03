@@ -140,7 +140,7 @@ const createGmailFetcher = (account: Account) => {
 
     const getFreshToken = (isRetry = false): Promise<string> => {
         if (!currentTokenPromise || isRetry) {
-             currentTokenPromise = getGoogleAccessToken(account, { forceRefresh: isRetry });
+            currentTokenPromise = getGoogleAccessToken(account, { forceRefresh: isRetry });
         }
         return currentTokenPromise;
     };
@@ -208,7 +208,7 @@ async function fetchGmailMessages(account: Account, rule: Rule, dateRange: { fro
         for (const messageHeader of messages) {
             // Kiểm tra giới hạn trong vòng lặp
             if (fetchedCount >= LIMIT) break;
-            
+
             try {
                 const msgUrl =
                     `https://www.googleapis.com/gmail/v1/users/me/messages/${messageHeader.id}` +
@@ -282,7 +282,7 @@ async function fetchOutlookMessages(account: Account, rule: Rule, dateRange: { f
     const filter = filterParts.join(' and ');
 
     let url: string | undefined =
-        `https://graph.microsoft.com/v1.0/me/messages?$filter=${filter}&$select=id,receivedDateTime,subject,bodyPreview,body,from&$orderby=receivedDateTime desc&$top=100`;
+        `https://graph.microsoft.com/v1.0/me/messages?$filter=${encodeURIComponent(filter)}&$select=id,receivedDateTime,subject,bodyPreview,body,from&$orderby=receivedDateTime desc&$top=100`;
 
     let fetchedCount = 0;
     // --- GIỚI HẠN ĐỘNG ---
@@ -305,7 +305,7 @@ async function fetchOutlookMessages(account: Account, rule: Rule, dateRange: { f
         for (const message of messages) {
             // Kiểm tra giới hạn trong vòng lặp
             if (fetchedCount >= LIMIT) break;
-            
+
             // --- QUAN TRỌNG: Tăng biến đếm ngay lập tức ---
             fetchedCount++;
 
@@ -338,11 +338,11 @@ export const checkEmailsExistInRange = async (account: Account, dateRange: { fro
                 const fromTimestamp = Math.floor(new Date(dateRange.from).getTime() / 1000);
                 const toTimestamp = Math.floor(new Date(dateRange.to).getTime() / 1000);
                 const query = `${rule.query} after:${fromTimestamp} before:${toTimestamp}`;
-                
+
                 const listUrl = new URL('https://www.googleapis.com/gmail/v1/users/me/messages');
                 listUrl.searchParams.append('q', query);
                 listUrl.searchParams.append('maxResults', '1'); // Chỉ cần 1 mail là đủ
-                
+
                 const listResponse = await authorizedFetch(listUrl.toString());
                 if (listResponse.ok) {
                     const listData = await listResponse.json();
@@ -362,10 +362,9 @@ export const checkEmailsExistInRange = async (account: Account, dateRange: { fro
                 if (subjectQuery) filterParts.push(`contains(subject, '${subjectQuery.replace(/'/g, "''")}')`);
                 const fromQueryMatch = rule.query.match(/from:([\w@.-]+)/i);
                 if (fromQueryMatch?.[1]) filterParts.push(`startsWith(from/emailAddress/address, '${fromQueryMatch[1]}')`);
-                
+
                 const filter = filterParts.join(' and ');
-                const url = `https://graph.microsoft.com/v1.0/me/messages?$filter=${filter}&$select=id&$top=1`;
-                
+                const url = `https://graph.microsoft.com/v1.0/me/messages?$filter=${encodeURIComponent(filter)}&$select=id&$top=1`;
                 const response = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
                 if (response.ok) {
                     const data = await response.json();
@@ -387,7 +386,7 @@ export const setupGmailWatch = async (teamId: string, account: Account): Promise
     }
     try {
         const accessToken = await getGoogleAccessToken(account);
-        
+
         const watchResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/watch', {
             method: 'POST',
             headers: {
@@ -402,17 +401,17 @@ export const setupGmailWatch = async (teamId: string, account: Account): Promise
         });
 
         if (!watchResponse.ok) {
-             const errorData = await watchResponse.json();
-             console.error(`Failed to set .watch() for ${account.email}:`, errorData);
+            const errorData = await watchResponse.json();
+            console.error(`Failed to set .watch() for ${account.email}:`, errorData);
         } else {
-             const data = await watchResponse.json();
-             const historyId = data.historyId;
-             if (historyId) {
-                 await updateAccountsInFirebase(teamId, [{ 
-                     id: account.id, 
-                     lastKnownHistoryId: historyId 
-                 }]);
-             }
+            const data = await watchResponse.json();
+            const historyId = data.historyId;
+            if (historyId) {
+                await updateAccountsInFirebase(teamId, [{
+                    id: account.id,
+                    lastKnownHistoryId: historyId
+                }]);
+            }
         }
     } catch (watchError) {
         console.error(`An exception occurred while setting .watch() for ${account.email}:`, watchError);
@@ -453,7 +452,7 @@ export const fetchAllRecords = async (
             for (const rule of RULES) {
                 // setStatus(`[${account.email}] Rule: ${rule.name}...`); // Có thể comment bớt để đỡ giật UI
                 let fetchedRecords: Partial<Record>[] = [];
-                
+
                 if (account.provider === 'gmail') {
                     fetchedRecords = await fetchGmailMessages(account, rule, accountDateRange);
                 } else if (account.provider === 'outlook') {
@@ -471,12 +470,12 @@ export const fetchAllRecords = async (
                     dt_local: r.dt_local || new Date().toISOString(),
                     email_id: r.email_id ?? undefined,
                 } as Record));
-                
+
                 accountRecords.push(...completeRecords);
                 // Nghỉ 1 chút giữa các rule của cùng 1 account
-                await new Promise(resolve => setTimeout(resolve, 100)); 
+                await new Promise(resolve => setTimeout(resolve, 100));
             }
-            
+
             // Xử lý xong 1 account, đẩy vào danh sách tổng
             allRecords.push(...accountRecords);
             totalFetched += accountRecords.length;
@@ -486,7 +485,7 @@ export const fetchAllRecords = async (
             setStatus(`Failed [${account.email}]: ${errorMsg.substring(0, 50)}...`);
             console.error(`Failed to process account ${account.email}:`, error);
         }
-        
+
         // --- QUAN TRỌNG: Nghỉ 500ms trước khi qua account tiếp theo để trình duyệt thở ---
         await new Promise(resolve => setTimeout(resolve, 500));
     }
@@ -510,7 +509,7 @@ export const reprocessRecord = async (teamId: string, account: Account, record: 
         const res = await authorizedFetch(msgUrl);
         if (!res.ok) throw new Error(`Gmail API error: ${res.statusText}`);
         const msgData = await res.json();
-        
+
         subject = msgData.payload?.headers?.find((h: any) => h.name.toLowerCase() === 'subject')?.value || '';
         snippet = msgData.snippet || '';
         const htmlBody = getHtmlFromGmailPayload(msgData.payload);
@@ -524,21 +523,21 @@ export const reprocessRecord = async (teamId: string, account: Account, record: 
         const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) throw new Error(`Outlook API error: ${res.statusText}`);
         const msgData = await res.json();
-        
+
         subject = msgData.subject || '';
         snippet = msgData.bodyPreview || '';
         body = msgData.body?.content || '';
-        
+
         if (msgData.receivedDateTime) internalDate = new Date(msgData.receivedDateTime).toISOString();
     }
 
     let parsedData: Partial<Record> | null = null;
-    
+
     const sourceRule = RULES.find(r => r.name === record.source);
     if (sourceRule) {
         parsedData = parseMessage(sourceRule, subject, snippet, body);
     }
-    
+
     if (!parsedData) {
         for (const rule of RULES) {
             parsedData = parseMessage(rule, subject, snippet, body);
@@ -552,14 +551,14 @@ export const reprocessRecord = async (teamId: string, account: Account, record: 
         const newRecordData: Record = {
             ...record,
             ...parsedData,
-            dt_local: internalDate, 
+            dt_local: internalDate,
         };
-        
+
         newRecordData.email_id = record.email_id;
         delete newRecordData.id;
 
         const savedRecord = await addRecord(teamId, newRecordData);
-        
+
         return savedRecord;
     }
 

@@ -65,7 +65,7 @@ async function fetchMessagesForAccount(account: Account, accessToken: string, da
 
     const filter = filterParts.join(' and ');
     let url: string | undefined =
-      `https://graph.microsoft.com/v1.0/me/messages?$filter=${filter}&$select=id,receivedDateTime,subject,bodyPreview,body,from&$orderby=receivedDateTime desc&$top=100`;
+      `https://graph.microsoft.com/v1.0/me/messages?$filter=${encodeURIComponent(filter)}&$select=id,receivedDateTime,subject,bodyPreview,body,from&$orderby=receivedDateTime desc&$top=100`;
 
     while (url) {
       try {
