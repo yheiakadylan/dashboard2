@@ -1,0 +1,16 @@
+name: Trigger Outlook Sync
+
+on:
+  schedule:
+    # Chạy mỗi 30 phút (bạn có thể chỉnh thành 15 hoặc 10)
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Cho phép bấm nút chạy tay để test
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Vercel API
+        run: |
+          curl -X POST https://YOUR-APP-URL.vercel.app/api/sync-outlook \
+          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
