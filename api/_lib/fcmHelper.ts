@@ -37,13 +37,21 @@ export const sendPushNotificationToUsers = async (
   // Deduplicate tokens
   const uniqueTokens = [...new Set(tokensToSend)];
 
-  // --- SỬA ĐỔI QUAN TRỌNG: Dùng Data-Only Message ---
-  // Bỏ key 'notification' để tránh trình duyệt tự hiển thị
+  // --- CẤU HÌNH CHUẨN ĐỂ TRÁNH LỖI X2 VÀ MẤT TIN ---
   const message = {
-    data: {
+    // 1. Dùng 'notification' để đảm bảo iOS/Android hiển thị ngay lập tức
+    notification: {
       title: payload.title,
       body: payload.body,
-      url: payload.url || '/',
+    },
+    // 2. Dùng 'webpush.fcm_options.link' để FCM tự xử lý click (không cần code SW)
+    webpush: {
+      fcm_options: {
+        link: payload.url || '/'
+      }
+    },
+    // 3. Data phụ (nếu cần dùng trong app khi mở lên)
+    data: {
       type: notificationType
     },
     tokens: uniqueTokens,
