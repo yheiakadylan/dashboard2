@@ -2,10 +2,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getDb } from './_lib/firebaseAdminHelper.js';
 import { MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET } from './_lib/microsoftConfig.js';
-import { stripHtmlToText } from './_lib/gmailHelper.js'; // Dùng chung hàm strip HTML
 import { SHARED_USER_ID } from '../constants.js';
 import { RULES, parseMessage } from '../services/rules.js';
 import type { Account, Record } from './_lib/types.js';
+import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 
 // --- Helpers ---
 /*
@@ -101,7 +101,6 @@ async function fetchMessagesForAccount(account: Account, accessToken: string, da
       }
     }
   }
-  console.log(`[sync-outlook] Found ${records.length} new records for ${account.email}`);
   return records;
 }
 
@@ -135,7 +134,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (snapshot.empty) {
       return res.status(200).json({ message: 'No Outlook accounts configured.' });
     }
+    
+    // Map account để lấy thông tin (Label/Tên Shop)
     const outlookAccounts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Account));
+    // Tạo Map: Email -> Tên Shop (Label)
+    const accountLabelMap = new Map(outlookAccounts.map(acc => [acc.email, acc.label || acc.email]));
+
     console.log(`[sync-outlook] Found ${outlookAccounts.length} Outlook account(s) to sync.`);
 
     let allNewRecords: (Partial<Record> & { account: string; source: string; })[] = [];
@@ -188,6 +192,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (totalNewRecords > 0) {
         const batch = db.batch();
         const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
+        
+        // --- CHUẨN BỊ THÔNG BÁO ---
+        const notificationEvents: { type: 'order' | 'funds', text: string }[] = [];
+
         recordsToAdd.forEach(record => {
           const docRef = record.email_id
             ? recordsRef.doc(record.email_id)
@@ -195,6 +203,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           // Xóa id ảo nếu có trong object record
           const { id, ...recordData } = record as any;
           batch.set(docRef, recordData);
+
+          // --- TẠO NỘI DUNG THÔNG BÁO ---
+          // Lấy tên Shop từ Map
+          const shopName = accountLabelMap.get(record.account) || record.account;
+
+          if (record.kind === 'order') {
+            notificationEvents.push({
+              type: 'order',
+              text: `New Order: ${record.order_id || 'Unknown'} - $${record.amount} (${shopName})`
+            });
+          } else if (record.kind === 'Funds') {
+            notificationEvents.push({
+              type: 'funds',
+              text: `Funds Received: $${record.amount} ${record.currency} (${shopName})`
+            });
+          }
         });
 
         // Cập nhật last_synced_at cho các tài khoản đã sync
@@ -204,6 +228,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
 
         await batch.commit();
+
+        // --- GỬI THÔNG BÁO PUSH (SAU KHI LƯU DB THÀNH CÔNG) ---
+        if (notificationEvents.length > 0) {
+          const orders = notificationEvents.filter(e => e.type === 'order');
+          const funds = notificationEvents.filter(e => e.type === 'funds');
+
+          // Gửi thông báo Order
+          if (orders.length > 0) {
+             if (orders.length === 1) {
+                // Nếu chỉ có 1 đơn, hiện chi tiết
+                await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                    title: 'New Order',
+                    body: orders[0].text
+                });
+             } else {
+                // Nếu có nhiều đơn, hiện tổng quan
+                await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                    title: 'New Orders',
+                    body: `You have ${orders.length} new orders from Outlook sync.`
+                });
+             }
+          }
+          
+          // Gửi thông báo Funds
+          if (funds.length > 0) {
+             if (funds.length === 1) {
+                await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
+                    title: 'Funds Received',
+                    body: funds[0].text
+                });
+             } else {
+                await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
+                    title: 'New Funds',
+                    body: `You have ${funds.length} new payout updates.`
+                });
+             }
+          }
+        }
       }
     }
 
