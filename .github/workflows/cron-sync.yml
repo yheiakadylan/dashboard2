@@ -12,5 +12,7 @@ jobs:
     steps:
       - name: Call Vercel API
         run: |
-          curl -X POST https://dashboardvikcom.vercel.app/api/sync-outlook \
+          # Thêm cờ -v để hiện chi tiết request/response
+          # Thêm cờ --fail để GitHub báo đỏ ❌ nếu HTTP code >= 400
+          curl -v --fail -X POST https://dashboardvikcom.vercel.app/api/sync-outlook \
           -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
