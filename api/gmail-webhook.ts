@@ -1,4 +1,3 @@
-// File: api/gmail-webhook.ts
 import { Buffer } from 'buffer';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getDb } from './_lib/firebaseAdminHelper.js';
@@ -6,7 +5,7 @@ import { getAccessTokenFromRefreshToken } from './_lib/googleAuthHelper.js';
 import { parseMessage, RULES } from '../services/rules.js';
 import { getHtmlFromGmailPayload, getPlainTextFromGmailPayload } from './_lib/gmailHelper.js';
 import { SHARED_USER_ID } from '../constants.js';
-import { sendPushNotificationToUsers } from './_lib/fcmHelper.js'; // <-- Import
+import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -36,6 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).send('Missing emailAddress or historyId');
     }
 
+    // 1. Lấy thông tin Account để biết Label (Tên Shop)
     const accountsRef = db.collection('user').doc(SHARED_USER_ID).collection('accounts');
     const accountSnapshot = await accountsRef.where('email', '==', userEmail).limit(1).get();
 
@@ -44,10 +44,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const accountDoc = accountSnapshot.docs[0];
-    const account = accountDoc.data();
-    const effectiveUserId = (account.userId || account.ownerUserId || SHARED_USER_ID).trim();
-    const refreshToken = account.token;
-    const lastKnownHistoryId = account.lastKnownHistoryId;
+    const accountData = accountDoc.data();
+    
+    // --- LẤY TÊN SHOP ---
+    const shopName = accountData.label || userEmail;
+    // --------------------
+
+    const effectiveUserId = (accountData.userId || accountData.ownerUserId || SHARED_USER_ID).trim();
+    const refreshToken = accountData.token;
+    const lastKnownHistoryId = accountData.lastKnownHistoryId;
 
     if (!lastKnownHistoryId) {
       await accountDoc.ref.update({ lastKnownHistoryId: newHistoryId });
@@ -112,16 +117,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               };
               newRecords.push(newRecord);
 
-              // Prepare Notification Logic
+              // 2. Tạo nội dung thông báo với Shop Name
               if (newRecord.kind === 'order') {
                 notificationEvents.push({
                   type: 'order',
-                  text: `New Order: ${newRecord.order_id || 'Unknown'} - $${newRecord.amount} (${userEmail})`
+                  text: `New Order: ${newRecord.order_id || 'Unknown'} - $${newRecord.amount} (${shopName})`
                 });
               } else if (newRecord.kind === 'Funds') {
                 notificationEvents.push({
                   type: 'funds',
-                  text: `Funds Received: $${newRecord.amount} ${newRecord.currency} (${userEmail})`
+                  text: `Funds Received: $${newRecord.amount} ${newRecord.currency} (${shopName})`
                 });
               }
               break;
@@ -131,51 +136,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    const batch = db.batch();
+    // Lưu vào DB (logic cũ giữ nguyên)
     const recordsCollection = db.collection('user').doc(effectiveUserId).collection('records');
+    const batch = db.batch();
 
     if (newRecords.length > 0) {
-      const recordsCollection = db.collection('user').doc(effectiveUserId).collection('records');
-      const batch = db.batch();
-
-      // --- LOGIC MỚI: Dùng email_id làm Document ID ---
-      // Không cần query kiểm tra 'existingIds' nữa vì Firestore sẽ tự handle việc ghi đè
-
       let saveCount = 0;
       for (const record of newRecords) {
-        // Nếu có email_id, dùng nó làm tên Document. Nếu không (hiếm), dùng Auto-ID.
         const docRef = record.email_id
           ? recordsCollection.doc(record.email_id)
           : recordsCollection.doc();
-
-        // Xóa trường id bên trong data để tránh lưu dư thừa (vì ID đã nằm ở tên Document rồi)
         const { id, ...recordData } = record;
-
-        // Dùng set với { merge: true } để an toàn, hoặc set ghi đè hoàn toàn đều được
         batch.set(docRef, recordData);
         saveCount++;
       }
-
       if (saveCount > 0) {
         await batch.commit();
-        console.log(`[Webhook] Processed ${saveCount} records using Email-ID as Key.`);
+        console.log(`[Webhook] Processed ${saveCount} records.`);
       }
+    } else {
+        await batch.commit();
     }
+    
+    // Cập nhật history ID
+    await accountDoc.ref.update({ lastKnownHistoryId: newHistoryId });
 
-    batch.update(accountDoc.ref, { lastKnownHistoryId: newHistoryId });
-    await batch.commit();
-
-    // === TRIGGER NOTIFICATIONS ===
+    // 3. Gửi Thông báo
     if (notificationEvents.length > 0) {
-      // Send individually or batched. For simplicity, sending the first one or a generic "X new updates"
-      // To avoid spamming, if multiple events, send one summary.
       if (notificationEvents.length === 1) {
+        // Gửi 1 tin duy nhất
         const evt = notificationEvents[0];
         await sendPushNotificationToUsers(effectiveUserId, evt.type, {
           title: evt.type === 'order' ? 'New Order!' : 'Funds Received!',
           body: evt.text
         });
       } else {
+        // Gửi tổng hợp nếu nhiều tin
         const orders = notificationEvents.filter(e => e.type === 'order');
         const funds = notificationEvents.filter(e => e.type === 'funds');
 
