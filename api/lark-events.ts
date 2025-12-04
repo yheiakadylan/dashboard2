@@ -10,6 +10,7 @@ import {
 import { getDb } from './_lib/firebaseAdminHelper.js';
 import { SHARED_USER_ID } from '../constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
+import { Record } from './_lib/types.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -297,14 +298,88 @@ async function onCardAction(messageId: string, value: any, form: Record<string, 
 /** MAIN */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   
-  // =====================================================================
-  // 🟢 TEST NOTIFICATION HANDLER (HIJACK GET/POST REQUEST)
-  // Gọi bằng: /api/lark-events?action=test-push&secret=test1234&type=order|funds
-  // =====================================================================
+  // Lấy các tham số query để xử lý các action đặc biệt (Test Push, Get Order Detail)
   const action = req.query.action || req.body?.action;
   const secret = req.query.secret || req.body?.secret;
   const type = req.query.type || req.body?.type || 'order'; // Mặc định là order
 
+  // Cho phép CORS cho Tampermonkey (nếu gọi action đặc biệt)
+  if (action) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  }
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  // =====================================================================
+  // 🟢 HIJACK 1: LẤY CHI TIẾT ĐƠN HÀNG CHO TAMPERMONKEY
+  // Gọi bằng: /api/lark-events?action=get-order-detail&secret=test1234&orderId=...
+  // =====================================================================
+  if (action === 'get-order-detail') {
+    if (secret !== 'test1234') { 
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const orderId = (req.query.orderId || req.body?.orderId) as string;
+    if (!orderId) {
+        return res.status(400).json({ message: 'Missing orderId' });
+    }
+
+    try {
+        const db = getDb();
+        const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
+        
+        // Tìm record theo order_id
+        const q = recordsRef.where('order_id', '==', orderId.trim());
+        const snapshot = await q.get();
+
+        if (snapshot.empty) {
+            return res.status(404).json({ message: 'Order not found' });
+        }
+
+        // Lấy record tốt nhất (có details)
+        let bestRecord: Record | null = null;
+        snapshot.forEach(doc => {
+            const data = doc.data() as Record;
+            if (!bestRecord) bestRecord = data;
+            if (data.details) bestRecord = data; 
+        });
+
+        if (!bestRecord || !bestRecord.details) {
+             return res.status(404).json({ message: 'Order found but no shipping details' });
+        }
+
+        const { shippingAddress, customerEmail, customerName } = bestRecord.details;
+        const nameParts = (shippingAddress.name || customerName || '').split(' ');
+        const lastName = nameParts.pop() || '';
+        const firstName = nameParts.join(' ') || '';
+
+        return res.status(200).json({
+            firstName,
+            lastName,
+            email: customerEmail || '',
+            phone: '', 
+            address1: shippingAddress.address1,
+            address2: shippingAddress.address2 || '',
+            city: shippingAddress.city,
+            state: shippingAddress.state,
+            zipCode: shippingAddress.zip,
+            countryCode: shippingAddress.country
+        });
+
+    } catch (err: any) {
+        console.error('[API get-order-detail] Error:', err);
+        return res.status(500).json({ message: err.message });
+    }
+  }
+  
+  // =====================================================================
+  // 🟢 HIJACK 2: TEST NOTIFICATION HANDLER
+  // Gọi bằng: /api/lark-events?action=test-push&secret=test1234&type=order|funds
+  // =====================================================================
   if (action === 'test-push') {
     if (secret !== 'test1234') { 
       return res.status(401).json({ error: 'Unauthorized Test' });
@@ -348,15 +423,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ success: false, error: err.message });
     }
   }
-  // =====================================================================
 
+  // =====================================================================
+  // 🔴 LARK WEBHOOK LOGIC (Code gốc xử lý Lark)
+  // =====================================================================
   
   console.log('[lark-events] Received body:', JSON.stringify(req.body, null, 2));
-
-  // Vì method GET đã bị chặn ở trên, phần dưới này chỉ xử lý POST từ Lark
-  // Nếu Lark gửi verification GET (url challenge), nó sẽ không có ?action=test-push nên sẽ trôi xuống dưới này
-  // Nhưng Lark challenge thường là POST với { challenge: "..." }. 
-  // Nếu Lark gửi GET challenge (ít gặp với cấu hình hiện tại), logic parse(req.body) sẽ handle.
 
   const parsed = parse(req.body);
 
