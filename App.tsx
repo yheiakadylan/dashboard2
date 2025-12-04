@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { auth, db } from './services/firebaseService';
@@ -273,8 +272,7 @@ const DashboardLayout: React.FC = () => {
                 ))}
                 </div>
                 
-                {/* 
-                    Auto-height table container for Summary view.
+                {/* Auto-height table container for Summary view.
                     Removed fixed height to allow full page scrolling.
                 */}
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
@@ -369,7 +367,8 @@ const App: React.FC = () => {
           await signOut(auth);
           setUser(null);
         }
-        requestForToken();
+        requestForToken(currentUser.uid); 
+        // --------------------
       }
       setAuthLoading(false);
     });
