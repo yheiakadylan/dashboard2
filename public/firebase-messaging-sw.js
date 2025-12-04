@@ -12,43 +12,7 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// --- SỬA ĐỔI: Xử lý Data Message ---
 messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Received background message ', payload);
-
-  // Kiểm tra xem dữ liệu nằm ở đâu (thường là trong payload.data với cấu hình mới)
-  const data = payload.data || payload;
-
-  if (data.title && data.body) {
-    const notificationTitle = data.title;
-    const notificationOptions = {
-      body: data.body,
-      icon: '/pwa-192x192.png',
-      // Quan trọng: Truyền URL vào data của notification để xử lý click
-      data: { url: data.url || '/' } 
-    };
-
-    self.registration.showNotification(notificationTitle, notificationOptions);
-  }
-});
-
-self.addEventListener('notificationclick', function (event) {
-  event.notification.close();
-
-  // Lấy URL từ data đã truyền vào ở trên
-  const urlToOpen = event.notification.data?.url || '/';
-
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (windowClients) {
-      for (var i = 0; i < windowClients.length; i++) {
-        var client = windowClients[i];
-        if (client.url === urlToOpen && 'focus' in client) {
-          return client.focus();
-        }
-      }
-      if (clients.openWindow) {
-        return clients.openWindow(urlToOpen);
-      }
-    })
-  );
+  console.log('[firebase-messaging-sw.js] Received background message', payload);
+  // Không làm gì cả, để hệ điều hành tự xử lý hiển thị.
 });
