@@ -9,7 +9,6 @@ import {
 } from './_lib/larkHelper.js';
 import { getDb } from './_lib/firebaseAdminHelper.js';
 import { SHARED_USER_ID } from '../constants.js';
-// --- THÊM IMPORT NÀY ---
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -299,28 +298,49 @@ async function onCardAction(messageId: string, value: any, form: Record<string, 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   
   // =====================================================================
-  // 🟢 TEST NOTIFICATION HANDLER (HIJACK GET REQUEST)
-  // Gọi bằng: /api/lark-events?action=test-push&secret=test1234
+  // 🟢 TEST NOTIFICATION HANDLER (HIJACK GET/POST REQUEST)
+  // Gọi bằng: /api/lark-events?action=test-push&secret=test1234&type=order|funds
   // =====================================================================
-  if (req.method === 'GET' && req.query.action === 'test-push') {
-    const { secret, teamId } = req.query;
-    if (secret !== 'test1234') { // Bạn có thể đổi 'test1234' thành gì tuỳ thích
+  const action = req.query.action || req.body?.action;
+  const secret = req.query.secret || req.body?.secret;
+  const type = req.query.type || req.body?.type || 'order'; // Mặc định là order
+
+  if (action === 'test-push') {
+    if (secret !== 'test1234') { 
       return res.status(401).json({ error: 'Unauthorized Test' });
     }
 
     try {
-      const targetTeam = (teamId as string) || SHARED_USER_ID;
-      console.log(`[Lark-API] Manually triggering push notification test for ${targetTeam}`);
+      const targetTeam = SHARED_USER_ID;
+      console.log(`[Lark-API] Manually triggering push notification test (${type})`);
       
-      await sendPushNotificationToUsers(targetTeam, 'order', {
-        title: '🔔 Test Notification (via Lark API)',
-        body: `Test push sent at ${new Date().toLocaleTimeString()}. If you see this, FCM is working!`,
-        url: '/'
-      });
+      let payload = { title: '', body: '', url: '/' };
+
+      if (type === 'order') {
+        payload = {
+            title: '🔔 New Order (Test)',
+            body: 'New Order: #TEST-123 - $50.00 (Test Shop)',
+            url: '/'
+        };
+      } else if (type === 'funds') {
+        payload = {
+            title: '💰 Funds Received (Test)',
+            body: 'Funds Received: $1,000.00 USD (Test Shop)',
+            url: '/'
+        };
+      } else {
+        payload = {
+            title: '🔔 Test Notification',
+            body: `Test push sent at ${new Date().toLocaleTimeString()}.`,
+            url: '/'
+        };
+      }
+      
+      await sendPushNotificationToUsers(targetTeam, type as any, payload);
 
       return res.status(200).json({ 
         success: true, 
-        message: 'Push notification command executed.',
+        message: `Push notification (${type}) command executed.`,
         target: targetTeam
       });
     } catch (err: any) {
