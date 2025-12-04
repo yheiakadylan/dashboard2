@@ -1,12 +1,13 @@
 import { getToken } from "firebase/messaging";
-import { getMessagingInstance } from "./firebaseService"; 
+import { getMessagingInstance, db } from "./firebaseService"; // Thêm db
+import { doc, updateDoc, arrayUnion } from "firebase/firestore"; // Thêm các hàm Firestore
 
-// VAPID Key của bạn (giữ nguyên)
-const VAPID_KEY = "BEbquJkOmEQNEhC5mOvCxcg9hpIR4fryuHqOCrIfABh_g5CixXo_Xiw_VS_pDn2OhaJRUT5nJ1EVAincHXI_QVM"; 
+// VAPID Key của bạn
+const VAPID_KEY = "BEbquJkOmEQNEhC5mOvCxcg9hpIR4fryuHqOCrIfABh_g5CixXo_Xiw_VS_pDn2OhaJRUT5nJ1EVAincHXI_QVM";
 
-export const requestForToken = async () => {
+// Thêm tham số userId (optional) để biết lưu vào user nào
+export const requestForToken = async (userId?: string) => {
   try {
-    // SỬA ĐOẠN NÀY: Gọi hàm getMessagingInstance()
     const messaging = await getMessagingInstance();
 
     if (!messaging) {
@@ -20,6 +21,22 @@ export const requestForToken = async () => {
         vapidKey: VAPID_KEY
       });
       console.log('FCM Token:', token);
+
+      // --- LOGIC MỚI: Tự động lưu vào DB ---
+      if (userId && token) {
+        try {
+          const userRef = doc(db, 'user_roles', userId);
+          // arrayUnion: Nếu token mới (do cài lại app) -> Thêm vào mảng. Nếu cũ -> Bỏ qua.
+          await updateDoc(userRef, {
+            fcmTokens: arrayUnion(token)
+          });
+          console.log('Token saved to Firestore automatically.');
+        } catch (saveError) {
+          console.error('Error saving token to Firestore:', saveError);
+        }
+      }
+      // -------------------------------------
+
       return token;
     } else {
       console.log('Quyền thông báo bị từ chối.');
@@ -32,11 +49,11 @@ export const requestForToken = async () => {
 };
 
 export const sendLarkLoginNotification = (
-  email: string | null, 
+  email: string | null,
   role: string
 ): void => {
   if (role !== 'user') {
-    return; 
+    return;
   }
   fetch('/api/lark-login-notify', {
     method: 'POST',
