@@ -699,7 +699,7 @@ const calculateSummary = (
                 image: stat.image 
             }))
             .sort((a, b) => b.quantity - a.quantity) // Sort by Quantity DESC
-            .slice(0, 100); // Increased limit to Top 100
+           // .slice(0, 100); // Increased limit to Top 100
         topProductsByShop[shop] = sortedProducts;
     });
 

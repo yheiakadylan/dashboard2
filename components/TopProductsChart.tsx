@@ -58,13 +58,12 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
     }
   }, [data, shopNames, selectedShop]);
 
-  // Hàm xử lý Export CSV riêng cho Top Products
+  // Hàm xử lý Export CSV riêng cho Top Products (XUẤT HẾT, KHÔNG CẮT BỞI LIMIT)
   const handleExportCSV = () => {
     if (!selectedShop || !data[selectedShop]) return;
 
-    // Lấy dữ liệu hiện tại (theo limit hoặc toàn bộ shop tuỳ ý, ở đây lấy theo chart đang hiển thị)
-    // Nếu muốn xuất toàn bộ danh sách của shop đó thì dùng `data[selectedShop]` thay vì `chartData`
-    const exportData = data[selectedShop].slice(0, limit); 
+    // Lấy TOÀN BỘ dữ liệu của shop đó (không .slice theo limit)
+    const exportData = data[selectedShop]; 
 
     const csvHeaders = ["Product Name", "Quantity", "Revenue", "Image Link"];
     
@@ -86,7 +85,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Top_Products_${selectedShop.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.csv`;
+    link.download = `All_Products_${selectedShop.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -97,6 +96,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
   }
 
   const fullChartData = data[selectedShop] || [];
+  // Slice data chỉ để hiển thị trên Chart, không ảnh hưởng Export
   const chartData = fullChartData.slice(0, limit);
 
   return (
@@ -107,7 +107,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             Top Products
             <span className="text-xs font-normal text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">
-                {chartData.length} shown
+                Showing {chartData.length} of {fullChartData.length}
             </span>
         </h3>
         
@@ -116,15 +116,14 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
             <button
                 onClick={handleExportCSV}
                 className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
-                title="Export list to CSV"
+                title="Export FULL list to CSV"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                Export
             </button>
 
-            {/* Limit Selector */}
+            {/* Limit Selector - Thêm tùy chọn cao hơn */}
             <select
               value={limit}
               onChange={(e) => setLimit(Number(e.target.value))}
@@ -133,6 +132,8 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
               <option value={20}>Top 20</option>
               <option value={50}>Top 50</option>
               <option value={100}>Top 100</option>
+              <option value={200}>Top 200</option>
+              <option value={500}>Top 500</option>
             </select>
 
             {/* Shop Selector */}
@@ -166,7 +167,6 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
                 type="category" 
                 dataKey="name" 
                 width={260} 
-                // Pass hàm xử lý click chuột phải xuống Custom Tick
                 tick={<CustomYAxisTick data={chartData} onContextMenu={setPreviewImage} />} 
                 interval={0}
                 stroke="var(--recharts-text-color)"
