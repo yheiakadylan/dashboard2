@@ -1,4 +1,3 @@
-
 export interface Account {
   id: string;
   email: string;
@@ -112,6 +111,7 @@ export interface TopProduct {
   name: string;
   quantity: number;
   revenue: number;
+  image?: string; // Added image field
 }
 
 export interface ProcessedData {

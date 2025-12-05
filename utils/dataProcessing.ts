@@ -554,7 +554,7 @@ const calculateSummary = (
     const allTableCurrencies = { revenue: new Set<string>(), funds: new Set<string>(), cost: new Set<string>() };
 
     // --- LOGIC TÍNH TOÁN TOP PRODUCTS ---
-    const productStatsByShop: { [key: string]: Map<string, { qty: number, rev: number }> } = {};
+    const productStatsByShop: { [key: string]: Map<string, { qty: number, rev: number, image?: string }> } = {};
 
     records.forEach(r => {
         const shopLabel = accountLabelMap.get(r.account) || r.account;
@@ -586,9 +586,18 @@ const calculateSummary = (
                 r.details.items.forEach(item => {
                     const name = item.name.trim();
                     const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
+                    
+                    // --- High Res Image Logic ---
+                    let image = item.image || current.image;
+                    if (image && image.includes('il_') && image.includes('x')) {
+                        // Replace common small sizes (75x75, 170x135, 340x270, 570xN) with fullxfull
+                        image = image.replace(/il_\d+x\w+/, 'il_fullxfull');
+                    }
+
                     productStatsByShop[shopLabel].set(name, {
                         qty: current.qty + item.quantity,
-                        rev: current.rev + (item.quantity * item.price)
+                        rev: current.rev + (item.quantity * item.price),
+                        image: image
                     });
                 });
             } 
@@ -601,7 +610,8 @@ const calculateSummary = (
                      // For 'Best Selling' by quantity, just incrementing qty is safer
                      productStatsByShop[shopLabel].set(name, {
                         qty: current.qty + 1,
-                        rev: current.rev + r.amount // Rough estimate
+                        rev: current.rev + r.amount, // Rough estimate
+                        image: current.image 
                      });
                 });
             }
@@ -682,9 +692,14 @@ const calculateSummary = (
     Object.keys(productStatsByShop).forEach(shop => {
         const stats = productStatsByShop[shop];
         const sortedProducts = Array.from(stats.entries())
-            .map(([name, stat]) => ({ name, quantity: stat.qty, revenue: stat.rev }))
+            .map(([name, stat]) => ({ 
+                name, 
+                quantity: stat.qty, 
+                revenue: stat.rev,
+                image: stat.image 
+            }))
             .sort((a, b) => b.quantity - a.quantity) // Sort by Quantity DESC
-            .slice(0, 10); // Take Top 10
+            .slice(0, 100); // Increased limit to Top 100
         topProductsByShop[shop] = sortedProducts;
     });
 
