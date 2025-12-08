@@ -223,11 +223,11 @@ const DashboardLayout: React.FC = () => {
                 data={orderListRows} 
                 onViewOrderDetails={handleViewOrderDetails}
                 onResyncOrder={handleResyncOrder}
-                mobileRowHeight={300} // Increased height for cards
+                mobileRowHeight={340} // Increased height for cards
             />;
         }
-        case 'eBay': return <DataTable headers={processedData.ebay.headers} data={processedData.ebay.rows} onViewOrderDetails={handleViewOrderDetails} onResyncOrder={handleResyncOrder} />;
-        case 'Etsy': return <DataTable headers={processedData.etsy.headers} data={processedData.etsy.rows} onViewOrderDetails={handleViewOrderDetails} onResyncOrder={handleResyncOrder} />;
+        case 'eBay': return <DataTable headers={processedData.ebay.headers} data={processedData.ebay.rows} onViewOrderDetails={handleViewOrderDetails} onResyncOrder={handleResyncOrder} mobileRowHeight={340} />;
+        case 'Etsy': return <DataTable headers={processedData.etsy.headers} data={processedData.etsy.rows} onViewOrderDetails={handleViewOrderDetails} onResyncOrder={handleResyncOrder} mobileRowHeight={340} />;
         case 'Case': return <DataTable headers={processedData.cases.headers} data={processedData.cases.rows} />;
         case 'Help': return <DataTable headers={processedData.help.headers} data={processedData.help.rows} />;
         case 'Fulfill':

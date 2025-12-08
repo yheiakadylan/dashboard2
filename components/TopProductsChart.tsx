@@ -6,17 +6,15 @@ interface TopProductsChartProps {
   data: { [shopName: string]: TopProduct[] };
 }
 
-// 1. Custom Tick: Xử lý sự kiện chuột phải (onContextMenu)
-const CustomYAxisTick = ({ x, y, payload, data, onContextMenu }: any) => {
+// 1. Custom Tick: Xử lý sự kiện chuột trái (onClick)
+const CustomYAxisTick = ({ x, y, payload, data, onClick }: any) => {
   // Tìm thông tin sản phẩm để lấy ảnh
   const product = data?.find((p: TopProduct) => p.name === payload.value);
   const image = product?.image;
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault(); // Ngăn menu chuột phải của trình duyệt hiện ra
-    e.stopPropagation();
+  const handleClick = (e: React.MouseEvent) => {
     if (image) {
-        onContextMenu(image);
+        onClick(image);
     } else {
         alert("No image available for this product.");
     }
@@ -26,9 +24,9 @@ const CustomYAxisTick = ({ x, y, payload, data, onContextMenu }: any) => {
     <g transform={`translate(${x},${y})`}>
       <foreignObject x={-260} y={-14} width={255} height={28}>
         <div 
-          className="flex items-center justify-end h-full pr-2 cursor-context-menu group"
-          onContextMenu={handleContextMenu}
-          title="Right-click to view Image"
+          className="flex items-center justify-end h-full pr-2 cursor-pointer group"
+          onClick={handleClick}
+          title="Click to view Image"
         >
           {/* Tên sản phẩm */}
           <div className="min-w-0 flex-1 text-right">
@@ -167,7 +165,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
                 type="category" 
                 dataKey="name" 
                 width={260} 
-                tick={<CustomYAxisTick data={chartData} onContextMenu={setPreviewImage} />} 
+                tick={<CustomYAxisTick data={chartData} onClick={setPreviewImage} />} 
                 interval={0}
                 stroke="var(--recharts-text-color)"
               />

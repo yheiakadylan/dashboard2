@@ -10,7 +10,7 @@ import {
 import { getDb } from './_lib/firebaseAdminHelper.js';
 import { SHARED_USER_ID } from '../constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
-import { Record } from './_lib/types.js';
+import { Record as MailRecord } from './_lib/types.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -341,9 +341,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         // Lấy record tốt nhất (có details)
-        let bestRecord: Record | null = null;
+        let bestRecord: MailRecord | null = null;
         snapshot.forEach(doc => {
-            const data = doc.data() as Record;
+            const data = doc.data() as MailRecord;
             if (!bestRecord) bestRecord = data;
             if (data.details) bestRecord = data; 
         });

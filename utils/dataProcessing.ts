@@ -247,7 +247,7 @@ const calculateOverview = (
 }
 
 const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = ["Order Number", "Revenue", "Currency", "Cost", "FF Code", "Case", "Help", "Account", "DateTime", "Actions"];
+    const headers = ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Cost", "FF Code", "Case", "Help", "Account", "DateTime", "Actions"];
     const orders = records.filter(r => r.kind === 'order');
     const cases = records.filter(r => r.kind === 'case');
     const helps = records.filter(r => r.kind === 'help');
@@ -258,18 +258,38 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
     const sortedOrders = [...orders].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
 
     const rows = sortedOrders.map(o => {
-        // Create a list of actions for the Action column
         const actions = [];
         if (o.details) {
             actions.push({ type: 'view', label: 'View', id: o.id! });
         }
-        
-        // Show Resync if email_id exists (even if details might be missing or partial)
         if (o.email_id) {
             actions.push({ type: 'resync', label: 'Resync', id: o.id! });
         }
 
+        // --- New logic to get product name and image ---
+        let productName = o.product_name || 'N/A';
+        let productImage = null;
+        let fullProductImage = null;
+
+        if (o.details && o.details.items && o.details.items.length > 0) {
+            const itemNames = o.details.items.map(i => i.name).join(', ');
+            if (itemNames) {
+                productName = itemNames;
+            }
+            // Get image of the first item
+            productImage = o.details.items[0].image || null;
+            
+            if (productImage && productImage.includes('il_') && productImage.includes('x')) {
+                fullProductImage = productImage.replace(/il_\d+x\w+/, 'il_fullxfull');
+            } else {
+                fullProductImage = productImage;
+            }
+        }
+        // --- End of new logic ---
+
         return [
+            { type: 'image', src: productImage, fullSrc: fullProductImage, alt: productName }, // New cell for image
+            productName, // New cell for product name
             o.order_id || 'N/A',
             o.amount,
             o.currency || 'USD',
@@ -279,7 +299,7 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
             o.order_id && helpMap.has(o.order_id) ? helpMap.get(o.order_id) : 'No',
             accountLabelMap.get(o.account) || o.account,
             formatDateTime(o.dt_local, timeZone),
-            { type: 'action_group', actions } as any, // Custom Action Group
+            { type: 'action_group', actions } as any,
             o.dt_local, // Add raw ISO string for filtering, will not be displayed
         ];
     });
@@ -288,7 +308,7 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
 }
 
 const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sales', accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = ["Order Number", "Revenue", "Currency", "Account", "DateTime", "Actions"];
+    const headers = ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "DateTime", "Actions"];
     const platformRecords = records.filter(r => r.source === source && r.kind === 'order');
 
     const sortedRecords = [...platformRecords].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
@@ -305,7 +325,29 @@ const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sale
             actions.push({ type: 'resync', label: 'Resync', id: r.id! });
         }
 
+        // --- Logic from getOrderList ---
+        let productName = r.product_name || 'N/A';
+        let productImage = null;
+        let fullProductImage = null;
+
+        if (r.details && r.details.items && r.details.items.length > 0) {
+            const itemNames = r.details.items.map(i => i.name).join(', ');
+            if (itemNames) {
+                productName = itemNames;
+            }
+            productImage = r.details.items[0].image || null;
+            
+            if (productImage && productImage.includes('il_') && productImage.includes('x')) {
+                fullProductImage = productImage.replace(/il_\d+x\w+/, 'il_fullxfull');
+            } else {
+                fullProductImage = productImage;
+            }
+        }
+        // --- End of logic ---
+
         return [
+            { type: 'image', src: productImage, fullSrc: fullProductImage, alt: productName },
+            productName,
             r.order_id || 'N/A',
             r.amount,
             r.currency || 'USD',
