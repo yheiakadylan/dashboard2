@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TopProduct } from '../api/_lib/types';
 import useMediaQuery from '../hooks/useMediaQuery';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 
 interface TopProductsChartProps {
   data: { [shopName: string]: TopProduct[] };
@@ -57,37 +59,45 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
     }
   }, [data, shopNames, selectedShop]);
 
-  // Hàm xử lý Export CSV riêng cho Top Products (XUẤT HẾT, KHÔNG CẮT BỞI LIMIT)
-  const handleExportCSV = () => {
-    if (!selectedShop || !data[selectedShop]) return;
+  const handleExportXLSX = () => {
+    if (!data) {
+      alert("No data available to export.");
+      return;
+    }
 
-    // Lấy TOÀN BỘ dữ liệu của shop đó (không .slice theo limit)
-    const exportData = data[selectedShop]; 
+    const wb = XLSX.utils.book_new(); // Create a new workbook
 
-    const csvHeaders = ["Product Name", "Quantity", "Revenue", "Image Link"];
-    
-    const csvRows = exportData.map(item => {
-        // Escape dấu phẩy hoặc ngoặc kép trong tên
-        const safeName = `"${(item.name || '').replace(/"/g, '""')}"`;
-        const imageLink = item.image || '';
-        
-        return [
-            safeName,
-            item.quantity,
-            item.revenue.toFixed(2),
-            imageLink
-        ].join(',');
+    Object.entries(data).forEach(([shopName, products]) => {
+      if (!Array.isArray(products) || products.length === 0) return; // Skip empty sheets
+
+      const headers = ["Product Name", "Quantity", "Revenue", "Image Link"];
+      // Prepare data for json_to_sheet
+      const sheetData = products.map(item => ({
+        "Product Name": item.name || '',
+        "Quantity": item.quantity,
+        "Revenue": item.revenue,
+        "Image Link": item.image || ''
+      }));
+      
+      const ws = XLSX.utils.json_to_sheet(sheetData, { header: headers });
+      
+      // Sanitize shop name for sheet name (max 31 chars, no special chars)
+      const safeShopName = shopName.replace(/[\\/*?\[\]:]/g, "").substring(0, 31);
+      
+      XLSX.utils.book_append_sheet(wb, ws, safeShopName);
     });
 
-    const csvContent = [csvHeaders.join(','), ...csvRows].join('\n');
-    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `All_Products_${selectedShop.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    if (wb.SheetNames.length === 0) {
+      alert("No products found in any shop to export.");
+      return;
+    }
+
+    // Write the workbook and trigger download
+    const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([excelBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8',
+    });
+    saveAs(blob, `All_Products_By_Shop_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
 
   if (shopNames.length === 0) {
@@ -119,9 +129,9 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
             {/* Export Button */}
             <button
-                onClick={handleExportCSV}
+                onClick={handleExportXLSX}
                 className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
-                title="Export FULL list to CSV"
+                title="Export all shops to Excel (.xlsx)"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
