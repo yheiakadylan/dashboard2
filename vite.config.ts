@@ -38,7 +38,37 @@ export default defineConfig(({ mode }) => {
           },
           workbox: {
             globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-            maximumFileSizeToCacheInBytes: 4000000
+            maximumFileSizeToCacheInBytes: 4000000,
+            runtimeCaching: [
+              {
+                urlPattern: /^https:\/\/i\.etsystatic\.com\/.*/,
+                handler: 'CacheFirst',
+                options: {
+                  cacheName: 'etsy-images',
+                  expiration: {
+                    maxEntries: 200,
+                    maxAgeSeconds: 30 * 24 * 60 * 60, // 30 Days
+                  },
+                  cacheableResponse: {
+                    statuses: [0, 200],
+                  },
+                },
+              },
+              {
+                urlPattern: /^https:\/\/i\.ebayimg\.com\/.*/,
+                handler: 'CacheFirst',
+                options: {
+                  cacheName: 'ebay-images',
+                  expiration: {
+                    maxEntries: 100, // eBay images might be less common
+                    maxAgeSeconds: 30 * 24 * 60 * 60, // 30 Days
+                  },
+                  cacheableResponse: {
+                    statuses: [0, 200],
+                  },
+                },
+              },
+            ],
           }
         })
       ],
