@@ -152,7 +152,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
             case 'Revenue':
             case 'Cost':
             case 'Currency':
-                 cellClass += 'flex-1 basis-[80px] justify-end';
+                 cellClass += 'flex-1 basis-[80px]';
                  break;
             default:
                 cellClass += 'flex-1 basis-[120px]';
@@ -473,7 +473,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                                 case 'Revenue':
                                 case 'Cost':
                                 case 'Currency':
-                                     headerCellClass += 'flex-1 basis-[80px] justify-end';
+                                     headerCellClass += 'flex-1 basis-[80px]';
                                      break;
                                 default:
                                     headerCellClass += 'flex-1 basis-[120px]';
