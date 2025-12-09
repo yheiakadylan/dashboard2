@@ -224,12 +224,14 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         // DETAILED PRODUCT/ORDER LAYOUT
         const productIndex = findIdx('Product Name');
         const orderIdIndex = findIdx('Order Number');
+        const dateTimeIndex = headers.indexOf('DateTime'); // Find DateTime header index
         
         const imageCell = row[imageIndex];
         const productValue = productIndex !== -1 ? row[productIndex] : 'N/A';
         const orderIdValue = orderIdIndex !== -1 ? row[orderIdIndex] : 'N/A';
+        const dateTimeValue = dateTimeIndex !== -1 ? row[dateTimeIndex] : null; // Get DateTime value
         
-        const specialIndexes = new Set([imageIndex, productIndex, orderIdIndex, actionIndex]);
+        const specialIndexes = new Set([imageIndex, productIndex, orderIdIndex, actionIndex, dateTimeIndex]);
         const bodyItems = headers
             .map((h, i) => {
                 if (specialIndexes.has(i) || h === 'DateTime') return null;
@@ -254,6 +256,9 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                                 <h4 className="text-base font-bold text-gray-900 dark:text-white leading-tight mt-0.5 truncate" title={String(productValue)}>
                                     {renderTextContent(productValue)}
                                 </h4>
+                                {dateTimeValue && (
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{renderTextContent(dateTimeValue)}</p>
+                                )}
                             </div>
                         </div>
                     </div>
