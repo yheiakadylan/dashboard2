@@ -20,6 +20,7 @@ import { NotificationProvider } from './contexts/NotificationContext';
 import { Record } from './api/_lib/types';
 import { reprocessRecord } from './services/emailService';
 import { requestForToken } from './services/notificationService';
+import CollapsibleContainer from './components/CollapsibleContainer';
 
 const DashboardLayout: React.FC = () => {
     const {
@@ -193,6 +194,11 @@ const DashboardLayout: React.FC = () => {
                 <div className="mb-6 hidden md:block">
                     <OverviewChart data={processedData.overview.chartData} />
                 </div>
+                <div className="mb-6 md:hidden">
+                    <CollapsibleContainer title="Sales Overview Chart">
+                        <OverviewChart data={processedData.overview.chartData} />
+                    </CollapsibleContainer>
+                </div>
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
                     <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
                         Daily Breakdown
@@ -245,6 +251,20 @@ const DashboardLayout: React.FC = () => {
                             />
                         </div>
                     </div>
+                     <div className="md:hidden space-y-4 mb-6">
+                        <CollapsibleContainer title="Top 10 Merchize Products">
+                            <FulfillChart 
+                                title="Top 10 Merchize Products"
+                                data={processedData.fulfill.merchizeChartData} 
+                            />
+                        </CollapsibleContainer>
+                        <CollapsibleContainer title="Top 10 Printway Products">
+                            <FulfillChart 
+                                title="Top 10 Printway Products"
+                                data={processedData.fulfill.printwayChartData} 
+                            />
+                        </CollapsibleContainer>
+                    </div>
                     <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
                         <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
                             All Fulfillment Records
@@ -265,6 +285,14 @@ const DashboardLayout: React.FC = () => {
                 </div>
                 <div className="mb-6 hidden md:block">
                     <SummaryChart data={processedData.summary.chartData} />
+                </div>
+                <div className="md:hidden space-y-4 mb-6">
+                    <CollapsibleContainer title="Top Products by Shop">
+                        <TopProductsChart data={processedData.summary.topProductsByShop} />
+                    </CollapsibleContainer>
+                    <CollapsibleContainer title="Revenue & Funds by Shop">
+                        <SummaryChart data={processedData.summary.chartData} />
+                    </CollapsibleContainer>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6 mb-6">
                 {Object.entries(processedData.summary.kpis).map(([title, value]) => (

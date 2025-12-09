@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TopProduct } from '../api/_lib/types';
+import useMediaQuery from '../hooks/useMediaQuery';
 
 interface TopProductsChartProps {
   data: { [shopName: string]: TopProduct[] };
@@ -10,11 +11,10 @@ interface TopProductsChartProps {
 const CustomYAxisTick = ({ x, y, payload, data, onClick }: any) => {
   // Tìm thông tin sản phẩm để lấy ảnh
   const product = data?.find((p: TopProduct) => p.name === payload.value);
-  const image = product?.image;
 
   const handleClick = (e: React.MouseEvent) => {
-    if (image) {
-        onClick(image);
+    if (product?.image) {
+        onClick(product); // Pass the whole product object
     } else {
         alert("No image available for this product.");
     }
@@ -46,9 +46,10 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
   const shopNames = Object.keys(data).sort();
   const [selectedShop, setSelectedShop] = useState<string>(shopNames.length > 0 ? shopNames[0] : '');
   const [limit, setLimit] = useState<number>(10);
+  const isMobile = useMediaQuery('(max-width: 768px)');
   
-  // State để quản lý hiển thị ảnh phóng to
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  // State để quản lý hiển thị ảnh phóng to - now stores the whole product
+  const [previewProduct, setPreviewProduct] = useState<TopProduct | null>(null);
 
   useEffect(() => {
     if (shopNames.length > 0 && (!selectedShop || !data[selectedShop])) {
@@ -96,6 +97,12 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
   const fullChartData = data[selectedShop] || [];
   // Slice data chỉ để hiển thị trên Chart, không ảnh hưởng Export
   const chartData = fullChartData.slice(0, limit);
+  
+  const handleBarClick = (data: TopProduct) => {
+    if (data.image) {
+      setPreviewProduct(data);
+    }
+  };
 
   return (
     <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 h-[600px] flex flex-col relative">
@@ -164,8 +171,8 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
               <YAxis 
                 type="category" 
                 dataKey="name" 
-                width={260} 
-                tick={<CustomYAxisTick data={chartData} onClick={setPreviewImage} />} 
+                width={isMobile ? 0 : 260} 
+                tick={isMobile ? false : <CustomYAxisTick data={chartData} onClick={setPreviewProduct} />} 
                 interval={0}
                 stroke="var(--recharts-text-color)"
               />
@@ -183,6 +190,8 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
                 fill="#8884d8" 
                 radius={[0, 4, 4, 0]} 
                 barSize={limit > 20 ? undefined : 24} 
+                onClick={handleBarClick}
+                style={{ cursor: 'pointer' }}
               />
             </BarChart>
           </ResponsiveContainer>
@@ -194,15 +203,15 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
       </div>
 
       {/* --- IMAGE PREVIEW MODAL (OVERLAY) --- */}
-      {previewImage && (
+      {previewProduct && (
         <div 
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200 cursor-pointer"
-            onClick={() => setPreviewImage(null)}
+            onClick={() => setPreviewProduct(null)}
             title="Click anywhere to close"
         >
             <div className="relative max-w-4xl max-h-[90vh] bg-white dark:bg-gray-800 p-2 rounded-lg shadow-2xl">
                 <img 
-                    src={previewImage} 
+                    src={previewProduct.image} 
                     alt="Product Mockup" 
                     className="max-w-full max-h-[85vh] object-contain rounded"
                 />
@@ -213,8 +222,10 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
                         </svg>
                     </button>
                 </div>
-                <div className="text-center mt-2 text-white font-medium text-sm drop-shadow-md">
-                    High Quality Mockup Preview
+                <div className="absolute bottom-0 left-0 right-0 p-2 bg-white/80 dark:bg-black/70 backdrop-blur-sm rounded-b-lg">
+                    <p className="text-center text-black dark:text-white font-semibold text-base truncate" title={previewProduct.name}>
+                        {previewProduct.name}
+                    </p>
                 </div>
             </div>
         </div>
