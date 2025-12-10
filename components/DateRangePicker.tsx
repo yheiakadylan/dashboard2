@@ -183,7 +183,7 @@ const DateRangePicker: React.FC = () => {
     // Responsive classes
     const containerClass = `bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col md:flex-row overflow-hidden ${isMobile ? 'w-full max-w-sm' : ''}`;
 
-    const sidebarClass = `w-full md:w-48 p-2 border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-700 overflow-y-auto ${isMobile ? 'max-h-32 grid grid-cols-2 gap-1' : ''}`;
+    const sidebarClass = `w-full md:w-44 p-2 border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-700 overflow-y-auto ${isMobile ? 'max-h-32 grid grid-cols-2 gap-1' : ''}`;
 
     const popupContent = (
         <div className={containerClass} onClick={(e) => e.stopPropagation()}>

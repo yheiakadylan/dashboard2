@@ -75,7 +75,7 @@ const TimezoneSelect: React.FC<TimezoneSelectProps> = ({ value, onChange, option
       </div>
 
       {/* Desktop: Custom Dropdown */}
-      <div ref={wrapperRef} className="relative hidden md:block md:w-36">
+      <div ref={wrapperRef} className="relative hidden md:block md:w-32">
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
