@@ -104,6 +104,21 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   const [filterDateRange, setFilterDateRange] = useState(() => {
+    // Try to restore from localStorage first
+    const savedFilter = localStorage.getItem('filterDateRange');
+    if (savedFilter) {
+      try {
+        const parsed = JSON.parse(savedFilter);
+        // Validate that it has from and to properties
+        if (parsed && parsed.from && parsed.to) {
+          return parsed;
+        }
+      } catch (e) {
+        // Ignore parsing errors and fall through to default
+      }
+    }
+
+    // Default to today if no saved filter
     const getTodayInTimezone = (): Date => {
       const selectedTimeZone = localStorage.getItem('timeZone') || 'Asia/Ho_Chi_Minh';
       const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: selectedTimeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -133,6 +148,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
   useEffect(() => { localStorage.setItem('activeTab', activeTab); }, [activeTab]);
   useEffect(() => { localStorage.setItem('timeZone', timeZone); }, [timeZone]);
+  useEffect(() => { localStorage.setItem('filterDateRange', JSON.stringify(filterDateRange)); }, [filterDateRange]);
 
   const handleTabClick = (tab: Tab) => {
     setActiveTab(tab);
