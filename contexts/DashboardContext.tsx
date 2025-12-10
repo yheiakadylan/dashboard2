@@ -641,6 +641,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   };
 
   const filteredRecords = useMemo(() => {
+    // Safety check: return empty array if records not loaded yet
+    if (!records || !Array.isArray(records)) {
+      return [];
+    }
+
     const allowedEmails = new Set(visibleAccounts.map(a => a.email));
     let baseFiltered = records.filter(record => allowedEmails.has(record.account));
 
@@ -683,7 +688,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   }, [filteredRecords, previousPeriodRecords, visibleAccounts, filterDateRange, timeZone, role, permissions, manualCosts]);
 
   const value = {
-    accounts: allAccounts,
+    accounts: visibleAccounts, // Use visibleAccounts instead of allAccounts for user role filtering
     setAccounts: setAllAccounts,
     records: filteredRecords,
     setRecords,
