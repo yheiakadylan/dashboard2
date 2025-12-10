@@ -17,8 +17,8 @@ import {
 } from '../services/firebaseService';
 import { fetchAllRecords, checkEmailsExistInRange, setupGmailWatch } from '../services/emailService';
 import { fetchCostsForRecords } from '../services/fulfillmentService';
-// Import Notification Hook
 import { useNotification } from './NotificationContext';
+import { CacheService, getDashboardCacheKey, getAccountsCacheKey } from '../utils/cacheService';
 
 interface DashboardContextType {
   accounts: Account[];
@@ -315,15 +315,53 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setIsLoading(true);
       setSyncState('Loading data...');
       try {
+        // Try to get cached data first (stale-while-revalidate pattern)
+        const cacheKey = getDashboardCacheKey(teamId, filterDateRange.from, filterDateRange.to);
+        const accountsCacheKey = getAccountsCacheKey(teamId);
+
+        const cachedResult = await CacheService.getStale<{
+          accounts: Account[];
+          records: Record[];
+          manualCosts: any[];
+        }>(cacheKey);
+
+        if (cachedResult) {
+          // Show cached data immediately
+          setAllAccounts(cachedResult.data.accounts);
+          setRecords(cachedResult.data.records);
+          setManualCosts(cachedResult.data.manualCosts);
+          setIsLoading(false);
+          setSyncState(cachedResult.isStale ? 'Refreshing data...' : null);
+
+          // If cache is fresh, skip refetch
+          if (!cachedResult.isStale) {
+            // Still set up webhooks and auto-sync in background
+            cachedResult.data.accounts.forEach(acc => {
+              if (acc.provider === 'gmail') {
+                setupGmailWatch(teamId, acc).catch(err => console.error(`Failed to initialize webhook for ${acc.email}:`, err));
+              }
+            });
+            return;
+          }
+        }
+
+        // Fetch fresh data from Firebase
         const [fbAccounts, initialDisplayRecords, manualCostEntries] = await Promise.all([
           getAccountsFromFirebase(teamId),
           getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone),
           getManualCosts(teamId)
         ]);
+
+        // Update cache with fresh data
+        await CacheService.set(cacheKey, {
+          accounts: fbAccounts,
+          records: initialDisplayRecords,
+          manualCosts: manualCostEntries
+        });
+
         setAllAccounts(fbAccounts);
         setRecords(initialDisplayRecords);
         setManualCosts(manualCostEntries);
-        // setSyncState(`Loaded ${initialDisplayRecords.length} records.`); // Optional: Toast instead
         setIsLoading(false);
         setSyncState(null);
 
@@ -337,6 +375,14 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           runSync(fbAccounts, initialDisplayRecords).then(async (addedRecords) => {
             const updatedDisplayRecords = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
             setRecords(updatedDisplayRecords);
+
+            // Update cache after sync
+            await CacheService.set(cacheKey, {
+              accounts: fbAccounts,
+              records: updatedDisplayRecords,
+              manualCosts: manualCostEntries
+            });
+
             const latestAccounts = await getAccountsFromFirebase(teamId);
             setAllAccounts(latestAccounts);
             const accountsForHistoricalSync = latestAccounts.filter(acc => !acc.historical_sync_complete);
@@ -364,6 +410,27 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setIsFetchingNewRange(true);
       setSyncState('Fetching...');
       const { from, to } = filterDateRange;
+
+      // Try cache first with stale-while-revalidate
+      const cacheKey = getDashboardCacheKey(teamId, from, to);
+      const cachedResult = await CacheService.getStale<{
+        currentRecords: Record[];
+        previousRecords: Record[] | null;
+      }>(cacheKey);
+
+      if (cachedResult) {
+        // Show cached data immediately
+        setRecords(cachedResult.data.currentRecords);
+        setPreviousPeriodRecords(cachedResult.data.previousRecords);
+        setIsFetchingNewRange(false);
+        setSyncState(cachedResult.isStale ? 'Refreshing...' : null);
+
+        // If fresh, no need to refetch
+        if (!cachedResult.isStale) {
+          return;
+        }
+      }
+
       const diffDays = Math.round(Math.abs(new Date(to).getTime() - new Date(from).getTime()) / (1000 * 60 * 60 * 24)) + 1;
       const shouldFetchPrevious = diffDays <= 7;
       let previousRange: { from: string; to: string } | null = null;
@@ -376,6 +443,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         const currentRecordsPromise = getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
         const previousRecordsPromise = shouldFetchPrevious && previousRange ? getRecordsForDateRange(teamId, previousRange.from, previousRange.to, timeZone) : Promise.resolve(null);
         const [fbRecords, prevRecords] = await Promise.all([currentRecordsPromise, previousRecordsPromise]);
+
+        // Update cache with fresh data
+        await CacheService.set(cacheKey, {
+          currentRecords: fbRecords,
+          previousRecords: prevRecords
+        });
+
         setRecords(fbRecords);
         setPreviousPeriodRecords(prevRecords);
       } catch (error) {
@@ -408,10 +482,22 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     if (isSyncing || !user) return;
     const accountsToSync = selectedAccountId === 'all' ? visibleAccounts : visibleAccounts.filter(acc => acc.email === selectedAccountId);
     if (accountsToSync.length === 0) { addNotification("No accounts selected for syncing.", "info"); return; }
+
+    // Invalidate cache before sync
+    const cacheKey = getDashboardCacheKey(teamId, filterDateRange.from, filterDateRange.to);
+    await CacheService.invalidate(cacheKey);
+
     runSync(accountsToSync, records).then(async () => {
       setSyncState('Refreshing view...');
       const updatedDisplayRecords = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
       setRecords(updatedDisplayRecords);
+
+      // Update cache with fresh synced data
+      await CacheService.set(cacheKey, {
+        currentRecords: updatedDisplayRecords,
+        previousRecords: previousPeriodRecords
+      });
+
       setSyncState(null);
     });
   };
@@ -421,39 +507,39 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
     // Đẩy việc re-sync vào hàng đợi thay vì chạy ngay lập tức (await trực tiếp)
     enqueueSyncTask(`Resync ${account.email}`, async () => {
-        const resetData = {
-          id: account.id,
-          historical_sync_complete: false,
-          history_synced_until: null,
-          last_synced_at: null,
-          scan_start_date: null 
-        };
+      const resetData = {
+        id: account.id,
+        historical_sync_complete: false,
+        history_synced_until: null,
+        last_synced_at: null,
+        scan_start_date: null
+      };
 
-        try {
-          setSyncState(`[Queue] Resetting ${account.email}...`);
-          await updateAccountsInFirebase(teamId, [resetData]);
-          const updatedAccount = { ...account, ...resetData } as Account; 
-          
-          // Cập nhật state local ngay để UI hiển thị spinner
-          setAllAccounts(prev => prev.map(a => a.id === account.id ? updatedAccount : a));
-          
-          setSyncState(`[Queue] Starting re-sync for ${account.email}...`);
-          
-          // Chạy sync (đã được bọc trong queue nên an toàn)
-          const initialRecords = await runSync([updatedAccount], records);
-          
-          // Chạy historical sync (cũng nằm trong luồng tuần tự này)
-          await runHistoricalSync([updatedAccount], [...records, ...initialRecords]);
-          
-          addNotification(`Re-sync finished for ${account.email}`, "success");
-        } catch (error: any) {
-          console.error("Resync error:", error);
-          addNotification(`Failed to re-sync ${account.email}`, "error");
-        } finally {
-            setSyncState(null);
-        }
+      try {
+        setSyncState(`[Queue] Resetting ${account.email}...`);
+        await updateAccountsInFirebase(teamId, [resetData]);
+        const updatedAccount = { ...account, ...resetData } as Account;
+
+        // Cập nhật state local ngay để UI hiển thị spinner
+        setAllAccounts(prev => prev.map(a => a.id === account.id ? updatedAccount : a));
+
+        setSyncState(`[Queue] Starting re-sync for ${account.email}...`);
+
+        // Chạy sync (đã được bọc trong queue nên an toàn)
+        const initialRecords = await runSync([updatedAccount], records);
+
+        // Chạy historical sync (cũng nằm trong luồng tuần tự này)
+        await runHistoricalSync([updatedAccount], [...records, ...initialRecords]);
+
+        addNotification(`Re-sync finished for ${account.email}`, "success");
+      } catch (error: any) {
+        console.error("Resync error:", error);
+        addNotification(`Failed to re-sync ${account.email}`, "error");
+      } finally {
+        setSyncState(null);
+      }
     });
-    
+
     // Thông báo cho user biết là đã tiếp nhận lệnh
     addNotification(`Queued re-sync for ${account.email}. It will start soon.`, "info");
   };
@@ -475,10 +561,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     enqueueSyncTask(`Quick Sync 7 Days - ${account.email}`, async () => {
       try {
         setSyncState(`[Queue] Syncing last 7 days for ${account.email}...`);
-        
+
         // Gọi runSync với overrideDateRange
         await runSync([account], records, dateRange);
-        
+
         addNotification(`Synced last 7 days for ${account.email} successfully.`, "success");
       } catch (error: any) {
         console.error("Quick sync error:", error);

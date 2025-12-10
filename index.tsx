@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import './src/index.css';
 import App from './App';
 
 
@@ -7,10 +8,10 @@ const handleAuthCallback = (): boolean => {
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
   const state = params.get('state');
-  
+
   if (window.opener && code) {
     let messageType: string | null = null;
-    
+
     // Use the 'state' parameter to determine the provider and set the message type.
     if (state === 'google') {
       messageType = 'google-auth-callback';
@@ -23,7 +24,7 @@ const handleAuthCallback = (): boolean => {
         messageType = 'google-auth-callback';
       }
     }
-    
+
     if (messageType) {
       window.opener.postMessage({
         type: messageType,
@@ -33,7 +34,7 @@ const handleAuthCallback = (): boolean => {
       return true;
     }
   }
-  return false; 
+  return false;
 };
 
 // Only render the main application if this is not an auth callback.
@@ -49,5 +50,5 @@ if (!handleAuthCallback()) {
       <App />
     </React.StrictMode>
   );
-  
+
 }
