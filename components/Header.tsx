@@ -8,6 +8,8 @@ import TimezoneSelect from './TimezoneSelect';
 const Header: React.FC = () => {
   const {
     handleLogout,
+    handleSyncClick,
+    isSyncing,
     accounts,
     selectedAccountId,
     setSelectedAccountId,
@@ -25,7 +27,7 @@ const Header: React.FC = () => {
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Keyboard shortcut Ctrl+H to toggle search
+  // Keyboard shortcut Ctrl+F to toggle search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'f') {
@@ -44,6 +46,21 @@ const Header: React.FC = () => {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isSearchExpanded, setSearchTerm]);
+
+  // Keyboard shortcut Ctrl+S for quick sync
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault(); // Prevent browser save dialog
+        if (!isSyncing && handleSyncClick) {
+          handleSyncClick();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isSyncing, handleSyncClick]);
 
   // --- HÀM LÀM SẠCH THÔNG BÁO ---
   const formatSyncState = (rawState: string) => {
