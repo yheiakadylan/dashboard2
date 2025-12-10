@@ -13,6 +13,7 @@ interface NotificationPrefs {
   order: boolean;
   funds: boolean;
   summary: boolean;
+  login: boolean; // New: login notifications
 }
 
 const NotificationSettings: React.FC = () => {
@@ -22,7 +23,8 @@ const NotificationSettings: React.FC = () => {
   const [prefs, setPrefs] = useState<NotificationPrefs>({
     order: false,
     funds: false,
-    summary: false
+    summary: false,
+    login: false // New: default false
   });
   const [loading, setLoading] = useState(false);
 
@@ -80,11 +82,12 @@ const NotificationSettings: React.FC = () => {
           notificationSettings: {
             order: true,
             funds: true,
-            summary: true
+            summary: true,
+            login: true // New: enable by default
           }
         });
         // Cập nhật UI state local để phản ánh ngay lập tức
-        setPrefs({ order: true, funds: true, summary: true });
+        setPrefs({ order: true, funds: true, summary: true, login: true });
 
         addNotification("Notifications enabled successfully!", "success");
       } else {
@@ -193,6 +196,23 @@ const NotificationSettings: React.FC = () => {
           >
             <span
               className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.summary ? 'translate-x-6' : 'translate-x-1'
+                }`}
+            />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-gray-800 dark:text-gray-200">User Login</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Get notified when team members log into dashboard.</p>
+          </div>
+          <button
+            onClick={() => handleToggle('login')}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.login ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
+              }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.login ? 'translate-x-6' : 'translate-x-1'
                 }`}
             />
           </button>

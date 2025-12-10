@@ -8,7 +8,7 @@ import KpiCard from './components/KpiCard';
 import Tabs from './components/Tabs';
 import Auth from './components/Auth';
 import { DashboardProvider, useDashboard } from './contexts/DashboardContext';
-import { NotificationProvider } from './contexts/NotificationContext';
+import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { Record } from './api/_lib/types';
 import { reprocessRecord } from './services/emailService';
 import { requestForToken } from './services/notificationService';
@@ -401,6 +401,39 @@ const DashboardLayout: React.FC = () => {
     );
 };
 
+// Component to handle login notifications
+const LoginNotificationHandler: React.FC<{
+    user: User | null;
+    userProfile: any;
+}> = ({ user, userProfile }) => {
+    const { addNotification } = useNotification();
+    const hasShownNotification = React.useRef(false);
+
+    React.useEffect(() => {
+        if (user && userProfile && !hasShownNotification.current) {
+            // Only show notification for user role (owner will see this notification)
+            if (userProfile.role === 'user') {
+                addNotification(
+                    `🔔 Người dùng ${user.email} đã đăng nhập vào dashboard`,
+                    'info'
+                );
+            }
+
+            // Send Lark + FCM notification (keep existing functionality)
+            sendLarkLoginNotification(user.email, userProfile.role, userProfile.teamId);
+
+            hasShownNotification.current = true;
+        }
+
+        // Reset flag when user logs out
+        if (!user) {
+            hasShownNotification.current = false;
+        }
+    }, [user, userProfile, addNotification]);
+
+    return null;
+};
+
 const App: React.FC = () => {
     const [user, setUser] = useState<User | null>(null);
     const [userProfile, setUserProfile] = useState<any>(null);
@@ -426,7 +459,7 @@ const App: React.FC = () => {
                     } else {
                         const profile = roleDoc.data();
                         setUserProfile(profile);
-                        sendLarkLoginNotification(currentUser.email, profile.role);
+                        // Notification now handled by LoginNotificationHandler component
                     }
                 } catch (err) {
                     console.error("Auth check error:", err);
@@ -460,6 +493,7 @@ const App: React.FC = () => {
     return (
         // Wrap with NotificationProvider
         <NotificationProvider>
+            <LoginNotificationHandler user={user} userProfile={userProfile} />
             <DashboardProvider
                 user={user}
                 teamId={userProfile.teamId}

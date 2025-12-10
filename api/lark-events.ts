@@ -297,7 +297,7 @@ async function onCardAction(messageId: string, value: any, form: Record<string, 
 
 /** MAIN */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  
+
   // Lấy các tham số query để xử lý các action đặc biệt (Test Push, Get Order Detail)
   const action = req.query.action || req.body?.action;
   const secret = req.query.secret || req.body?.secret;
@@ -319,102 +319,114 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Gọi bằng: /api/lark-events?action=get-order-detail&secret=test1234&orderId=...
   // =====================================================================
   if (action === 'get-order-detail') {
-    if (secret !== 'test1234') { 
-        return res.status(401).json({ error: 'Unauthorized' });
+    if (secret !== 'test1234') {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const orderId = (req.query.orderId || req.body?.orderId) as string;
     if (!orderId) {
-        return res.status(400).json({ message: 'Missing orderId' });
+      return res.status(400).json({ message: 'Missing orderId' });
     }
 
     try {
-        const db = getDb();
-        const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
-        
-        // Tìm record theo order_id
-        const q = recordsRef.where('order_id', '==', orderId.trim());
-        const snapshot = await q.get();
+      const db = getDb();
+      const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
 
-        if (snapshot.empty) {
-            return res.status(404).json({ message: 'Order not found' });
-        }
+      // Tìm record theo order_id
+      const q = recordsRef.where('order_id', '==', orderId.trim());
+      const snapshot = await q.get();
 
-        // Lấy record tốt nhất (có details)
-        let bestRecord: MailRecord | null = null;
-        snapshot.forEach(doc => {
-            const data = doc.data() as MailRecord;
-            if (!bestRecord) bestRecord = data;
-            if (data.details) bestRecord = data; 
-        });
+      if (snapshot.empty) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
 
-        if (!bestRecord || !bestRecord.details) {
-             return res.status(404).json({ message: 'Order found but no shipping details' });
-        }
+      // Lấy record tốt nhất (có details)
+      let bestRecord: MailRecord | null = null;
+      snapshot.forEach(doc => {
+        const data = doc.data() as MailRecord;
+        if (!bestRecord) bestRecord = data;
+        if (data.details) bestRecord = data;
+      });
 
-        const { shippingAddress, customerEmail, customerName } = bestRecord.details;
-        const nameParts = (shippingAddress.name || customerName || '').split(' ');
-        const lastName = nameParts.pop() || '';
-        const firstName = nameParts.join(' ') || '';
+      if (!bestRecord || !bestRecord.details) {
+        return res.status(404).json({ message: 'Order found but no shipping details' });
+      }
 
-        return res.status(200).json({
-            firstName,
-            lastName,
-            email: customerEmail || '',
-            phone: '', 
-            address1: shippingAddress.address1,
-            address2: shippingAddress.address2 || '',
-            city: shippingAddress.city,
-            state: shippingAddress.state,
-            zipCode: shippingAddress.zip,
-            countryCode: shippingAddress.country
-        });
+      const { shippingAddress, customerEmail, customerName } = bestRecord.details;
+      const nameParts = (shippingAddress.name || customerName || '').split(' ');
+      const lastName = nameParts.pop() || '';
+      const firstName = nameParts.join(' ') || '';
+
+      return res.status(200).json({
+        firstName,
+        lastName,
+        email: customerEmail || '',
+        phone: '',
+        address1: shippingAddress.address1,
+        address2: shippingAddress.address2 || '',
+        city: shippingAddress.city,
+        state: shippingAddress.state,
+        zipCode: shippingAddress.zip,
+        countryCode: shippingAddress.country
+      });
 
     } catch (err: any) {
-        console.error('[API get-order-detail] Error:', err);
-        return res.status(500).json({ message: err.message });
+      console.error('[API get-order-detail] Error:', err);
+      return res.status(500).json({ message: err.message });
     }
   }
-  
+
   // =====================================================================
   // 🟢 HIJACK 2: TEST NOTIFICATION HANDLER
-  // Gọi bằng: /api/lark-events?action=test-push&secret=test1234&type=order|funds
+  // Gọi bằng: /api/lark-events?action=test-push&secret=test1234&type=order|funds|summary|login
   // =====================================================================
   if (action === 'test-push') {
-    if (secret !== 'test1234') { 
+    if (secret !== 'test1234') {
       return res.status(401).json({ error: 'Unauthorized Test' });
     }
 
     try {
       const targetTeam = SHARED_USER_ID;
       console.log(`[Lark-API] Manually triggering push notification test (${type})`);
-      
+
       let payload = { title: '', body: '', url: '/' };
 
       if (type === 'order') {
         payload = {
-            title: '🔔 New Order (Test)',
-            body: 'New Order: #TEST-123 - $50.00 (Test Shop)',
-            url: '/'
+          title: '🔔 New Order (Test)',
+          body: 'New Order: #TEST-123 - $50.00 (Test Shop)',
+          url: '/'
         };
       } else if (type === 'funds') {
         payload = {
-            title: '💰 Funds Received (Test)',
-            body: 'Funds Received: $1,000.00 USD (Test Shop)',
-            url: '/'
+          title: '💰 Funds Received (Test)',
+          body: 'Funds Received: $1,000.00 USD (Test Shop)',
+          url: '/'
+        };
+      } else if (type === 'summary') {
+        payload = {
+          title: '📊 Daily Summary (Test)',
+          body: 'Your daily sales summary is ready!',
+          url: '/'
+        };
+      } else if (type === 'login') {
+        payload = {
+          title: '🔔 User Login (Test)',
+          body: 'testuser@example.com đã đăng nhập vào dashboard',
+          url: '/'
         };
       } else {
         payload = {
-            title: '🔔 Test Notification',
-            body: `Test push sent at ${new Date().toLocaleTimeString()}.`,
-            url: '/'
+          title: '🔔 Test Notification',
+          body: `Test push sent at ${new Date().toLocaleTimeString()}.`,
+          url: '/'
         };
       }
-      
+
       await sendPushNotificationToUsers(targetTeam, type as any, payload);
 
-      return res.status(200).json({ 
-        success: true, 
+      return res.status(200).json({
+        success: true,
         message: `Push notification (${type}) command executed.`,
         target: targetTeam
       });
@@ -427,7 +439,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // =====================================================================
   // 🔴 LARK WEBHOOK LOGIC (Code gốc xử lý Lark)
   // =====================================================================
-  
+
   console.log('[lark-events] Received body:', JSON.stringify(req.body, null, 2));
 
   const parsed = parse(req.body);

@@ -50,7 +50,8 @@ export const requestForToken = async (userId?: string) => {
 
 export const sendLarkLoginNotification = (
   email: string | null,
-  role: string
+  role: string,
+  teamId?: string
 ): void => {
   if (role !== 'user') {
     return;
@@ -60,7 +61,7 @@ export const sendLarkLoginNotification = (
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ email, role }),
+    body: JSON.stringify({ email, role, teamId }),
   }).catch(err => {
     console.error('Failed to trigger login notification:', err);
   });

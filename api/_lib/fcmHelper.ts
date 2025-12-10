@@ -95,7 +95,7 @@ async function sendMulticastWithCleanup(
  */
 export const sendPushNotificationToUsers = async (
   userIdsOrTeamId: string | string[],
-  notificationType: 'order' | 'funds' | 'summary',
+  notificationType: 'order' | 'funds' | 'summary' | 'login',
   payload: { title: string; body: string; url?: string }
 ) => {
   const userRolesRef = db.collection('user_roles');
