@@ -1,49 +1,49 @@
 import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../api/_lib/types';
 
 const formatCurrency = (value: number, currency: string = 'USD'): string => {
-  // Per user request to simplify KPI card display, always use a '$' symbol
-  // as the currency code (e.g., AUD) is displayed separately.
-  return '$' + new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
+    // Per user request to simplify KPI card display, always use a '$' symbol
+    // as the currency code (e.g., AUD) is displayed separately.
+    return '$' + new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(value);
 };
 
 const formatDate = (dateStr: string, timeZone: string): string => {
-  try {
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return 'Invalid Date';
-    return new Intl.DateTimeFormat('en-CA', { // 'en-CA' gives YYYY-MM-DD
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    }).format(date);
-  } catch (e) {
-    return 'Invalid Date';
-  }
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        return new Intl.DateTimeFormat('en-CA', { // 'en-CA' gives YYYY-MM-DD
+            timeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(date);
+    } catch (e) {
+        return 'Invalid Date';
+    }
 };
 
 const formatHour = (dateStr: string, timeZone: string): string => {
-  try {
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return 'Invalid Hour';
-    const hour = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      hour: '2-digit',
-      hour12: false
-    }).format(date);
-    // Handle midnight case which might be formatted as "24"
-    return `${hour === '24' ? '00' : hour}:00`;
-  } catch (e) {
-    return 'Invalid Hour';
-  }
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return 'Invalid Hour';
+        const hour = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            hour: '2-digit',
+            hour12: false
+        }).format(date);
+        // Handle midnight case which might be formatted as "24"
+        return `${hour === '24' ? '00' : hour}:00`;
+    } catch (e) {
+        return 'Invalid Hour';
+    }
 };
 
 const formatDateTime = (dateStr: string, timeZone: string): string => {
     try {
         const date = new Date(dateStr);
-        if(isNaN(date.getTime())) return 'Invalid Date';
+        if (isNaN(date.getTime())) return 'Invalid Date';
         return new Intl.DateTimeFormat('en-US', {
             timeZone,
             year: 'numeric', month: '2-digit', day: '2-digit',
@@ -54,79 +54,95 @@ const formatDateTime = (dateStr: string, timeZone: string): string => {
     }
 }
 
-export const processData = (
-  records: Record[], 
-  previousRecords: Record[] | null, 
-  accounts: Account[],
-  filterDateRange: { from: string, to: string },
-  timeZone: string,
-  role: string,
-  permissions: { [key: string]: boolean },
-  manualCosts: any[]
-): ProcessedData => {
-  const accountLabelMap = new Map(accounts.map(acc => [acc.email, acc.label || acc.email]));
+// Helper function to convert eBay image URLs to higher resolution
+const convertEbayImageToHighRes = (url: string): string => {
+    if (!url || !url.includes('ebay')) return url;
 
-  // --- DEDUPLICATION LOGIC ---
-  // Filter out duplicates based on order_id and dt_local
-  const uniqueRecordsMap = new Map<string, Record>();
-  records.forEach(r => {
-    // If it's an order with an ID
-    if (r.kind === 'order' && r.order_id) {
-        const key = `${r.order_id}_${r.dt_local}`;
-        
-        if (!uniqueRecordsMap.has(key)) {
-            uniqueRecordsMap.set(key, r);
-        } else {
-            // Duplicate found. Keep the one with more info (e.g. details) if possible
-            const existing = uniqueRecordsMap.get(key)!;
-            // Prefer the one with details if the existing one doesn't have them
-            if (!existing.details && r.details) {
-                uniqueRecordsMap.set(key, r);
-            }
-            // If both have details or neither, the first one (existing) stays.
-        }
-    } else {
-        // For non-orders (Funds, Help, Case) or orders without ID (N/A), keep them.
-        // Use record ID as key to ensure uniqueness in map, or a random string if ID missing
-        uniqueRecordsMap.set(r.id || Math.random().toString(36), r);
+    // Check if it's an eBay render service URL
+    if (url.includes('imageser/v1/image/render')) {
+        // Replace imgWidth, imgHeight, and length parameters from 276 to 800
+        return url
+            .replace(/(imgWidth=)\d+/g, '$1800')
+            .replace(/(imgHeight=)\d+/g, '$1800')
+            .replace(/(length=)\d+/g, '$1800');
     }
-  });
-  
-  const uniqueRecords = Array.from(uniqueRecordsMap.values());
-  // ---------------------------
 
-  const overviewData = calculateOverview(uniqueRecords, filterDateRange, timeZone, role, permissions);
-  const orders = getOrderList(uniqueRecords, accountLabelMap, timeZone);
-  const ebay = getPlatformRecords(uniqueRecords, 'Ebay_Sales', accountLabelMap, timeZone);
-  const etsy = getPlatformRecords(uniqueRecords, 'Etsy_Sales', accountLabelMap, timeZone);
-  const cases = getSupportRecords(uniqueRecords, 'case', accountLabelMap, timeZone);
-  const help = getSupportRecords(uniqueRecords, 'help', accountLabelMap, timeZone);
-  const fulfill = (role === 'owner' || permissions.viewFulfill)
-    ? getFulfillRecords(uniqueRecords, accountLabelMap, timeZone, manualCosts, filterDateRange)
-    : { table: { headers: ['Fulfill'], rows: [["Permission Denied"]] }, merchizeChartData: [], printwayChartData: [] };
+    return url;
+}
 
-  const { kpis, table: summaryTable, chartData: summaryChartData, topProductsByShop } = (role === 'owner' || permissions.viewSummary)
-    ? calculateSummary(uniqueRecords, previousRecords, accountLabelMap, role, permissions, manualCosts, filterDateRange)
-    : { kpis: {}, table: { headers: ['Summary'], rows: [["Permission Denied"]] }, chartData: [], topProductsByShop: {} };
+export const processData = (
+    records: Record[],
+    previousRecords: Record[] | null,
+    accounts: Account[],
+    filterDateRange: { from: string, to: string },
+    timeZone: string,
+    role: string,
+    permissions: { [key: string]: boolean },
+    manualCosts: any[]
+): ProcessedData => {
+    const accountLabelMap = new Map(accounts.map(acc => [acc.email, acc.label || acc.email]));
 
-  return { 
-      overview: overviewData, 
-      orders, 
-      ebay, 
-      etsy, 
-      cases, 
-      help, 
-      fulfill, 
-      summary: { kpis, table: summaryTable, chartData: summaryChartData, topProductsByShop }
-  };
+    // --- DEDUPLICATION LOGIC ---
+    // Filter out duplicates based on order_id and dt_local
+    const uniqueRecordsMap = new Map<string, Record>();
+    records.forEach(r => {
+        // If it's an order with an ID
+        if (r.kind === 'order' && r.order_id) {
+            const key = `${r.order_id}_${r.dt_local}`;
+
+            if (!uniqueRecordsMap.has(key)) {
+                uniqueRecordsMap.set(key, r);
+            } else {
+                // Duplicate found. Keep the one with more info (e.g. details) if possible
+                const existing = uniqueRecordsMap.get(key)!;
+                // Prefer the one with details if the existing one doesn't have them
+                if (!existing.details && r.details) {
+                    uniqueRecordsMap.set(key, r);
+                }
+                // If both have details or neither, the first one (existing) stays.
+            }
+        } else {
+            // For non-orders (Funds, Help, Case) or orders without ID (N/A), keep them.
+            // Use record ID as key to ensure uniqueness in map, or a random string if ID missing
+            uniqueRecordsMap.set(r.id || Math.random().toString(36), r);
+        }
+    });
+
+    const uniqueRecords = Array.from(uniqueRecordsMap.values());
+    // ---------------------------
+
+    const overviewData = calculateOverview(uniqueRecords, filterDateRange, timeZone, role, permissions);
+    const orders = getOrderList(uniqueRecords, accountLabelMap, timeZone);
+    const ebay = getPlatformRecords(uniqueRecords, 'Ebay_Sales', accountLabelMap, timeZone);
+    const etsy = getPlatformRecords(uniqueRecords, 'Etsy_Sales', accountLabelMap, timeZone);
+    const cases = getSupportRecords(uniqueRecords, 'case', accountLabelMap, timeZone);
+    const help = getSupportRecords(uniqueRecords, 'help', accountLabelMap, timeZone);
+    const fulfill = (role === 'owner' || permissions.viewFulfill)
+        ? getFulfillRecords(uniqueRecords, accountLabelMap, timeZone, manualCosts, filterDateRange)
+        : { table: { headers: ['Fulfill'], rows: [["Permission Denied"]] }, merchizeChartData: [], printwayChartData: [] };
+
+    const { kpis, table: summaryTable, chartData: summaryChartData, topProductsByShop } = (role === 'owner' || permissions.viewSummary)
+        ? calculateSummary(uniqueRecords, previousRecords, accountLabelMap, role, permissions, manualCosts, filterDateRange)
+        : { kpis: {}, table: { headers: ['Summary'], rows: [["Permission Denied"]] }, chartData: [], topProductsByShop: {} };
+
+    return {
+        overview: overviewData,
+        orders,
+        ebay,
+        etsy,
+        cases,
+        help,
+        fulfill,
+        summary: { kpis, table: summaryTable, chartData: summaryChartData, topProductsByShop }
+    };
 };
 
 const calculateOverview = (
-  records: Record[], 
-  filterDateRange: { from: string, to: string },
-  timeZone: string,
-  role: string,
-  permissions: { [key: string]: boolean }
+    records: Record[],
+    filterDateRange: { from: string, to: string },
+    timeZone: string,
+    role: string,
+    permissions: { [key: string]: boolean }
 ): { table: TableData, chartData: OverviewChartData[] } => {
 
     const fromDate = new Date(filterDateRange.from);
@@ -138,19 +154,19 @@ const calculateOverview = (
         return isHourlyViewForChart ? formatHour(dateStr, timeZone) : formatDate(dateStr, timeZone);
     };
 
-    const dailyDataForTable: { 
-        [date: string]: { 
-            orders: Set<string>, 
-            revenue: { [currency: string]: number }, 
-            funds: { [currency: string]: number }, 
-            cost: { [currency: string]: number } 
-        } 
+    const dailyDataForTable: {
+        [date: string]: {
+            orders: Set<string>,
+            revenue: { [currency: string]: number },
+            funds: { [currency: string]: number },
+            cost: { [currency: string]: number }
+        }
     } = {};
 
     const groupedDataForChart: {
         [key: string]: {
             orders: Set<string>,
-            revenue: { [currency: string]: number }, 
+            revenue: { [currency: string]: number },
         }
     } = {};
 
@@ -188,7 +204,7 @@ const calculateOverview = (
             allCurrenciesForChart.add(currency);
         }
     });
-    
+
     const sortedRevenueCurrencies = Array.from(allCurrenciesForTable.revenue).sort();
     const sortedFundsCurrencies = Array.from(allCurrenciesForTable.funds).sort();
     const sortedCostCurrencies = Array.from(allCurrenciesForTable.cost).sort();
@@ -198,8 +214,8 @@ const calculateOverview = (
     const costHeaders = (role === 'owner' || permissions.viewFulfill) ? sortedCostCurrencies.map(c => `Cost (${c})`) : [];
 
     const headers = [
-        "Date", 
-        "Order Count", 
+        "Date",
+        "Order Count",
         ...revenueHeaders,
         ...fundsHeaders,
         ...costHeaders,
@@ -278,9 +294,14 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
             }
             // Get image of the first item
             productImage = o.details.items[0].image || null;
-            
+
+            // Convert to high-res based on platform
             if (productImage && productImage.includes('il_') && productImage.includes('x')) {
+                // Etsy: Convert to fullxfull
                 fullProductImage = productImage.replace(/il_\d+x\w+/, 'il_fullxfull');
+            } else if (productImage && productImage.includes('ebay')) {
+                // eBay: Convert to 800px
+                fullProductImage = convertEbayImageToHighRes(productImage);
             } else {
                 fullProductImage = productImage;
             }
@@ -312,14 +333,14 @@ const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sale
     const platformRecords = records.filter(r => r.source === source && r.kind === 'order');
 
     const sortedRecords = [...platformRecords].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
-    
+
     const rows = sortedRecords.map(r => {
         // Create a list of actions for the Action column
         const actions = [];
         if (r.details) {
             actions.push({ type: 'view', label: 'View', id: r.id! });
         }
-        
+
         // Show Resync if email_id exists
         if (r.email_id) {
             actions.push({ type: 'resync', label: 'Resync', id: r.id! });
@@ -336,9 +357,14 @@ const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sale
                 productName = itemNames;
             }
             productImage = r.details.items[0].image || null;
-            
+
+            // Convert to high-res based on platform
             if (productImage && productImage.includes('il_') && productImage.includes('x')) {
+                // Etsy: Convert to fullxfull
                 fullProductImage = productImage.replace(/il_\d+x\w+/, 'il_fullxfull');
+            } else if (productImage && productImage.includes('ebay')) {
+                // eBay: Convert to 800px
+                fullProductImage = convertEbayImageToHighRes(productImage);
             } else {
                 fullProductImage = productImage;
             }
@@ -361,7 +387,7 @@ const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sale
 }
 
 const getSupportRecords = (records: Record[], kind: 'case' | 'help', accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = kind === 'case' 
+    const headers = kind === 'case'
         ? ["Order Number", "Message", "Source", "Account", "DateTime"]
         : ["Order Number", "Help Kind", "Source", "Account", "DateTime"];
 
@@ -375,22 +401,22 @@ const getSupportRecords = (records: Record[], kind: 'case' | 'help', accountLabe
         accountLabelMap.get(r.account) || r.account,
         formatDateTime(r.dt_local, timeZone)
     ]);
-    
+
     return { headers, rows };
 }
 
 const getFulfillRecords = (
-  records: Record[], 
-  accountLabelMap: Map<string, string>, 
-  timeZone: string,
-  manualCosts: any[],
-  filterDateRange: { from: string, to: string }
+    records: Record[],
+    accountLabelMap: Map<string, string>,
+    timeZone: string,
+    manualCosts: any[],
+    filterDateRange: { from: string, to: string }
 ): { table: TableData; merchizeChartData: FulfillChartData[]; printwayChartData: FulfillChartData[] } => {
 
     const headers = ["Date", "Order Number", "Product Name", "Provider", "Fulfillment Code", "Cost (USD)", "Shop Account"];
 
     // 1. Xử lý Manual Costs (Chi phí nhập tay)
-    const filteredManualCosts = manualCosts.filter(cost => 
+    const filteredManualCosts = manualCosts.filter(cost =>
         cost.date >= filterDateRange.from && cost.date <= filterDateRange.to
     );
 
@@ -406,7 +432,7 @@ const getFulfillRecords = (
 
     // 2. Xử lý Email Records (Chi phí từ API/Email)
     const fulfillRecords = records.filter(r => r.kind === 'order' && (r.ff_code || r.cost_total || r.product_name));
-    
+
     const emailRows = fulfillRecords.map(r => {
         const ffCode = r.ff_code || '-';
         let provider = '-';
@@ -427,7 +453,7 @@ const getFulfillRecords = (
             accountLabelMap.get(r.account) || r.account,
         ];
     });
-    
+
     // 3. Calculate Chart Data
     const merchizeProductCounts = new Map<string, number>();
     const printwayProductCounts = new Map<string, number>();
@@ -460,24 +486,24 @@ const getFulfillRecords = (
 
     const merchizeChartData = processCounts(merchizeProductCounts);
     const printwayChartData = processCounts(printwayProductCounts);
-    
+
     // 4. Kết hợp và Sắp xếp
     emailRows.sort((a, b) => new Date(b[0] as string).getTime() - new Date(a[0] as string).getTime());
-    
+
     const rows = [...manualRows, ...emailRows];
 
     return { table: { headers, rows }, merchizeChartData, printwayChartData };
 }
 
 const calculateSummary = (
-  records: Record[], 
-  previousRecords: Record[] | null, 
-  accountLabelMap: Map<string, string>,
-  role: string,
-  permissions: { [key: string]: boolean },
-  manualCosts: any[],
-  filterDateRange: { from: string; to: string }
-): {kpis: KpiData, table: TableData, chartData: SummaryChartData[], topProductsByShop: { [shopName: string]: TopProduct[] }} => {
+    records: Record[],
+    previousRecords: Record[] | null,
+    accountLabelMap: Map<string, string>,
+    role: string,
+    permissions: { [key: string]: boolean },
+    manualCosts: any[],
+    filterDateRange: { from: string; to: string }
+): { kpis: KpiData, table: TableData, chartData: SummaryChartData[], topProductsByShop: { [shopName: string]: TopProduct[] } } => {
 
     const calculatePercentageChange = (current: number, previous: number): { change: number; direction: 'up' | 'down' | 'neutral' } => {
         if (previous === 0) {
@@ -513,7 +539,7 @@ const calculateSummary = (
             raw.shops.add(r.account);
             const currency = r.currency || 'USD';
             if (r.kind === 'order') {
-                if(r.order_id) raw.orderIds.add(r.order_id);
+                if (r.order_id) raw.orderIds.add(r.order_id);
                 if (r.amount > 0) {
                     raw.revenueByCurrency[currency] = (raw.revenueByCurrency[currency] || 0) + r.amount;
                 }
@@ -526,21 +552,21 @@ const calculateSummary = (
         });
         return raw;
     };
-    
+
     const currentRawKpis = getRawKpis(records);
     const previousRawKpis = previousRecords ? getRawKpis(previousRecords) : null;
-    
-    const filteredManualCosts = manualCosts.filter(cost => 
+
+    const filteredManualCosts = manualCosts.filter(cost =>
         cost.date >= filterDateRange.from && cost.date <= filterDateRange.to
     );
 
     if (role === 'owner' || permissions.viewFulfill) {
-      filteredManualCosts.forEach(cost => {
-          const currency = cost.currency || 'USD';
-          currentRawKpis.costByCurrency[currency] = (currentRawKpis.costByCurrency[currency] || 0) + cost.cost;
-      });
+        filteredManualCosts.forEach(cost => {
+            const currency = cost.currency || 'USD';
+            currentRawKpis.costByCurrency[currency] = (currentRawKpis.costByCurrency[currency] || 0) + cost.cost;
+        });
     }
-    
+
     const kpis: KpiData = {};
 
     const ordersComparison = previousRawKpis ? calculatePercentageChange(currentRawKpis.orderIds.size, previousRawKpis.orderIds.size) : {};
@@ -550,38 +576,38 @@ const calculateSummary = (
     };
 
     kpis['Shops'] = { value: currentRawKpis.shops.size.toString() };
-    
+
     const processFinancialKpi = (
-      currentData: { [c: string]: number }, 
-      previousData: { [c: string]: number } | null
+        currentData: { [c: string]: number },
+        previousData: { [c: string]: number } | null
     ): { [currency: string]: KpiValue } | null => {
-      const allCurrencies = new Set([...Object.keys(currentData), ...(previousData ? Object.keys(previousData) : [])]);
-      if (allCurrencies.size === 0) return null;
-      
-      const financialKpis: { [currency: string]: KpiValue } = {};
-      Array.from(allCurrencies).sort().forEach(c => {
-          const current = currentData[c] || 0;
-          const previous = previousData?.[c] || 0;
-          const comparison = previousRawKpis ? calculatePercentageChange(current, previous) : {};
-          financialKpis[c] = {
-              value: formatCurrency(current, c),
-              ...comparison,
-          };
-      });
-      return financialKpis;
+        const allCurrencies = new Set([...Object.keys(currentData), ...(previousData ? Object.keys(previousData) : [])]);
+        if (allCurrencies.size === 0) return null;
+
+        const financialKpis: { [currency: string]: KpiValue } = {};
+        Array.from(allCurrencies).sort().forEach(c => {
+            const current = currentData[c] || 0;
+            const previous = previousData?.[c] || 0;
+            const comparison = previousRawKpis ? calculatePercentageChange(current, previous) : {};
+            financialKpis[c] = {
+                value: formatCurrency(current, c),
+                ...comparison,
+            };
+        });
+        return financialKpis;
     }
 
     const revenueKpis = processFinancialKpi(currentRawKpis.revenueByCurrency, previousRawKpis?.revenueByCurrency || null);
-    if(revenueKpis) kpis['Revenue'] = revenueKpis;
+    if (revenueKpis) kpis['Revenue'] = revenueKpis;
 
-    if(role === 'owner' || permissions.viewFunds) {
+    if (role === 'owner' || permissions.viewFunds) {
         const fundsKpis = processFinancialKpi(currentRawKpis.fundsByCurrency, previousRawKpis?.fundsByCurrency || null);
-        if(fundsKpis) kpis['Funds'] = fundsKpis;
+        if (fundsKpis) kpis['Funds'] = fundsKpis;
     }
 
-    if(role === 'owner' || permissions.viewFulfill) {
+    if (role === 'owner' || permissions.viewFulfill) {
         const costKpis = processFinancialKpi(currentRawKpis.costByCurrency, previousRawKpis?.costByCurrency || null);
-        if(costKpis) kpis['Cost'] = costKpis;
+        if (costKpis) kpis['Cost'] = costKpis;
     }
 
     const shopData: {
@@ -600,11 +626,11 @@ const calculateSummary = (
 
     records.forEach(r => {
         const shopLabel = accountLabelMap.get(r.account) || r.account;
-        
+
         if (!shopData[r.account]) {
-            shopData[r.account] = { revenue: {}, orders: new Set(), funds: {}, cost: {}};
+            shopData[r.account] = { revenue: {}, orders: new Set(), funds: {}, cost: {} };
         }
-        
+
         // Init Product Stats Map for Shop
         if (!productStatsByShop[shopLabel]) {
             productStatsByShop[shopLabel] = new Map();
@@ -618,8 +644,8 @@ const calculateSummary = (
                 allTableCurrencies.revenue.add(currency);
             }
             if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
-                 shopData[r.account].cost['USD'] = (shopData[r.account].cost['USD'] || 0) + r.cost_total;
-                 allTableCurrencies.cost.add('USD');
+                shopData[r.account].cost['USD'] = (shopData[r.account].cost['USD'] || 0) + r.cost_total;
+                allTableCurrencies.cost.add('USD');
             }
 
             // --- Aggregate Product Stats ---
@@ -628,12 +654,15 @@ const calculateSummary = (
                 r.details.items.forEach(item => {
                     const name = item.name.trim();
                     const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
-                    
+
                     // --- High Res Image Logic ---
                     let image = item.image || current.image;
                     if (image && image.includes('il_') && image.includes('x')) {
-                        // Replace common small sizes (75x75, 170x135, 340x270, 570xN) with fullxfull
+                        // Etsy: Replace common small sizes (75x75, 170x135, 340x270, 570xN) with fullxfull
                         image = image.replace(/il_\d+x\w+/, 'il_fullxfull');
+                    } else if (image && image.includes('ebay')) {
+                        // eBay: Convert to 800px
+                        image = convertEbayImageToHighRes(image);
                     }
 
                     productStatsByShop[shopLabel].set(name, {
@@ -642,19 +671,19 @@ const calculateSummary = (
                         image: image
                     });
                 });
-            } 
+            }
             // Priority 2: Use product_name from record (likely from Cost APIs)
             else if (r.product_name && r.product_name !== '-' && r.product_name !== 'N/A') {
                 const names = r.product_name.split(',').map(n => n.trim()).filter(n => n);
                 names.forEach(name => {
-                     const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
-                     // Assume quantity 1 and split amount if multiple names, or just assign amount to each for simplicity approx
-                     // For 'Best Selling' by quantity, just incrementing qty is safer
-                     productStatsByShop[shopLabel].set(name, {
+                    const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
+                    // Assume quantity 1 and split amount if multiple names, or just assign amount to each for simplicity approx
+                    // For 'Best Selling' by quantity, just incrementing qty is safer
+                    productStatsByShop[shopLabel].set(name, {
                         qty: current.qty + 1,
                         rev: current.rev + r.amount, // Rough estimate
-                        image: current.image 
-                     });
+                        image: current.image
+                    });
                 });
             }
         } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewFunds)) {
@@ -680,7 +709,7 @@ const calculateSummary = (
     const fundsHeaders = (role === 'owner' || permissions.viewFunds) ? sortedFundsCurrencies.map(c => `Funds (${c})`) : [];
     const costHeaders = (role === 'owner' || permissions.viewFulfill) ? sortedCostCurrencies.map(c => `Cost (${c})`) : [];
 
-    const tableHeaders = ["Shop", "Orders", 
+    const tableHeaders = ["Shop", "Orders",
         ...revenueHeaders,
         ...fundsHeaders,
         ...costHeaders
@@ -703,7 +732,7 @@ const calculateSummary = (
         const revenueValues = sortedRevenueCurrencies.map(() => 0);
         const fundsValues = (role === 'owner' || permissions.viewFunds) ? sortedFundsCurrencies.map(() => 0) : [];
         const costValues = (role === 'owner' || permissions.viewFulfill) ? sortedCostCurrencies.map(c => manualCostData.cost[c] || 0) : [];
-        
+
         const manualRow = [
             "Manual Entry",
             0,
@@ -715,18 +744,18 @@ const calculateSummary = (
     }
 
     const summaryChartData = Object.entries(shopData).map(([account, data]) => {
-      const chartEntry: any = {
-        shop: accountLabelMap.get(account) || account,
-      };
-      // Revenue
-      for(const currency of sortedRevenueCurrencies) {
-        chartEntry[`revenue${currency}`] = data.revenue[currency] || 0;
-      }
-      // Funds (Update: Include Funds in Chart Data)
-      for(const currency of sortedFundsCurrencies) {
-        chartEntry[`funds${currency}`] = data.funds[currency] || 0;
-      }
-      return chartEntry;
+        const chartEntry: any = {
+            shop: accountLabelMap.get(account) || account,
+        };
+        // Revenue
+        for (const currency of sortedRevenueCurrencies) {
+            chartEntry[`revenue${currency}`] = data.revenue[currency] || 0;
+        }
+        // Funds (Update: Include Funds in Chart Data)
+        for (const currency of sortedFundsCurrencies) {
+            chartEntry[`funds${currency}`] = data.funds[currency] || 0;
+        }
+        return chartEntry;
     });
 
     // --- TRANSFORM PRODUCT STATS TO SORTED ARRAY ---
@@ -734,16 +763,16 @@ const calculateSummary = (
     Object.keys(productStatsByShop).forEach(shop => {
         const stats = productStatsByShop[shop];
         const sortedProducts = Array.from(stats.entries())
-            .map(([name, stat]) => ({ 
-                name, 
-                quantity: stat.qty, 
+            .map(([name, stat]) => ({
+                name,
+                quantity: stat.qty,
                 revenue: stat.rev,
-                image: stat.image 
+                image: stat.image
             }))
             .sort((a, b) => b.quantity - a.quantity) // Sort by Quantity DESC
-           // .slice(0, 100); // Increased limit to Top 100
+        // .slice(0, 100); // Increased limit to Top 100
         topProductsByShop[shop] = sortedProducts;
     });
 
-    return { kpis, table: {headers: tableHeaders, rows: tableRows}, chartData: summaryChartData, topProductsByShop };
+    return { kpis, table: { headers: tableHeaders, rows: tableRows }, chartData: summaryChartData, topProductsByShop };
 }
