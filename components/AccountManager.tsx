@@ -10,6 +10,7 @@ import NotificationSettings from './NotificationSettings'; // <-- Import
 import { updateAccountsInFirebase, getAllRecordsForAccount } from '../services/firebaseService';
 import { parseMessage, RULES } from '../services/rules';
 import { reprocessRecord } from '../services/emailService';
+import Spinner from './Spinner';
 
 // --- HELPERS (Giữ nguyên logic decode) ---
 const decodeQP = (input: string): string => {
@@ -137,7 +138,7 @@ const MailManager: React.FC = () => {
       return {
         text: 'Syncing...',
         color: 'text-blue-500 dark:text-blue-400',
-        icon: <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>,
+        icon: <Spinner size="sm" color="text-blue-500 dark:text-blue-400" />,
         title: `System is actively processing ${account.email}. Status: ${syncState}`
       };
     }
@@ -147,7 +148,7 @@ const MailManager: React.FC = () => {
       return {
         text: 'History Sync...',
         color: 'text-purple-500 dark:text-purple-400',
-        icon: <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>,
+        icon: <Spinner size="sm" color="text-purple-500 dark:text-purple-400" />,
         title: `Background historical sync in progress. Reached: ${progressDate}`
       };
     }
@@ -353,10 +354,7 @@ const MailManager: React.FC = () => {
         {/* Auto-save indicator */}
         {isSavingAccounts && (
           <div className="flex items-center justify-center gap-2 mt-4 text-sm text-blue-600 dark:text-blue-400">
-            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+            <Spinner size="sm" color="text-blue-600 dark:text-blue-400" />
             <span>Auto-saving...</span>
           </div>
         )}
