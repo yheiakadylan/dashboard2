@@ -2,15 +2,12 @@
 importScripts('https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js');
 
-// Initialize the Firebase app in the service worker
-firebase.initializeApp({
-  apiKey: "AIzaSyCf9A3apdFE24uU4M3E4j1cnBvmjiB9Z7E",
-  authDomain: "dashboard-13ec8.firebaseapp.com",
-  projectId: "dashboard-13ec8",
-  storageBucket: "dashboard-13ec8.firebasestorage.app",
-  messagingSenderId: "604763790543",
-  appId: "1:604763790543:web:26905ec5742624300e6bba"
-});
+// Load Firebase config from external file
+// This file will be generated dynamically and is not committed to git
+importScripts('/firebase-config.js');
+
+// Initialize the Firebase app in the service worker using the loaded config
+firebase.initializeApp(self.FIREBASE_CONFIG);
 
 // Retrieve an instance of Firebase Messaging so that it can handle background messages.
 const messaging = firebase.messaging();
