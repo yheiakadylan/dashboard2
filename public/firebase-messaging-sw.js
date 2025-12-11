@@ -12,7 +12,6 @@ firebase.initializeApp(self.FIREBASE_CONFIG);
 // Retrieve an instance of Firebase Messaging so that it can handle background messages.
 const messaging = firebase.messaging();
 
-// ❗ Vì server giờ gửi data-only, nên lấy title/body/url trong payload.data
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Received background message ', payload);
 
