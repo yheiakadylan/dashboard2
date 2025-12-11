@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Record } from '../api/_lib/types';
 import { useDashboard } from '../contexts/DashboardContext';
+import { getHighResImage } from '../utils/imageUtils';
 
 interface OrderDetailModalProps {
   record: Record;
@@ -9,6 +10,8 @@ interface OrderDetailModalProps {
 
 const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) => {
   const { accounts, timeZone } = useDashboard();
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   if (!record.details) return null;
 
@@ -30,9 +33,9 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
   }).format(new Date(dt_local));
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[70] p-4" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
-        
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[70] p-4 animate-modal-backdrop" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 animate-modal-scale" onClick={e => e.stopPropagation()}>
+
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
           <div>
@@ -48,7 +51,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
 
         {/* Scrollable Content */}
         <div className="overflow-y-auto p-6 space-y-8">
-          
+
           {/* Customer & Address Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div>
@@ -94,7 +97,16 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
                       <td className="px-4 py-4">
                         <div className="flex items-start space-x-4">
                           {item.image && (
-                            <img src={item.image} alt="" className="w-16 h-16 object-cover rounded-md border border-gray-200 dark:border-gray-600 flex-shrink-0" />
+                            <img
+                              src={item.image}
+                              alt=""
+                              className="w-16 h-16 object-cover rounded-md border border-gray-200 dark:border-gray-600 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                              onClick={() => {
+                                setImageLoaded(false);
+                                setPreviewImage(item.image);
+                              }}
+                              title="Click to view full size"
+                            />
                           )}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-gray-900 dark:text-white break-words">{item.name}</p>
@@ -165,6 +177,42 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
           </button>
         </div>
       </div>
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-modal-backdrop cursor-pointer"
+          onClick={() => setPreviewImage(null)}
+          title="Click to close"
+        >
+          <div className="relative max-w-5xl max-h-[95vh] animate-modal-scale" onClick={(e) => e.stopPropagation()}>
+            {/* Loading Spinner */}
+            {!imageLoaded && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-800 rounded-lg">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading image...</p>
+                </div>
+              </div>
+            )}
+
+            <img
+              src={getHighResImage(previewImage) || previewImage}
+              alt="Product"
+              className={`max-w-full max-h-[95vh] object-contain rounded-lg shadow-2xl transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+              onLoad={() => setImageLoaded(true)}
+            />
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow-lg transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

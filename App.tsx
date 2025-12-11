@@ -370,7 +370,7 @@ const DashboardLayout: React.FC = () => {
                             <Spinner size="lg" />
                         </div>
                     )}
-                    <div className={`h-full w-full transition-opacity duration-300 ${isFetchingNewRange ? 'opacity-50' : 'opacity-100'}`}>
+                    <div className={`h-full w-full transition-opacity duration-300 animate-fade-in ${isFetchingNewRange ? 'opacity-50' : 'opacity-100'}`}>
                         {renderActiveTab()}
                     </div>
                 </div>
