@@ -347,20 +347,26 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           setRecords(cachedResult.data.records);
           setManualCosts(cachedResult.data.manualCosts);
           setIsLoading(false);
-          setSyncState(cachedResult.isStale ? 'Refreshing data...' : null);
 
-          // If cache is fresh, skip refetch
+          // Set up webhooks for all accounts (fresh or stale)
+          cachedResult.data.accounts.forEach(acc => {
+            if (acc.provider === 'gmail') {
+              setupGmailWatch(teamId, acc).catch(err => console.error(`Failed to initialize webhook for ${acc.email}:`, err));
+            }
+          });
+
+          // If cache is fresh, we're done
           if (!cachedResult.isStale) {
-            // Still set up webhooks and auto-sync in background
-            cachedResult.data.accounts.forEach(acc => {
-              if (acc.provider === 'gmail') {
-                setupGmailWatch(teamId, acc).catch(err => console.error(`Failed to initialize webhook for ${acc.email}:`, err));
-              }
-            });
+            setSyncState(null);
             return;
           }
+
+          // If cache is stale, fetch fresh data in background
+          setSyncState('Refreshing data...');
+          // Continue below to fetch fresh data
         }
 
+        // Only reach here if NO cache exists
         // Fetch fresh data from Firebase
         const [fbAccounts, initialDisplayRecords, manualCostEntries] = await Promise.all([
           getAccountsFromFirebase(teamId),

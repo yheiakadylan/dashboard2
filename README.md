@@ -1,4 +1,4 @@
-# 📊 Sales Dashboard - VikCom
+# 📊 Sales Dashboard
 
 Ứng dụng quản lý bán hàng đa kênh với hiệu suất cao, tích hợp eBay, Etsy và các nền tảng thương mại điện tử.
 
@@ -48,7 +48,7 @@
 ## 🛠️ Tech Stack
 
 ### Frontend
-- **React 18+** - UI framework
+- **React 19.2.1** - Latest UI framework
 - **TypeScript** - Type safety
 - **TailwindCSS 3.4** - Styling (local build)
 - **Recharts** - Data visualization
@@ -90,13 +90,30 @@ cd dashboardvikcom
 npm install
 ```
 
-### Bước 3: Cấu hình Environment Variables
-Tạo file `.env.local`:
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
+### Bước 3: Cấu hình Firebase
+
+#### 3.1. Tạo Firebase Config cho Service Worker
+Service worker cần Firebase config để xử lý push notifications:
+
+```bash
 ```
 
-### Bước 4: Cấu hình Firebase
+Sau đó mở `public/firebase-config.js` và điền thông tin Firebase của bạn:
+```javascript
+self.FIREBASE_CONFIG = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.firebasestorage.app",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+```
+
+> **Lưu ý**: File `public/firebase-config.js` đã được thêm vào `.gitignore` để bảo mật.
+
+#### 3.2. Cấu hình Firebase trong Code
+Firebase config trong `services/firebaseService.ts` sẽ tự động sử dụng các biến môi trường hoặc fallback values.
 Cập nhật Firebase config trong `services/firebaseService.ts`
 
 ### Bước 5: Chạy ứng dụng
@@ -208,6 +225,15 @@ Dự án private. Liên hệ owner để được cấp quyền truy cập.
 
 ## 📝 Changelog
 
+### v1.1.0 (2025-12-11)
+- 🎨 **UI Enhancements**: Skeleton loading, empty states, enhanced toast notifications
+- ⚛️ **React 19.2.1**: Updated to latest React version
+- 🔒 **Security**: Firebase config moved to gitignore, no exposed credentials
+- 🚀 **Cache UX**: Improved stale-while-revalidate with dimming effect
+- ✨ **Toast Notifications**: Progress bars, gradient styling, stacking support
+- 📭 **Empty States**: Beautiful icons, messages, and action buttons
+- 💀 **Skeleton Loading**: Shimmer animation for better loading experience
+
 ### v1.0.0-optimized (2025-12-10)
 - ✨ IndexedDB caching với 10x faster loads
 - ⚡ TailwindCSS local build (98% smaller)
@@ -224,7 +250,7 @@ Dự án private. Liên hệ owner để được cấp quyền truy cập.
 
 ## 📄 License
 
-Private - All rights reserved © VikCom 2025
+Private - All rights reserved © haitrinh
 
 ## 👤 Author
 
@@ -234,8 +260,8 @@ Private - All rights reserved © VikCom 2025
 ## 📞 Support
 
 Để được hỗ trợ, vui lòng liên hệ qua:
-- Email: [contact info]
-- GitHub Issues: [Private repo]
+- Email: haitrinh2605204@gmail.com
+- GitHub Issues: https://github.com/yheiakadylan/dashboardvikcom/issues
 
 ---
 
