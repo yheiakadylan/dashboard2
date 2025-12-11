@@ -8,6 +8,7 @@ import { getHighResImage } from '../utils/imageUtils';
 
 interface TopProductsChartProps {
   data: { [shopName: string]: TopProduct[] };
+  hideTitle?: boolean;
 }
 
 // 1. Custom Tick: Xử lý sự kiện chuột trái (onClick)
@@ -45,7 +46,7 @@ const CustomYAxisTick = ({ x, y, payload, data, onClick }: any) => {
   );
 };
 
-const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
+const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = false }) => {
   const shopNames = Object.keys(data).sort();
   const [selectedShop, setSelectedShop] = useState<string>(shopNames.length > 0 ? shopNames[0] : '');
   const [limit, setLimit] = useState<number>(10);
@@ -130,16 +131,18 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
   const dynamicHeight = chartData.length === 0 ? 200 : Math.min(600, Math.max(300, chartData.length * 40 + 150));
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col relative animate-fade-in-up" style={{ height: `${dynamicHeight}px` }}>
+    <div className="bg-white dark:bg-gray-800 p-2 md:p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col relative animate-fade-in-up" style={{ height: `${dynamicHeight}px` }}>
 
       {/* --- HEADER --- */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-          Top Products
-          <span className="text-xs font-normal text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">
-            Showing {chartData.length} of {fullChartData.length}
-          </span>
-        </h3>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 md:mb-4 gap-2 md:gap-3">
+        {!hideTitle && (
+          <h3 className="text-base md:text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            Top Products
+            <span className="text-xs font-normal text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">
+              Showing {chartData.length} of {fullChartData.length}
+            </span>
+          </h3>
+        )}
 
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           {/* Export Button */}
@@ -188,7 +191,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data }) => {
             <BarChart
               layout="vertical"
               data={chartData}
-              margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
+              margin={{ top: 5, right: 5, left: 10, bottom: 5 }}
               barCategoryGap={limit > 20 ? 2 : 4}
             >
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--recharts-grid-stroke)" />

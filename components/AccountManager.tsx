@@ -259,7 +259,7 @@ const MailManager: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-grow overflow-y-auto pr-2">
+      <div className="flex-grow overflow-y-auto pr-2 scrollbar-hide">
         <h3 className="text-lg font-semibold mb-3">Manage Mail Accounts</h3>
         <div className="space-y-2">
           {localAccounts.map((acc, index) => {
@@ -273,14 +273,14 @@ const MailManager: React.FC = () => {
                 onDragEnter={() => dragOverItem.current = index}
                 onDragEnd={handleDrop}
                 onDragOver={(e) => e.preventDefault()}
-                className="flex items-center justify-between bg-gray-100 dark:bg-gray-700 p-2 rounded gap-2 sm:gap-4 cursor-grab active:cursor-grabbing"
+                className="flex flex-col md:flex-row md:items-center justify-between bg-gray-100 dark:bg-gray-700 p-1.5 md:p-3 rounded gap-2 cursor-grab active:cursor-grabbing"
               >
-                <div className="flex items-center gap-3 flex-grow min-w-0">
+                <div className="flex items-center gap-2 md:gap-3 flex-grow min-w-0">
                   <div className="flex-shrink-0">
                     {acc.provider === 'gmail' ? (
-                      <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-6 h-6" />
+                      <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-5 h-5 md:w-6 md:h-6" />
                     ) : (
-                      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/512px-Microsoft_logo.svg.png?20210729021049" alt="Microsoft" className="w-6 h-6" />
+                      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/512px-Microsoft_logo.svg.png?20210729021049" alt="Microsoft" className="w-5 h-5 md:w-6 md:h-6" />
                     )}
                   </div>
                   <div className="flex-grow space-y-1 min-w-0">
@@ -288,10 +288,10 @@ const MailManager: React.FC = () => {
                       type="text"
                       value={acc.label}
                       onChange={(e) => handleLabelChange(acc.id, e.target.value)}
-                      className="font-semibold bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-white p-1 rounded w-full focus:ring-1 focus:ring-blue-500 focus:outline-none truncate"
+                      className="font-semibold bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-white p-1 text-sm md:text-base rounded w-full focus:ring-1 focus:ring-blue-500 focus:outline-none truncate"
                       placeholder="Enter Shop Name"
                     />
-                    <p className="text-sm text-gray-500 dark:text-gray-400 px-1 truncate">{acc.email}</p>
+                    <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 px-1 truncate">{acc.email}</p>
 
                     <div className={`flex items-center gap-1.5 px-1 text-xs font-medium ${syncStatus.color}`} title={syncStatus.title}>
                       {syncStatus.icon}
@@ -300,26 +300,26 @@ const MailManager: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center flex-shrink-0 gap-2">
+                <div className="flex items-center flex-shrink-0 gap-1.5 md:gap-2 justify-end md:justify-start">
                   <button
                     onClick={() => handleQuickSyncClick(acc)}
-                    className="text-teal-600 dark:text-teal-400 hover:text-teal-500 dark:hover:text-teal-300 font-semibold px-3 py-1 rounded-md transition-colors text-sm"
+                    className="text-teal-600 dark:text-teal-400 hover:text-teal-500 dark:hover:text-teal-300 font-semibold px-2 md:px-3 py-1 rounded-md transition-colors text-xs md:text-sm whitespace-nowrap"
                     title="Sync data for the last 7 days"
                   >
-                    Sync 7 Days
+                    Sync 7D
                   </button>
                   <button
                     onClick={() => handleReSync(acc)}
-                    className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 font-semibold px-3 py-1 rounded-md transition-colors text-sm disabled:opacity-50"
+                    className="hidden md:inline-block text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 font-semibold px-3 py-1 rounded-md transition-colors text-sm disabled:opacity-50"
                     title="Re-sync History"
                   >
                     Re-sync
                   </button>
                   <button
                     onClick={() => handleDelete(acc.id)}
-                    className="text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 font-semibold px-3 py-1 rounded-md transition-colors text-sm disabled:opacity-50"
+                    className="text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 font-semibold px-2 md:px-3 py-1 rounded-md transition-colors text-xs md:text-sm"
                   >
-                    Delete
+                    Del
                   </button>
                 </div>
               </div>
@@ -371,12 +371,12 @@ const AccountManager: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'mail' | 'users' | 'costs' | 'notifications'>('mail');
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 animate-modal-backdrop">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl border border-gray-200 dark:border-gray-700 flex flex-col h-[720px] max-h-[90vh] animate-slide-in-right">
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[100] p-2 md:p-4 animate-modal-backdrop">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl border border-gray-200 dark:border-gray-700 flex flex-col h-[90vh] md:h-[720px] md:max-h-[90vh] animate-slide-in-right">
 
         {/* Header */}
-        <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Settings</h2>
+        <div className="flex justify-between items-center p-3 md:p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <h2 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white">Settings</h2>
           <button onClick={() => setIsAccountManagerOpen(false)} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
             <svg xmlns="http://www.w3.org/2000/svg" width="20px" height="20px" viewBox="0 0 24 24" fill="none">
               <path fillRule="evenodd" clipRule="evenodd" d="M5.29289 5.29289C5.68342 4.90237 6.31658 4.90237 6.70711 5.29289L12 10.5858L17.2929 5.29289C17.6834 4.90237 18.3166 4.90237 18.7071 5.29289C19.0976 5.68342 19.0976 6.31658 18.7071 6.70711L13.4142 12L18.7071 17.2929C19.0976 17.6834 19.0976 18.3166 18.7071 18.7071C18.3166 19.0976 17.6834 19.0976 17.2929 18.7071L12 13.4142L6.70711 18.7071C6.31658 19.0976 5.68342 19.0976 5.29289 18.7071C4.90237 18.3166 4.90237 17.6834 5.29289 17.2929L10.5858 12L5.29289 6.70711C4.90237 6.31658 4.90237 5.68342 5.29289 5.29289Z" fill="currentColor" />
@@ -388,13 +388,13 @@ const AccountManager: React.FC = () => {
         <div className="flex border-b border-gray-200 dark:border-gray-700 flex-shrink-0 overflow-x-auto">
           <button
             onClick={() => setActiveTab('mail')}
-            className={`flex-1 py-3 px-4 font-semibold text-center transition-colors whitespace-nowrap ${activeTab === 'mail' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'mail' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
           >
             Mail Accounts
           </button>
           <button
             onClick={() => setActiveTab('notifications')}
-            className={`flex-1 py-3 px-4 font-semibold text-center transition-colors whitespace-nowrap ${activeTab === 'notifications' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'notifications' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
           >
             Notifications
           </button>
@@ -402,13 +402,13 @@ const AccountManager: React.FC = () => {
             <>
               <button
                 onClick={() => setActiveTab('users')}
-                className={`flex-1 py-3 px-4 font-semibold text-center transition-colors whitespace-nowrap ${activeTab === 'users' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'users' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
               >
                 User Management
               </button>
               <button
                 onClick={() => setActiveTab('costs')}
-                className={`flex-1 py-3 px-4 font-semibold text-center transition-colors whitespace-nowrap ${activeTab === 'costs' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'costs' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
               >
                 Manual Costs
               </button>
@@ -417,7 +417,7 @@ const AccountManager: React.FC = () => {
         </div>
 
         {/* Content */}
-        <div className="p-6 flex-grow flex flex-col overflow-hidden bg-white dark:bg-gray-800">
+        <div className="p-3 md:p-6 flex-grow flex flex-col overflow-hidden bg-white dark:bg-gray-800">
           {activeTab === 'mail' && <MailManager />}
           {activeTab === 'users' && <UserManager />}
           {activeTab === 'costs' && <ManualCostManager />}

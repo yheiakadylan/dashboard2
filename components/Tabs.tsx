@@ -48,8 +48,12 @@ const Tabs: React.FC = () => {
   const visibleTabs = getPermittedTabs(tabOrder).filter(tab => !hiddenTabs.has(tab));
 
   return (
-    <div className="flex items-center">
-      <nav className="-mb-px flex space-x-2 px-4 flex-1" aria-label="Tabs">
+    <div className="hidden md:flex items-center w-full">
+      {/* Tab Navigation - Only visible on desktop */}
+      <nav
+        className="-mb-px flex space-x-2 px-4 flex-1"
+        aria-label="Tabs"
+      >
         {visibleTabs.map((tab) => {
           const isHiddenOnMobile = TABS_TO_HIDE_ON_MOBILE.includes(tab);
           return (
@@ -57,10 +61,10 @@ const Tabs: React.FC = () => {
               key={tab}
               onClick={() => handleTabClick(tab)}
               className={`${activeTab === tab
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-500'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-500'
                 } ${isHiddenOnMobile ? 'hidden md:inline-block' : 'inline-block'
-                } whitespace-nowrap py-3 px-2 border-b-2 font-medium text-sm transition-colors focus:outline-none tracking-wider uppercase`}
+                } whitespace-nowrap py-3 px-2 border-b-2 font-medium text-sm transition-colors focus:outline-none tracking-wider uppercase flex-shrink-0`}
             >
               {tab}
             </button>
@@ -68,10 +72,10 @@ const Tabs: React.FC = () => {
         })}
       </nav>
 
-      {/* Settings Button */}
+      {/* Settings Button - Only visible on desktop */}
       <button
         onClick={() => setIsTabSettingsOpen(true)}
-        className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors mr-2"
+        className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors mr-2 flex-shrink-0"
         title="Tab Settings"
         aria-label="Open tab settings"
       >

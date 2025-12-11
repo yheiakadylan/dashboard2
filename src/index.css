@@ -410,3 +410,21 @@ html.dark .card-hover:hover {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Scrollbar Hide Utility - For horizontal tab scrolling on mobile */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+  /* Chrome, Safari and Opera */
+}
+
+/* Safe Area for Mobile Bottom Navigation */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}

@@ -1,10 +1,10 @@
-
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { SummaryChartData } from '../api/_lib/types';
 
 interface SummaryChartProps {
-  data: SummaryChartData[];
+  data: any[];
+  hideTitle?: boolean;
 }
 
 // Predefined colors for the chart bars
@@ -61,7 +61,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-const SummaryChart: React.FC<SummaryChartProps> = ({ data }) => {
+const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false }) => {
   if (!data || data.length === 0) {
     return null;
   }
@@ -76,13 +76,15 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data }) => {
   // For simplicity, we continue to cycle through COLORS for all series.
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 h-[400px] flex flex-col animate-fade-in-up">
-      <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Revenue & Funds by Shop</h3>
+    <div className="bg-white dark:bg-gray-800 p-2 md:p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 h-[350px] md:h-[400px] flex flex-col animate-fade-in-up">
+      {!hideTitle && (
+        <h3 className="text-base md:text-lg font-semibold mb-2 md:mb-4 text-gray-900 dark:text-white">Revenue & Funds by Shop</h3>
+      )}
       <div className="flex-grow">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
-            margin={{ top: 5, right: 30, left: 20, bottom: 5, }}
+            margin={{ top: 5, right: 5, left: 0, bottom: 5 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="var(--recharts-grid-stroke)" />
             {/* Hide X-Axis labels (tick={false}) as per request */}

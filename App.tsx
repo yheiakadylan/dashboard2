@@ -9,7 +9,7 @@ import Tabs from './components/Tabs';
 import Auth from './components/Auth';
 import { DashboardProvider, useDashboard } from './contexts/DashboardContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
-import { Record } from './api/_lib/types';
+import { Record, Tab } from './api/_lib/types';
 import { reprocessRecord } from './services/emailService';
 import { requestForToken } from './services/notificationService';
 import CollapsibleContainer from './components/CollapsibleContainer';
@@ -26,6 +26,7 @@ const TopProductsChart = lazy(() => import('./components/TopProductsChart'));
 const FulfillChart = lazy(() => import('./components/FulfillChart'));
 const OrderDetailModal = lazy(() => import('./components/OrderDetailModal'));
 const TabSettings = lazy(() => import('./components/TabSettings'));
+const BottomNav = lazy(() => import('./components/BottomNav'));
 
 // Loading component for Suspense fallback
 const LoadingSpinner: React.FC<{ variant?: 'table-row' | 'card' | 'chart' | 'kpi-card'; count?: number }> = ({ variant = 'table-row', count = 3 }) => (
@@ -34,13 +35,14 @@ const LoadingSpinner: React.FC<{ variant?: 'table-row' | 'card' | 'chart' | 'kpi
 
 const DashboardLayout: React.FC = () => {
     const {
-        syncState, // <-- Updated from status
+        syncState,
         isAccountManagerOpen,
         isTabSettingsOpen,
         isLoading,
         records,
         setRecords,
         activeTab,
+        handleTabClick,
         isFetchingNewRange,
         processedData,
         handleViewDayDetails,
@@ -48,9 +50,15 @@ const DashboardLayout: React.FC = () => {
         timeZone,
         teamId,
         accounts,
+        role,
+        permissions,
+        tabOrder,
+        hiddenTabs,
     } = useDashboard();
 
     const [selectedOrder, setSelectedOrder] = useState<Record | null>(null);
+    const [swipeStartX, setSwipeStartX] = useState<number>(0);
+    const [swipeEndX, setSwipeEndX] = useState<number>(0);
 
     const handleViewOrderDetails = (recordId: string) => {
         const record = records.find(r => r.id === recordId);
@@ -91,6 +99,45 @@ const DashboardLayout: React.FC = () => {
     };
 
     const closeOrderDetail = () => setSelectedOrder(null);
+
+    // Swipe gesture handlers for mobile tab navigation
+    const handleTouchStart = (e: React.TouchEvent) => {
+        setSwipeStartX(e.touches[0].clientX);
+    };
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+        setSwipeEndX(e.touches[0].clientX);
+    };
+
+    const handleTouchEnd = () => {
+        if (!swipeStartX || !swipeEndX) return;
+
+        const swipeDistance = swipeStartX - swipeEndX;
+        const minSwipeDistance = 50; // Minimum swipe distance in pixels
+
+        // Only handle swipes on mobile for the 3 main tabs
+        const mainTabs: Tab[] = ['Overview', 'Order List', 'Summary'];
+        const currentIndex = mainTabs.indexOf(activeTab);
+
+        if (currentIndex === -1) {
+            setSwipeStartX(0);
+            setSwipeEndX(0);
+            return;
+        }
+
+        if (Math.abs(swipeDistance) > minSwipeDistance) {
+            if (swipeDistance > 0 && currentIndex < mainTabs.length - 1) {
+                // Swipe left - go to next tab
+                handleTabClick(mainTabs[currentIndex + 1]);
+            } else if (swipeDistance < 0 && currentIndex > 0) {
+                // Swipe right - go to previous tab
+                handleTabClick(mainTabs[currentIndex - 1]);
+            }
+        }
+
+        setSwipeStartX(0);
+        setSwipeEndX(0);
+    };
 
     const formatDate = (dateStr: string): string => {
         try {
@@ -196,8 +243,8 @@ const DashboardLayout: React.FC = () => {
         switch (activeTab) {
             case 'Overview':
                 return (
-                    <div className="p-4 md:p-6 overflow-y-auto h-full">
-                        <div className="mb-6 hidden md:block">
+                    <div className="p-2 md:p-6 overflow-y-auto h-full">
+                        <div className="mb-4 md:mb-6 hidden md:block">
                             <Suspense fallback={<LoadingSpinner variant="chart" count={1} />}>
                                 <OverviewChart data={processedData.overview.chartData} />
                             </Suspense>
@@ -254,7 +301,7 @@ const DashboardLayout: React.FC = () => {
             case 'Help': return <Suspense fallback={<LoadingSpinner />}><DataTable headers={processedData.help.headers} data={processedData.help.rows} /></Suspense>;
             case 'Fulfill':
                 return (
-                    <div className="p-4 md:p-6 overflow-y-auto h-full">
+                    <div className="p-2 md:p-6 overflow-y-auto h-full">
                         <div className="mb-6 hidden md:block">
                             <Suspense fallback={<LoadingSpinner />}>
                                 <div className="flex flex-col md:flex-row gap-6 mb-6">
@@ -301,7 +348,7 @@ const DashboardLayout: React.FC = () => {
                 );
             case 'Summary':
                 return (
-                    <div className="p-4 md:p-6 overflow-y-auto h-full">
+                    <div className="p-2 md:p-6 overflow-y-auto h-full">
                         <div className="mb-6 hidden md:block">
                             <Suspense fallback={<LoadingSpinner />}>
                                 <TopProductsChart data={processedData.summary.topProductsByShop} />
@@ -312,17 +359,17 @@ const DashboardLayout: React.FC = () => {
                                 <SummaryChart data={processedData.summary.chartData} />
                             </Suspense>
                         </div>
-                        <div className="md:hidden space-y-4 mb-6">
+                        <div className="md:hidden space-y-3 mb-4">
                             <Suspense fallback={<LoadingSpinner />}>
-                                <CollapsibleContainer title="Top Products by Shop">
-                                    <TopProductsChart data={processedData.summary.topProductsByShop} />
+                                <CollapsibleContainer title="Top Products">
+                                    <TopProductsChart data={processedData.summary.topProductsByShop} hideTitle />
                                 </CollapsibleContainer>
-                                <CollapsibleContainer title="Revenue & Funds by Shop">
-                                    <SummaryChart data={processedData.summary.chartData} />
+                                <CollapsibleContainer title="Revenue & Funds">
+                                    <SummaryChart data={processedData.summary.chartData} hideTitle />
                                 </CollapsibleContainer>
                             </Suspense>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6 mb-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6 mb-4 md:mb-6">
                             {Object.entries(processedData.summary.kpis).map(([title, value]) => (
                                 <KpiCard key={title} title={title} value={value} />
                             ))}
@@ -347,13 +394,36 @@ const DashboardLayout: React.FC = () => {
         }
     };
 
+    // Filter tabs based on permissions for bottom nav
+    const getPermittedTabs = (tabs: any[]) => {
+        return tabs.filter(tab => {
+            if (role === 'owner') return true;
+            switch (tab) {
+                case 'Overview':
+                case 'Order List':
+                case 'eBay':
+                case 'Etsy':
+                case 'Case':
+                case 'Help':
+                    return permissions.viewSales;
+                case 'Fulfill':
+                    return permissions.viewFulfill;
+                case 'Summary':
+                    return permissions.viewSummary;
+                default:
+                    return false;
+            }
+        });
+    };
+    const visibleTabs = getPermittedTabs(tabOrder).filter(tab => !hiddenTabs.has(tab));
+
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col">
             <Header />
-            <main className="flex-grow p-4 md:p-6 flex flex-col h-[calc(100vh-64px)] overflow-hidden">
+            <main className="flex-grow p-4 md:p-6 flex flex-col h-[calc(100vh-64px)] md:h-[calc(100vh-64px)] pb-20 md:pb-6 overflow-hidden">
                 <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                     <Tabs />
-                    <div className="px-4 flex-shrink-0">
+                    <div className="hidden md:flex px-4 flex-shrink-0">
                         <button
                             onClick={handleExportCSV}
                             className="p-2 md:px-3 md:py-1.5 text-xs font-semibold text-white bg-green-600 hover:bg-green-700 rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-green-500 flex items-center gap-2"
@@ -372,7 +442,12 @@ const DashboardLayout: React.FC = () => {
                             <Spinner size="lg" />
                         </div>
                     )}
-                    <div className={`h-full w-full transition-opacity duration-300 animate-fade-in ${isFetchingNewRange ? 'opacity-50' : 'opacity-100'}`}>
+                    <div
+                        className={`h-full w-full transition-opacity duration-200 animate-fade-in ${isFetchingNewRange ? 'opacity-50' : 'opacity-100'}`}
+                        onTouchStart={handleTouchStart}
+                        onTouchMove={handleTouchMove}
+                        onTouchEnd={handleTouchEnd}
+                    >
                         {renderActiveTab()}
                     </div>
                 </div>
@@ -394,6 +469,10 @@ const DashboardLayout: React.FC = () => {
                     <OrderDetailModal record={selectedOrder} onClose={closeOrderDetail} />
                 </Suspense>
             )}
+            {/* Bottom Navigation for Mobile */}
+            <Suspense fallback={null}>
+                <BottomNav tabs={visibleTabs} />
+            </Suspense>
         </div>
     );
 };
