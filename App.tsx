@@ -68,9 +68,9 @@ const DashboardLayout: React.FC = () => {
     // Pull-to-refresh for mobile
     const { isPulling, isRefreshing, pullDistance, pullProgress, touchHandlers } = usePullToRefresh({
         onRefresh: async () => {
-            // Reload entire dashboard by triggering sync
+            // Hard reload page like F5
             triggerHaptic('medium');
-            await handleSyncClick();
+            window.location.reload();
         },
         threshold: 80,
         maxPullDistance: 120,

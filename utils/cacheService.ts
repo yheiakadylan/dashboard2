@@ -135,9 +135,10 @@ export class CacheService {
 
 /**
  * Generate cache key for dashboard data
+ * IMPORTANT: Include timezone to prevent stale cache when timezone changes
  */
-export function getDashboardCacheKey(teamId: string, startDate: string, endDate: string): string {
-    return `dashboard:${teamId}:${startDate}:${endDate}`;
+export function getDashboardCacheKey(teamId: string, startDate: string, endDate: string, timeZone: string): string {
+    return `dashboard:${teamId}:${startDate}:${endDate}:${timeZone}`;
 }
 
 /**

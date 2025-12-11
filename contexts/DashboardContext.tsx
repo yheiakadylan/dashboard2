@@ -411,7 +411,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setSyncState('Loading data...');
       try {
         // Try to get cached data first (stale-while-revalidate pattern)
-        const cacheKey = getDashboardCacheKey(teamId, filterDateRange.from, filterDateRange.to);
+        const cacheKey = getDashboardCacheKey(teamId, filterDateRange.from, filterDateRange.to, timeZone);
         const accountsCacheKey = getAccountsCacheKey(teamId);
 
         const cachedResult = await CacheService.getStale<{
@@ -513,7 +513,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       const { from, to } = filterDateRange;
 
       // Try cache first with stale-while-revalidate
-      const cacheKey = getDashboardCacheKey(teamId, from, to);
+      const cacheKey = getDashboardCacheKey(teamId, from, to, timeZone);
       const cachedResult = await CacheService.getStale<{
         currentRecords: Record[];
         previousRecords: Record[] | null;
@@ -585,7 +585,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     if (accountsToSync.length === 0) { addNotification("No accounts selected for syncing.", "info"); return; }
 
     // Invalidate cache before sync
-    const cacheKey = getDashboardCacheKey(teamId, filterDateRange.from, filterDateRange.to);
+    const cacheKey = getDashboardCacheKey(teamId, filterDateRange.from, filterDateRange.to, timeZone);
     await CacheService.invalidate(cacheKey);
 
     runSync(accountsToSync, records).then(async () => {
