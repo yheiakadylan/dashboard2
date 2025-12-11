@@ -62,7 +62,10 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
     };
 
     return (
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 z-50 safe-area-bottom">
+        <nav
+            className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 z-50"
+            style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 0px)' }}
+        >
             <div className="flex justify-around items-center h-16 px-2">
                 {bottomTabs.map((tab) => {
                     const isActive = activeTab === tab;

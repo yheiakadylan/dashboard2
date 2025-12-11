@@ -20,8 +20,6 @@ export const requestForToken = async (userId?: string) => {
       const token = await getToken(messaging, {
         vapidKey: VAPID_KEY
       });
-      console.log('FCM Token:', token);
-
       // --- LOGIC MỚI: Tự động lưu vào DB ---
       if (userId && token) {
         try {

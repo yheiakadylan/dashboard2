@@ -81,7 +81,59 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
           {/* Items Section */}
           <div>
             <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Items ({items.length})</h3>
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+
+            {/* Mobile Card Layout */}
+            <div className="md:hidden space-y-3">
+              {items.map((item, idx) => (
+                <div key={idx} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600 p-3">
+                  <div className="flex gap-3">
+                    {item.image && (
+                      <img
+                        src={item.image}
+                        alt=""
+                        className="w-20 h-20 object-cover rounded-md border border-gray-200 dark:border-gray-600 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => {
+                          setImageLoaded(false);
+                          setPreviewImage(item.image);
+                        }}
+                        title="Click to view full size"
+                      />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white break-words">{item.name}</p>
+                      {item.variant && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 whitespace-pre-wrap">{item.variant}</p>
+                      )}
+                      {item.transactionId && <p className="text-xs text-gray-400 mt-1">ID: {item.transactionId}</p>}
+                    </div>
+                  </div>
+
+                  {item.personalization && (
+                    <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs text-gray-700 dark:text-gray-300 border border-yellow-100 dark:border-yellow-900/30">
+                      <span className="font-semibold">Personalization:</span> {item.personalization}
+                    </div>
+                  )}
+
+                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 grid grid-cols-3 gap-2 text-sm">
+                    <div>
+                      <span className="text-gray-500 dark:text-gray-400 text-xs block">Qty</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{item.quantity}</span>
+                    </div>
+                    <div className="text-center">
+                      <span className="text-gray-500 dark:text-gray-400 text-xs block">Price</span>
+                      <span className="font-medium text-gray-900 dark:text-white">${item.price.toFixed(2)}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-gray-500 dark:text-gray-400 text-xs block">Total</span>
+                      <span className="font-semibold text-blue-600 dark:text-blue-400">${(item.quantity * item.price).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table Layout */}
+            <div className="hidden md:block border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>

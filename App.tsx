@@ -59,6 +59,8 @@ const DashboardLayout: React.FC = () => {
     const [selectedOrder, setSelectedOrder] = useState<Record | null>(null);
     const [swipeStartX, setSwipeStartX] = useState<number>(0);
     const [swipeEndX, setSwipeEndX] = useState<number>(0);
+    const [swipeStartY, setSwipeStartY] = useState<number>(0);
+    const [swipeEndY, setSwipeEndY] = useState<number>(0);
 
     const handleViewOrderDetails = (recordId: string) => {
         const record = records.find(r => r.id === recordId);
@@ -103,17 +105,24 @@ const DashboardLayout: React.FC = () => {
     // Swipe gesture handlers for mobile tab navigation
     const handleTouchStart = (e: React.TouchEvent) => {
         setSwipeStartX(e.touches[0].clientX);
+        setSwipeStartY(e.touches[0].clientY);
     };
 
     const handleTouchMove = (e: React.TouchEvent) => {
         setSwipeEndX(e.touches[0].clientX);
+        setSwipeEndY(e.touches[0].clientY);
     };
 
     const handleTouchEnd = () => {
-        if (!swipeStartX || !swipeEndX) return;
+        if (!swipeStartX || !swipeEndX || !swipeStartY || !swipeEndY) return;
 
-        const swipeDistance = swipeStartX - swipeEndX;
-        const minSwipeDistance = 50; // Minimum swipe distance in pixels
+        const swipeDistanceX = swipeStartX - swipeEndX;
+        const swipeDistanceY = swipeStartY - swipeEndY;
+        const minSwipeDistance = 80; // Increased threshold for more deliberate swipes
+
+        // Calculate absolute distances
+        const absX = Math.abs(swipeDistanceX);
+        const absY = Math.abs(swipeDistanceY);
 
         // Only handle swipes on mobile for the 3 main tabs
         const mainTabs: Tab[] = ['Overview', 'Order List', 'Summary'];
@@ -122,21 +131,29 @@ const DashboardLayout: React.FC = () => {
         if (currentIndex === -1) {
             setSwipeStartX(0);
             setSwipeEndX(0);
+            setSwipeStartY(0);
+            setSwipeEndY(0);
             return;
         }
 
-        if (Math.abs(swipeDistance) > minSwipeDistance) {
-            if (swipeDistance > 0 && currentIndex < mainTabs.length - 1) {
+        // Only trigger tab change if:
+        // 1. Horizontal movement exceeds minimum threshold
+        // 2. Horizontal movement is at least 2x greater than vertical (indicates horizontal swipe intent)
+        if (absX > minSwipeDistance && absX > absY * 2) {
+            if (swipeDistanceX > 0 && currentIndex < mainTabs.length - 1) {
                 // Swipe left - go to next tab
                 handleTabClick(mainTabs[currentIndex + 1]);
-            } else if (swipeDistance < 0 && currentIndex > 0) {
+            } else if (swipeDistanceX < 0 && currentIndex > 0) {
                 // Swipe right - go to previous tab
                 handleTabClick(mainTabs[currentIndex - 1]);
             }
         }
+        // If vertical movement is dominant, do nothing (allow normal scrolling)
 
         setSwipeStartX(0);
         setSwipeEndX(0);
+        setSwipeStartY(0);
+        setSwipeEndY(0);
     };
 
     const formatDate = (dateStr: string): string => {
@@ -420,7 +437,7 @@ const DashboardLayout: React.FC = () => {
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col">
             <Header />
-            <main className="flex-grow p-4 md:p-6 flex flex-col h-[calc(100vh-64px)] md:h-[calc(100vh-64px)] pb-20 md:pb-6 overflow-hidden">
+            <main className="flex-grow p-2 md:p-6 flex flex-col h-[calc(100vh-64px)] md:h-[calc(100vh-64px)] pb-20 md:pb-6 overflow-hidden">
                 <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                     <Tabs />
                     <div className="hidden md:flex px-4 flex-shrink-0">
