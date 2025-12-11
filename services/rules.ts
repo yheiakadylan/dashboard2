@@ -1,6 +1,6 @@
 // src/services/rules.ts
 import { Record, OrderDetails, OrderItem } from '../api/_lib/types';
-import { getHighResImage } from '../utils/imageUtils';
+import { getHighResImage } from '../utils/imageUtils.js';
 
 export interface Rule {
   name: string;
