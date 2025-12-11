@@ -4,7 +4,7 @@ import { TopProduct } from '../api/_lib/types';
 import useMediaQuery from '../hooks/useMediaQuery';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
-import { getHighResImage } from '../utils/imageUtils';
+import { getHighResImage } from '../utils/imageUtils.js';
 
 interface TopProductsChartProps {
   data: { [shopName: string]: TopProduct[] };

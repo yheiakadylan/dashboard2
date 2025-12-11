@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Record } from '../api/_lib/types';
 import { useDashboard } from '../contexts/DashboardContext';
-import { getHighResImage } from '../utils/imageUtils';
+import { getHighResImage } from '../utils/imageUtils.js';
 
 interface OrderDetailModalProps {
   record: Record;
