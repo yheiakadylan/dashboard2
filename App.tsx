@@ -13,6 +13,8 @@ import { Record, Tab } from './api/_lib/types';
 import { reprocessRecord } from './services/emailService';
 import { requestForToken } from './services/notificationService';
 import CollapsibleContainer from './components/CollapsibleContainer';
+import { usePullToRefresh } from './hooks/usePullToRefresh';
+import { triggerHaptic } from './utils/haptics';
 
 import SkeletonLoader from './components/SkeletonLoader';
 import Spinner from './components/Spinner';
@@ -54,6 +56,7 @@ const DashboardLayout: React.FC = () => {
         permissions,
         tabOrder,
         hiddenTabs,
+        handleSyncClick,
     } = useDashboard();
 
     const [selectedOrder, setSelectedOrder] = useState<Record | null>(null);
@@ -61,6 +64,18 @@ const DashboardLayout: React.FC = () => {
     const [swipeEndX, setSwipeEndX] = useState<number>(0);
     const [swipeStartY, setSwipeStartY] = useState<number>(0);
     const [swipeEndY, setSwipeEndY] = useState<number>(0);
+
+    // Pull-to-refresh for mobile
+    const { isPulling, isRefreshing, pullDistance, pullProgress, touchHandlers } = usePullToRefresh({
+        onRefresh: async () => {
+            // Reload entire dashboard by triggering sync
+            triggerHaptic('medium');
+            await handleSyncClick();
+        },
+        threshold: 80,
+        maxPullDistance: 120,
+        resistance: 0.5,
+    });
 
     const handleViewOrderDetails = (recordId: string) => {
         const record = records.find(r => r.id === recordId);
@@ -442,7 +457,10 @@ const DashboardLayout: React.FC = () => {
                     <Tabs />
                     <div className="hidden md:flex px-4 flex-shrink-0">
                         <button
-                            onClick={handleExportCSV}
+                            onClick={() => {
+                                triggerHaptic('light');
+                                handleExportCSV();
+                            }}
                             className="p-2 md:px-3 md:py-1.5 text-xs font-semibold text-white bg-green-600 hover:bg-green-700 rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-green-500 flex items-center gap-2"
                             title="Export current view to CSV"
                         >
@@ -454,6 +472,35 @@ const DashboardLayout: React.FC = () => {
                     </div>
                 </div>
                 <div className="relative flex-grow bg-white dark:bg-gray-800 rounded-b-lg shadow-lg overflow-hidden">
+                    {/* Pull-to-refresh indicator */}
+                    {(isPulling || isRefreshing) && (
+                        <div
+                            className="absolute top-0 left-0 right-0 flex justify-center items-center z-20 transition-all duration-200"
+                            style={{
+                                height: `${Math.min(pullDistance, 60)}px`,
+                                opacity: pullProgress
+                            }}
+                        >
+                            <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                                {isRefreshing ? (
+                                    <>
+                                        <Spinner size="sm" color="text-blue-600 dark:text-blue-400" />
+                                        <span className="text-sm font-medium">Refreshing...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ transform: `rotate(${pullProgress * 360}deg)` }}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                        <span className="text-sm font-medium">
+                                            {pullProgress >= 1 ? 'Release to refresh' : 'Pull to refresh'}
+                                        </span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {isFetchingNewRange && (
                         <div className="absolute inset-0 bg-white/50 dark:bg-gray-800/50 flex items-center justify-center z-10">
                             <Spinner size="lg" />
@@ -461,9 +508,19 @@ const DashboardLayout: React.FC = () => {
                     )}
                     <div
                         className={`h-full w-full transition-opacity duration-200 animate-fade-in ${isFetchingNewRange ? 'opacity-50' : 'opacity-100'}`}
-                        onTouchStart={handleTouchStart}
-                        onTouchMove={handleTouchMove}
-                        onTouchEnd={handleTouchEnd}
+                        {...touchHandlers}
+                        onTouchStart={(e) => {
+                            touchHandlers.onTouchStart(e);
+                            handleTouchStart(e);
+                        }}
+                        onTouchMove={(e) => {
+                            touchHandlers.onTouchMove(e);
+                            handleTouchMove(e);
+                        }}
+                        onTouchEnd={() => {
+                            touchHandlers.onTouchEnd();
+                            handleTouchEnd();
+                        }}
                     >
                         {renderActiveTab()}
                     </div>
