@@ -146,7 +146,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         cellClass += 'flex-grow-[3] basis-1/4'; // Give it more weight
                         break;
                     case 'Order Number':
-                        cellClass += 'flex-grow-[2] basis-1/6';
+                        cellClass += 'flex-1 basis-[110px]'; // Compact width for order numbers
                         break;
                     case 'Revenue':
                     case 'Cost':
@@ -482,7 +482,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                                                 headerCellClass += 'flex-grow-[3] basis-1/4';
                                                 break;
                                             case 'Order Number':
-                                                headerCellClass += 'flex-grow-[2] basis-1/6';
+                                                headerCellClass += 'flex-1 basis-[110px]'; // Compact width for order numbers
                                                 break;
                                             case 'Revenue':
                                             case 'Cost':

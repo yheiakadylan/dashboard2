@@ -58,6 +58,15 @@ interface DashboardContextType {
   setSearchTerm: React.Dispatch<React.SetStateAction<string>>;
   handleResyncAccount: (account: Account) => Promise<void>;
   handleQuickSync: (account: Account) => Promise<void>;
+  // Tab customization
+  tabOrder: Tab[];
+  setTabOrder: React.Dispatch<React.SetStateAction<Tab[]>>;
+  hiddenTabs: Set<Tab>;
+  isTabSettingsOpen: boolean;
+  setIsTabSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  reorderTabs: (fromIndex: number, toIndex: number) => void;
+  toggleTabVisibility: (tab: Tab) => void;
+  resetTabPreferences: () => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -102,6 +111,37 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   });
   const [manualCosts, setManualCosts] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
+
+  // Tab customization state
+  const [tabOrder, setTabOrder] = useState<Tab[]>(() => {
+    const storageKey = `tabPreferences_${teamId}_${user.uid}`;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.tabOrder || ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill', 'Summary'];
+      } catch (e) {
+        return ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill', 'Summary'];
+      }
+    }
+    return ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill', 'Summary'];
+  });
+
+  const [hiddenTabs, setHiddenTabs] = useState<Set<Tab>>(() => {
+    const storageKey = `tabPreferences_${teamId}_${user.uid}`;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return new Set(parsed.hiddenTabs || []);
+      } catch (e) {
+        return new Set();
+      }
+    }
+    return new Set();
+  });
+
+  const [isTabSettingsOpen, setIsTabSettingsOpen] = useState<boolean>(false);
 
   const [filterDateRange, setFilterDateRange] = useState(() => {
     // Try to restore from localStorage first
@@ -150,6 +190,16 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   useEffect(() => { localStorage.setItem('timeZone', timeZone); }, [timeZone]);
   useEffect(() => { localStorage.setItem('filterDateRange', JSON.stringify(filterDateRange)); }, [filterDateRange]);
 
+  // Save tab preferences to localStorage
+  useEffect(() => {
+    const storageKey = `tabPreferences_${teamId}_${user.uid}`;
+    const preferences = {
+      tabOrder,
+      hiddenTabs: Array.from(hiddenTabs)
+    };
+    localStorage.setItem(storageKey, JSON.stringify(preferences));
+  }, [tabOrder, hiddenTabs, teamId, user.uid]);
+
   const handleTabClick = (tab: Tab) => {
     setActiveTab(tab);
     setDayFilter(null);
@@ -159,6 +209,35 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     setActiveTab('Order List');
     setDayFilter(date);
   };
+
+  // Tab customization functions
+  const reorderTabs = useCallback((fromIndex: number, toIndex: number) => {
+    setTabOrder(prevOrder => {
+      const newOrder = [...prevOrder];
+      const [movedTab] = newOrder.splice(fromIndex, 1);
+      newOrder.splice(toIndex, 0, movedTab);
+      return newOrder;
+    });
+  }, []);
+
+  const toggleTabVisibility = useCallback((tab: Tab) => {
+    setHiddenTabs(prevHidden => {
+      const newHidden = new Set(prevHidden);
+      if (newHidden.has(tab)) {
+        newHidden.delete(tab);
+      } else {
+        newHidden.add(tab);
+      }
+      return newHidden;
+    });
+  }, []);
+
+  const resetTabPreferences = useCallback(() => {
+    const defaultOrder: Tab[] = ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill', 'Summary'];
+    setTabOrder(defaultOrder);
+    setHiddenTabs(new Set());
+    addNotification('Tab preferences reset to default', 'success');
+  }, [addNotification]);
 
   const visibleAccounts = useMemo(() => {
     if (role === 'owner') return allAccounts;
@@ -746,7 +825,16 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     searchTerm,
     setSearchTerm,
     handleResyncAccount,
-    handleQuickSync
+    handleQuickSync,
+    // Tab customization
+    tabOrder,
+    setTabOrder,
+    hiddenTabs,
+    isTabSettingsOpen,
+    setIsTabSettingsOpen,
+    reorderTabs,
+    toggleTabVisibility,
+    resetTabPreferences
   };
 
   return (

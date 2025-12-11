@@ -25,6 +25,7 @@ const SummaryChart = lazy(() => import('./components/SummaryChart'));
 const TopProductsChart = lazy(() => import('./components/TopProductsChart'));
 const FulfillChart = lazy(() => import('./components/FulfillChart'));
 const OrderDetailModal = lazy(() => import('./components/OrderDetailModal'));
+const TabSettings = lazy(() => import('./components/TabSettings'));
 
 // Loading component for Suspense fallback
 const LoadingSpinner: React.FC<{ variant?: 'table-row' | 'card' | 'chart' | 'kpi-card'; count?: number }> = ({ variant = 'table-row', count = 3 }) => (
@@ -35,6 +36,7 @@ const DashboardLayout: React.FC = () => {
     const {
         syncState, // <-- Updated from status
         isAccountManagerOpen,
+        isTabSettingsOpen,
         isLoading,
         records,
         setRecords,
@@ -380,6 +382,11 @@ const DashboardLayout: React.FC = () => {
             {isAccountManagerOpen && (
                 <Suspense fallback={<LoadingSpinner />}>
                     <AccountManager />
+                </Suspense>
+            )}
+            {isTabSettingsOpen && (
+                <Suspense fallback={<LoadingSpinner />}>
+                    <TabSettings />
                 </Suspense>
             )}
             {selectedOrder && (

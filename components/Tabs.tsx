@@ -1,64 +1,85 @@
 import React from 'react';
 import { Tab } from '../api/_lib/types';
 import { useDashboard } from '../contexts/DashboardContext';
-import { TABS, TABS_TO_HIDE_ON_MOBILE } from '../constants';
+import { TABS_TO_HIDE_ON_MOBILE } from '../constants';
 
 const Tabs: React.FC = () => {
-  // THÊM: Lấy role và permissions
-  const { activeTab, handleTabClick, role, permissions } = useDashboard();
+  // Get tab customization state from context
+  const {
+    activeTab,
+    handleTabClick,
+    role,
+    permissions,
+    tabOrder,
+    hiddenTabs,
+    setIsTabSettingsOpen
+  } = useDashboard();
 
-  // THÊM: Lọc TABS dựa trên quyền
-  const availableTabs = TABS.filter(tab => {
-    if (role === 'owner') {
-      return true; // Owner thấy hết
-    }
+  // Filter TABS based on permissions
+  const getPermittedTabs = (tabs: Tab[]): Tab[] => {
+    return tabs.filter(tab => {
+      if (role === 'owner') {
+        return true; // Owner sees all
+      }
 
-    // User thường
-    switch (tab) {
-      case 'Overview':
-      case 'Order List':
-      case 'eBay':
-      case 'Etsy':
-      case 'Case':
-      case 'Help':
-        // Các tab này chung quyền "Sales"
-        // (Chúng ta cũng sẽ lọc quyền xem Funds/Cost trong data, đừng lo)
-        return permissions.viewSales;
-      
-      case 'Fulfill':
-        return permissions.viewFulfill;
+      // User role - check permissions
+      switch (tab) {
+        case 'Overview':
+        case 'Order List':
+        case 'eBay':
+        case 'Etsy':
+        case 'Case':
+        case 'Help':
+          return permissions.viewSales;
 
-      case 'Summary':
-        return permissions.viewSummary;
+        case 'Fulfill':
+          return permissions.viewFulfill;
 
-      default:
-        return false;
-    }
-  });
-  
+        case 'Summary':
+          return permissions.viewSummary;
+
+        default:
+          return false;
+      }
+    });
+  };
+
+  // Get tabs in custom order, filtered by permissions and visibility
+  const visibleTabs = getPermittedTabs(tabOrder).filter(tab => !hiddenTabs.has(tab));
+
   return (
-    <div>
-      <nav className="-mb-px flex space-x-2 px-4" aria-label="Tabs">
-        {/* THAY ĐỔI: Dùng availableTabs */}
-        {availableTabs.map((tab) => {
+    <div className="flex items-center">
+      <nav className="-mb-px flex space-x-2 px-4 flex-1" aria-label="Tabs">
+        {visibleTabs.map((tab) => {
           const isHiddenOnMobile = TABS_TO_HIDE_ON_MOBILE.includes(tab);
           return (
             <button
               key={tab}
               onClick={() => handleTabClick(tab)}
-              className={`${
-                activeTab === tab
+              className={`${activeTab === tab
                   ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-500'
-              } ${
-                isHiddenOnMobile ? 'hidden md:inline-block' : 'inline-block'
-              } whitespace-nowrap py-3 px-2 border-b-2 font-medium text-sm transition-colors focus:outline-none tracking-wider uppercase`}
+                } ${isHiddenOnMobile ? 'hidden md:inline-block' : 'inline-block'
+                } whitespace-nowrap py-3 px-2 border-b-2 font-medium text-sm transition-colors focus:outline-none tracking-wider uppercase`}
             >
               {tab}
             </button>
           );
         })}
       </nav>
+
+      {/* Settings Button */}
+      <button
+        onClick={() => setIsTabSettingsOpen(true)}
+        className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors mr-2"
+        title="Tab Settings"
+        aria-label="Open tab settings"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      </button>
     </div>
   );
 };

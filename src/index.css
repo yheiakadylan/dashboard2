@@ -142,12 +142,13 @@ html.dark .animate-pulse::after {
 
 /* Respect user preferences for reduced motion */
 @media (prefers-reduced-motion: no-preference) {
-  
+
   /* Page/Tab Content Transitions */
   @keyframes fade-in {
     from {
       opacity: 0;
     }
+
     to {
       opacity: 1;
     }
@@ -158,6 +159,7 @@ html.dark .animate-pulse::after {
       opacity: 0;
       transform: translateY(20px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);
@@ -169,6 +171,7 @@ html.dark .animate-pulse::after {
       transform: translateY(10px);
       opacity: 0;
     }
+
     to {
       transform: translateY(0);
       opacity: 1;
@@ -180,6 +183,7 @@ html.dark .animate-pulse::after {
     from {
       opacity: 0;
     }
+
     to {
       opacity: 1;
     }
@@ -190,6 +194,7 @@ html.dark .animate-pulse::after {
       opacity: 0;
       transform: scale(0.95);
     }
+
     to {
       opacity: 1;
       transform: scale(1);
@@ -200,6 +205,7 @@ html.dark .animate-pulse::after {
     from {
       opacity: 0;
     }
+
     to {
       opacity: 1;
     }
@@ -210,9 +216,11 @@ html.dark .animate-pulse::after {
     0% {
       transform: scale(1);
     }
+
     50% {
       transform: scale(0.96);
     }
+
     100% {
       transform: scale(1);
     }
@@ -224,9 +232,11 @@ html.dark .animate-pulse::after {
       transform: scale(0.95);
       opacity: 0;
     }
+
     50% {
       transform: scale(1.02);
     }
+
     100% {
       transform: scale(1);
       opacity: 1;
@@ -239,6 +249,7 @@ html.dark .animate-pulse::after {
       opacity: 0;
       transform: translateY(-10px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);
@@ -250,6 +261,7 @@ html.dark .animate-pulse::after {
     from {
       transform: rotate(0deg);
     }
+
     to {
       transform: rotate(180deg);
     }
@@ -261,6 +273,7 @@ html.dark .animate-pulse::after {
       opacity: 0;
       transform: translateY(10px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);
@@ -297,11 +310,42 @@ html.dark .animate-pulse::after {
   }
 
   /* Stagger delays for lists */
-  .stagger-1 { animation: stagger-fade-in 0.3s ease-out 0.05s both; }
-  .stagger-2 { animation: stagger-fade-in 0.3s ease-out 0.1s both; }
-  .stagger-3 { animation: stagger-fade-in 0.3s ease-out 0.15s both; }
-  .stagger-4 { animation: stagger-fade-in 0.3s ease-out 0.2s both; }
-  .stagger-5 { animation: stagger-fade-in 0.3s ease-out 0.25s both; }
+  .stagger-1 {
+    animation: stagger-fade-in 0.3s ease-out 0.05s both;
+  }
+
+  .stagger-2 {
+    animation: stagger-fade-in 0.3s ease-out 0.1s both;
+  }
+
+  .stagger-3 {
+    animation: stagger-fade-in 0.3s ease-out 0.15s both;
+  }
+
+  .stagger-4 {
+    animation: stagger-fade-in 0.3s ease-out 0.2s both;
+  }
+
+  .stagger-5 {
+    animation: stagger-fade-in 0.3s ease-out 0.25s both;
+  }
+
+  /* Slide In (for modals) */
+  @keyframes slide-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95) translateY(-20px);
+    }
+
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  .animate-slide-in {
+    animation: slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
 
 }
 
@@ -357,6 +401,7 @@ html.dark .card-hover:hover {
 
 /* Reduced Motion Fallback */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {
