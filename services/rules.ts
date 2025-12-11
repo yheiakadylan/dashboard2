@@ -1,5 +1,6 @@
 // src/services/rules.ts
 import { Record, OrderDetails, OrderItem } from '../api/_lib/types';
+import { getHighResImage } from '../utils/imageUtils';
 
 export interface Rule {
   name: string;
@@ -317,7 +318,8 @@ const extractEbayDetails = (html: string): OrderDetails => {
 
     // Check for eBay image domains
     if (src.includes('ebay.com/imageser') || src.includes('i.ebayimg.com')) {
-      image = src;
+      // Convert to high resolution immediately
+      image = getHighResImage(src) || src;
       break;
     }
   }
@@ -520,7 +522,8 @@ const extractEtsyDetails = (html: string): OrderDetails => {
     const imgRegex = /https:\/\/i\.etsystatic\.com\/[^"']+\/il\/[^"']+/gi;
 
     const imgs = blockHtml.match(imgRegex) || [];
-    const image = imgs.length ? imgs[0] : "";
+    // Convert to high resolution immediately
+    const image = imgs.length ? (getHighResImage(imgs[0]) || imgs[0]) : "";
 
     // BỎ các block không phải item thực (price = 0)
     if (!price || price === 0) {
