@@ -47,6 +47,11 @@ const CustomYAxisTick = ({ x, y, payload, data, onClick }: any) => {
 };
 
 const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = false }) => {
+  // Add null safety check for data
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+
   const shopNames = Object.keys(data).sort();
   const [selectedShop, setSelectedShop] = useState<string>(shopNames.length > 0 ? shopNames[0] : '');
   const [limit, setLimit] = useState<number>(10);
