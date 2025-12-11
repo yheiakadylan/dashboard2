@@ -14,6 +14,8 @@ import { reprocessRecord } from './services/emailService';
 import { requestForToken } from './services/notificationService';
 import CollapsibleContainer from './components/CollapsibleContainer';
 
+import SkeletonLoader from './components/SkeletonLoader';
+
 // Lazy load heavy components
 const DataTable = lazy(() => import('./components/DataTable'));
 const AccountManager = lazy(() => import('./components/AccountManager'));
@@ -24,13 +26,8 @@ const FulfillChart = lazy(() => import('./components/FulfillChart'));
 const OrderDetailModal = lazy(() => import('./components/OrderDetailModal'));
 
 // Loading component for Suspense fallback
-const LoadingSpinner: React.FC = () => (
-    <div className="flex items-center justify-center p-8">
-        <svg className="animate-spin h-8 w-8 text-blue-600 dark:text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-    </div>
+const LoadingSpinner: React.FC<{ variant?: 'table-row' | 'card' | 'chart' | 'kpi-card'; count?: number }> = ({ variant = 'table-row', count = 3 }) => (
+    <SkeletonLoader variant={variant} count={count} />
 );
 
 const DashboardLayout: React.FC = () => {
@@ -188,13 +185,8 @@ const DashboardLayout: React.FC = () => {
     const renderActiveTab = () => {
         if (isLoading && records.length === 0) {
             return (
-                <div className="p-8 text-center text-gray-500 dark:text-gray-400 flex flex-col items-center justify-center h-full">
-                    <svg className="animate-spin h-8 w-8 mb-4 text-blue-600 dark:text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    {/* Use syncState for loading text */}
-                    {syncState || 'Loading...'}
+                <div className="p-4">
+                    <SkeletonLoader variant="table-row" count={8} />
                 </div>
             );
         }
@@ -203,13 +195,13 @@ const DashboardLayout: React.FC = () => {
                 return (
                     <div className="p-4 md:p-6 overflow-y-auto h-full">
                         <div className="mb-6 hidden md:block">
-                            <Suspense fallback={<LoadingSpinner />}>
+                            <Suspense fallback={<LoadingSpinner variant="chart" count={1} />}>
                                 <OverviewChart data={processedData.overview.chartData} />
                             </Suspense>
                         </div>
                         <div className="mb-6 md:hidden">
                             <CollapsibleContainer title="Sales Overview Chart">
-                                <Suspense fallback={<LoadingSpinner />}>
+                                <Suspense fallback={<LoadingSpinner variant="chart" count={1} />}>
                                     <OverviewChart data={processedData.overview.chartData} />
                                 </Suspense>
                             </CollapsibleContainer>
@@ -218,7 +210,7 @@ const DashboardLayout: React.FC = () => {
                             <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
                                 Daily Breakdown
                             </h3>
-                            <Suspense fallback={<LoadingSpinner />}>
+                            <Suspense fallback={<LoadingSpinner variant="table-row" count={10} />}>
                                 <DataTable
                                     headers={processedData.overview.table.headers}
                                     data={processedData.overview.table.rows}
@@ -242,7 +234,7 @@ const DashboardLayout: React.FC = () => {
                 }
 
                 return (
-                    <Suspense fallback={<LoadingSpinner />}>
+                    <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
                         <DataTable
                             headers={orderListHeaders}
                             data={orderListRows}
