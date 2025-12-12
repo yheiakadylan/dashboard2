@@ -1,26 +1,32 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z" fill="%234299e1"/><path d="M4 15L9 9L14 13L20 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    
-    <!-- iOS PWA Support -->
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Dashboard" />
-    
-    <title>Sales Dashboard</title>
-    
-    <!-- Resource Hints for Performance -->
-    <link rel="preconnect" href="https://accounts.google.com" />
-    <link rel="preconnect" href="https://www.gstatic.com" />
-    <link rel="preconnect" href="https://firebasestorage.googleapis.com" />
-    <link rel="dns-prefetch" href="https://aistudiocdn.com" />
-    <link rel="dns-prefetch" href="https://esm.sh" />
 
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml"
+    href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z" fill="%234299e1"/><path d="M4 15L9 9L14 13L20 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+  <!-- iOS PWA Support -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Dashboard" />
+
+  <title>Sales Dashboard</title>
+
+  <!-- Resource Hints for Performance -->
+  <link rel="preconnect" href="https://accounts.google.com" />
+  <link rel="preconnect" href="https://www.gstatic.com" />
+  <link rel="preconnect" href="https://firebasestorage.googleapis.com" />
+  <link rel="preconnect" href="https://aistudiocdn.com" crossorigin />
+  <link rel="dns-prefetch" href="https://esm.sh" />
+
+  <!-- Preload critical modules to prevent race conditions -->
+  <link rel="modulepreload" href="https://aistudiocdn.com/recharts@^2.12.7" />
+
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script type="importmap">
 {
   "imports": {
@@ -50,8 +56,10 @@
 }
 </script>
 </head>
-  <body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
-    <div id="root"></div>
-    <script type="module" src="./index.tsx"></script>
-  </body>
+
+<body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
+  <div id="root"></div>
+  <script type="module" src="./index.tsx"></script>
+</body>
+
 </html>

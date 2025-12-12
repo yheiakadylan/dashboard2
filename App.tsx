@@ -18,6 +18,7 @@ import { triggerHaptic } from './utils/haptics';
 
 import SkeletonLoader from './components/SkeletonLoader';
 import Spinner from './components/Spinner';
+import ChartErrorBoundary from './components/ChartErrorBoundary';
 
 // Lazy load heavy components
 const DataTable = lazy(() => import('./components/DataTable'));
@@ -220,15 +221,19 @@ const DashboardLayout: React.FC = () => {
                 return (
                     <div className="p-2 md:p-6 overflow-y-auto h-full">
                         <div className="mb-4 md:mb-6 hidden md:block">
-                            <Suspense fallback={<LoadingSpinner variant="chart" count={1} />}>
-                                <OverviewChart data={processedData.overview.chartData} />
-                            </Suspense>
-                        </div>
-                        <div className="mb-6 md:hidden">
-                            <CollapsibleContainer title="Sales Overview Chart">
+                            <ChartErrorBoundary>
                                 <Suspense fallback={<LoadingSpinner variant="chart" count={1} />}>
                                     <OverviewChart data={processedData.overview.chartData} />
                                 </Suspense>
+                            </ChartErrorBoundary>
+                        </div>
+                        <div className="mb-6 md:hidden">
+                            <CollapsibleContainer title="Sales Overview Chart">
+                                <ChartErrorBoundary>
+                                    <Suspense fallback={<LoadingSpinner variant="chart" count={1} />}>
+                                        <OverviewChart data={processedData.overview.chartData} />
+                                    </Suspense>
+                                </ChartErrorBoundary>
                             </CollapsibleContainer>
                         </div>
                         <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
@@ -278,34 +283,38 @@ const DashboardLayout: React.FC = () => {
                 return (
                     <div className="p-2 md:p-6 overflow-y-auto h-full">
                         <div className="mb-6 hidden md:block">
-                            <Suspense fallback={<LoadingSpinner />}>
-                                <div className="flex flex-col md:flex-row gap-6 mb-6">
-                                    <FulfillChart
-                                        title="Top 10 Merchize Products"
-                                        data={processedData.fulfill.merchizeChartData}
-                                    />
-                                    <FulfillChart
-                                        title="Top 10 Printway Products"
-                                        data={processedData.fulfill.printwayChartData}
-                                    />
-                                </div>
-                            </Suspense>
+                            <ChartErrorBoundary>
+                                <Suspense fallback={<LoadingSpinner />}>
+                                    <div className="flex flex-col md:flex-row gap-6 mb-6">
+                                        <FulfillChart
+                                            title="Top 10 Merchize Products"
+                                            data={processedData.fulfill.merchizeChartData}
+                                        />
+                                        <FulfillChart
+                                            title="Top 10 Printway Products"
+                                            data={processedData.fulfill.printwayChartData}
+                                        />
+                                    </div>
+                                </Suspense>
+                            </ChartErrorBoundary>
                         </div>
                         <div className="md:hidden space-y-4 mb-6">
-                            <Suspense fallback={<LoadingSpinner />}>
-                                <CollapsibleContainer title="Top 10 Merchize Products">
-                                    <FulfillChart
-                                        title="Top 10 Merchize Products"
-                                        data={processedData.fulfill.merchizeChartData}
-                                    />
-                                </CollapsibleContainer>
-                                <CollapsibleContainer title="Top 10 Printway Products">
-                                    <FulfillChart
-                                        title="Top 10 Printway Products"
-                                        data={processedData.fulfill.printwayChartData}
-                                    />
-                                </CollapsibleContainer>
-                            </Suspense>
+                            <ChartErrorBoundary>
+                                <Suspense fallback={<LoadingSpinner />}>
+                                    <CollapsibleContainer title="Top 10 Merchize Products">
+                                        <FulfillChart
+                                            title="Top 10 Merchize Products"
+                                            data={processedData.fulfill.merchizeChartData}
+                                        />
+                                    </CollapsibleContainer>
+                                    <CollapsibleContainer title="Top 10 Printway Products">
+                                        <FulfillChart
+                                            title="Top 10 Printway Products"
+                                            data={processedData.fulfill.printwayChartData}
+                                        />
+                                    </CollapsibleContainer>
+                                </Suspense>
+                            </ChartErrorBoundary>
                         </div>
                         <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
                             <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
@@ -325,24 +334,30 @@ const DashboardLayout: React.FC = () => {
                 return (
                     <div className="p-2 md:p-6 overflow-y-auto h-full">
                         <div className="mb-6 hidden md:block">
-                            <Suspense fallback={<LoadingSpinner />}>
-                                <TopProductsChart data={processedData.summary.topProductsByShop} />
-                            </Suspense>
+                            <ChartErrorBoundary>
+                                <Suspense fallback={<LoadingSpinner />}>
+                                    <TopProductsChart data={processedData.summary.topProductsByShop} />
+                                </Suspense>
+                            </ChartErrorBoundary>
                         </div>
                         <div className="mb-6 hidden md:block">
-                            <Suspense fallback={<LoadingSpinner />}>
-                                <SummaryChart data={processedData.summary.chartData} />
-                            </Suspense>
+                            <ChartErrorBoundary>
+                                <Suspense fallback={<LoadingSpinner />}>
+                                    <SummaryChart data={processedData.summary.chartData} />
+                                </Suspense>
+                            </ChartErrorBoundary>
                         </div>
                         <div className="md:hidden space-y-3 mb-4">
-                            <Suspense fallback={<LoadingSpinner />}>
-                                <CollapsibleContainer title="Top Products">
-                                    <TopProductsChart data={processedData.summary.topProductsByShop} hideTitle />
-                                </CollapsibleContainer>
-                                <CollapsibleContainer title="Revenue & Funds">
-                                    <SummaryChart data={processedData.summary.chartData} hideTitle />
-                                </CollapsibleContainer>
-                            </Suspense>
+                            <ChartErrorBoundary>
+                                <Suspense fallback={<LoadingSpinner />}>
+                                    <CollapsibleContainer title="Top Products">
+                                        <TopProductsChart data={processedData.summary.topProductsByShop} hideTitle />
+                                    </CollapsibleContainer>
+                                    <CollapsibleContainer title="Revenue & Funds">
+                                        <SummaryChart data={processedData.summary.chartData} hideTitle />
+                                    </CollapsibleContainer>
+                                </Suspense>
+                            </ChartErrorBoundary>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6 mb-4 md:mb-6">
                             {Object.entries(processedData.summary.kpis).map(([title, value]) => (

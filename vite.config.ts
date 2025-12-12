@@ -73,6 +73,37 @@ export default defineConfig(({ mode }) => {
                 },
               },
             },
+            // Cache CDN modules (recharts, react, etc.)
+            {
+              urlPattern: /^https:\/\/aistudiocdn\.com\/.*/,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'cdn-modules',
+                expiration: {
+                  maxEntries: 50,
+                  maxAgeSeconds: 7 * 24 * 60 * 60, // 7 Days
+                },
+                networkTimeoutSeconds: 10,
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/esm\.sh\/.*/,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'esm-modules',
+                expiration: {
+                  maxEntries: 30,
+                  maxAgeSeconds: 7 * 24 * 60 * 60, // 7 Days
+                },
+                networkTimeoutSeconds: 10,
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
           ],
         }
       })
@@ -158,7 +189,7 @@ export default defineConfig(({ mode }) => {
 
     // Optimize dependencies
     optimizeDeps: {
-      include: ['react', 'react-dom', 'firebase/app', 'firebase/auth', 'firebase/firestore'],
+      include: ['react', 'react-dom', 'firebase/app', 'firebase/auth', 'firebase/firestore', 'recharts'],
       exclude: ['@google/genai'],
     },
   };
