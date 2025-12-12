@@ -18,7 +18,6 @@ import {
 import { fetchAllRecords, checkEmailsExistInRange, setupGmailWatch } from '../services/emailService';
 import { fetchCostsForRecords } from '../services/fulfillmentService';
 import { useNotification } from './NotificationContext';
-import { CacheService, getDashboardCacheKey, getAccountsCacheKey } from '../utils/cacheService';
 
 interface DashboardContextType {
   accounts: Account[];
@@ -410,55 +409,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setIsLoading(true);
       setSyncState('Loading data...');
       try {
-        // Try to get cached data first (stale-while-revalidate pattern)
-        const cacheKey = getDashboardCacheKey(teamId, filterDateRange.from, filterDateRange.to, timeZone);
-        const accountsCacheKey = getAccountsCacheKey(teamId);
-
-        const cachedResult = await CacheService.getStale<{
-          accounts: Account[];
-          records: Record[];
-          manualCosts: any[];
-        }>(cacheKey);
-
-        if (cachedResult) {
-          // Show cached data immediately
-          setAllAccounts(cachedResult.data.accounts);
-          setRecords(cachedResult.data.records);
-          setManualCosts(cachedResult.data.manualCosts);
-          setIsLoading(false);
-
-          // Set up webhooks for all accounts (fresh or stale)
-          cachedResult.data.accounts.forEach(acc => {
-            if (acc.provider === 'gmail') {
-              setupGmailWatch(teamId, acc).catch(err => console.error(`Failed to initialize webhook for ${acc.email}:`, err));
-            }
-          });
-
-          // If cache is fresh, we're done
-          if (!cachedResult.isStale) {
-            setSyncState(null);
-            return;
-          }
-
-          // If cache is stale, fetch fresh data in background
-          setSyncState('Refreshing data...');
-          // Continue below to fetch fresh data
-        }
-
-        // Only reach here if NO cache exists
-        // Fetch fresh data from Firebase
+        // Fetch fresh data from Firebase (no cache)
         const [fbAccounts, initialDisplayRecords, manualCostEntries] = await Promise.all([
           getAccountsFromFirebase(teamId),
           getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone),
           getManualCosts(teamId)
         ]);
-
-        // Update cache with fresh data
-        await CacheService.set(cacheKey, {
-          accounts: fbAccounts,
-          records: initialDisplayRecords,
-          manualCosts: manualCostEntries
-        });
 
         setAllAccounts(fbAccounts);
         setRecords(initialDisplayRecords);
@@ -476,13 +432,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           runSync(fbAccounts, initialDisplayRecords).then(async (addedRecords) => {
             const updatedDisplayRecords = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
             setRecords(updatedDisplayRecords);
-
-            // Update cache after sync
-            await CacheService.set(cacheKey, {
-              accounts: fbAccounts,
-              records: updatedDisplayRecords,
-              manualCosts: manualCostEntries
-            });
 
             const latestAccounts = await getAccountsFromFirebase(teamId);
             setAllAccounts(latestAccounts);
@@ -512,26 +461,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setSyncState('Fetching...');
       const { from, to } = filterDateRange;
 
-      // Try cache first with stale-while-revalidate
-      const cacheKey = getDashboardCacheKey(teamId, from, to, timeZone);
-      const cachedResult = await CacheService.getStale<{
-        currentRecords: Record[];
-        previousRecords: Record[] | null;
-      }>(cacheKey);
-
-      if (cachedResult) {
-        // Show cached data immediately
-        setRecords(cachedResult.data.currentRecords);
-        setPreviousPeriodRecords(cachedResult.data.previousRecords);
-        setIsFetchingNewRange(false);
-        setSyncState(cachedResult.isStale ? 'Refreshing...' : null);
-
-        // If fresh, no need to refetch
-        if (!cachedResult.isStale) {
-          return;
-        }
-      }
-
       const diffDays = Math.round(Math.abs(new Date(to).getTime() - new Date(from).getTime()) / (1000 * 60 * 60 * 24)) + 1;
       const shouldFetchPrevious = diffDays <= 7;
       let previousRange: { from: string; to: string } | null = null;
@@ -544,12 +473,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         const currentRecordsPromise = getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
         const previousRecordsPromise = shouldFetchPrevious && previousRange ? getRecordsForDateRange(teamId, previousRange.from, previousRange.to, timeZone) : Promise.resolve(null);
         const [fbRecords, prevRecords] = await Promise.all([currentRecordsPromise, previousRecordsPromise]);
-
-        // Update cache with fresh data
-        await CacheService.set(cacheKey, {
-          currentRecords: fbRecords,
-          previousRecords: prevRecords
-        });
 
         setRecords(fbRecords);
         setPreviousPeriodRecords(prevRecords);
@@ -584,20 +507,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const accountsToSync = selectedAccountId === 'all' ? visibleAccounts : visibleAccounts.filter(acc => acc.email === selectedAccountId);
     if (accountsToSync.length === 0) { addNotification("No accounts selected for syncing.", "info"); return; }
 
-    // Invalidate cache before sync
-    const cacheKey = getDashboardCacheKey(teamId, filterDateRange.from, filterDateRange.to, timeZone);
-    await CacheService.invalidate(cacheKey);
-
     runSync(accountsToSync, records).then(async () => {
       setSyncState('Refreshing view...');
       const updatedDisplayRecords = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
       setRecords(updatedDisplayRecords);
-
-      // Update cache with fresh synced data
-      await CacheService.set(cacheKey, {
-        currentRecords: updatedDisplayRecords,
-        previousRecords: previousPeriodRecords
-      });
 
       setSyncState(null);
     });
