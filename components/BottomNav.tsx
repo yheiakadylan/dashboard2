@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Tab } from '../api/_lib/types';
 import { useDashboard } from '../contexts/DashboardContext';
 
@@ -12,6 +12,11 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
     // Show only these 3 specific tabs for bottom navigation
     const specificTabs: Tab[] = ['Overview', 'Order List', 'Summary'];
     const bottomTabs = specificTabs.filter(tab => tabs.includes(tab));
+
+    // Memoized handler
+    const handleClick = useCallback((tab: Tab) => {
+        handleTabClick(tab);
+    }, [handleTabClick]);
 
     // Icon mapping for each tab
     const getTabIcon = (tab: Tab) => {
@@ -72,7 +77,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
                     return (
                         <button
                             key={tab}
-                            onClick={() => handleTabClick(tab)}
+                            onClick={() => handleClick(tab)}
                             className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${isActive
                                 ? 'text-blue-600 dark:text-blue-400'
                                 : 'text-gray-500 dark:text-gray-400'

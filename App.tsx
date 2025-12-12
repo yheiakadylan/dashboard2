@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { auth, db } from './services/firebaseService';
 import { sendLarkLoginNotification } from './services/notificationService';
@@ -74,16 +74,16 @@ const DashboardLayout: React.FC = () => {
         resistance: 0.4, // Reduced from 0.5 for more resistance
     });
 
-    const handleViewOrderDetails = (recordId: string) => {
+    const handleViewOrderDetails = useCallback((recordId: string) => {
         const record = records.find(r => r.id === recordId);
         if (record && record.details) {
             setSelectedOrder(record);
         } else {
             alert("Details not available for this order.");
         }
-    };
+    }, [records]);
 
-    const handleResyncOrder = async (recordId: string) => {
+    const handleResyncOrder = useCallback(async (recordId: string) => {
         const record = records.find(r => r.id === recordId);
         if (!record || !record.email_id) {
             alert("Cannot resync this order (missing email_id).");
@@ -110,9 +110,9 @@ const DashboardLayout: React.FC = () => {
             console.error(e);
             alert(`Error resyncing order: ${e.message}`);
         }
-    };
+    }, [records, accounts, teamId, setRecords]);
 
-    const closeOrderDetail = () => setSelectedOrder(null);
+    const closeOrderDetail = useCallback(() => setSelectedOrder(null), []);
 
     const formatDate = (dateStr: string): string => {
         try {

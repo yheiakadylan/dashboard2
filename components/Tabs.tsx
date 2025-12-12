@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Tab } from '../api/_lib/types';
 import { useDashboard } from '../contexts/DashboardContext';
 import { TABS_TO_HIDE_ON_MOBILE } from '../constants';
@@ -47,6 +47,15 @@ const Tabs: React.FC = () => {
   // Get tabs in custom order, filtered by permissions and visibility
   const visibleTabs = getPermittedTabs(tabOrder).filter(tab => !hiddenTabs.has(tab));
 
+  // Memoized handlers
+  const handleClick = useCallback((tab: Tab) => {
+    handleTabClick(tab);
+  }, [handleTabClick]);
+
+  const handleSettingsOpen = useCallback(() => {
+    setIsTabSettingsOpen(true);
+  }, [setIsTabSettingsOpen]);
+
   return (
     <div className="hidden md:flex items-center w-full">
       {/* Tab Navigation - Only visible on desktop */}
@@ -59,7 +68,7 @@ const Tabs: React.FC = () => {
           return (
             <button
               key={tab}
-              onClick={() => handleTabClick(tab)}
+              onClick={() => handleClick(tab)}
               className={`${activeTab === tab
                 ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-500'
@@ -74,7 +83,7 @@ const Tabs: React.FC = () => {
 
       {/* Settings Button - Only visible on desktop */}
       <button
-        onClick={() => setIsTabSettingsOpen(true)}
+        onClick={handleSettingsOpen}
         className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors mr-2 flex-shrink-0"
         title="Tab Settings"
         aria-label="Open tab settings"
