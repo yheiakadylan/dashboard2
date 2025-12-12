@@ -29,6 +29,7 @@ const FulfillChart = lazy(() => import('./components/FulfillChart'));
 const OrderDetailModal = lazy(() => import('./components/OrderDetailModal'));
 const TabSettings = lazy(() => import('./components/TabSettings'));
 const BottomNav = lazy(() => import('./components/BottomNav'));
+const InstallPrompt = lazy(() => import('./components/InstallPrompt'));
 
 // Loading component for Suspense fallback
 const LoadingSpinner: React.FC<{ variant?: 'table-row' | 'card' | 'chart' | 'kpi-card'; count?: number }> = ({ variant = 'table-row', count = 3 }) => (
@@ -476,6 +477,10 @@ const DashboardLayout: React.FC = () => {
             {/* Bottom Navigation for Mobile */}
             <Suspense fallback={null}>
                 <BottomNav tabs={visibleTabs} />
+            </Suspense>
+            {/* PWA Install Prompt */}
+            <Suspense fallback={null}>
+                <InstallPrompt />
             </Suspense>
         </div>
     );
