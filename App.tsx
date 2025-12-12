@@ -60,10 +60,6 @@ const DashboardLayout: React.FC = () => {
     } = useDashboard();
 
     const [selectedOrder, setSelectedOrder] = useState<Record | null>(null);
-    const [swipeStartX, setSwipeStartX] = useState<number>(0);
-    const [swipeEndX, setSwipeEndX] = useState<number>(0);
-    const [swipeStartY, setSwipeStartY] = useState<number>(0);
-    const [swipeEndY, setSwipeEndY] = useState<number>(0);
 
     // Pull-to-refresh for mobile
     const { isPulling, isRefreshing, pullDistance, pullProgress, touchHandlers } = usePullToRefresh({
@@ -72,9 +68,9 @@ const DashboardLayout: React.FC = () => {
             triggerHaptic('medium');
             window.location.reload();
         },
-        threshold: 80,
-        maxPullDistance: 120,
-        resistance: 0.5,
+        threshold: 120, // Increased from 80 to make it less sensitive
+        maxPullDistance: 150,
+        resistance: 0.4, // Reduced from 0.5 for more resistance
     });
 
     const handleViewOrderDetails = (recordId: string) => {
@@ -116,60 +112,6 @@ const DashboardLayout: React.FC = () => {
     };
 
     const closeOrderDetail = () => setSelectedOrder(null);
-
-    // Swipe gesture handlers for mobile tab navigation
-    const handleTouchStart = (e: React.TouchEvent) => {
-        setSwipeStartX(e.touches[0].clientX);
-        setSwipeStartY(e.touches[0].clientY);
-    };
-
-    const handleTouchMove = (e: React.TouchEvent) => {
-        setSwipeEndX(e.touches[0].clientX);
-        setSwipeEndY(e.touches[0].clientY);
-    };
-
-    const handleTouchEnd = () => {
-        if (!swipeStartX || !swipeEndX || !swipeStartY || !swipeEndY) return;
-
-        const swipeDistanceX = swipeStartX - swipeEndX;
-        const swipeDistanceY = swipeStartY - swipeEndY;
-        const minSwipeDistance = 80; // Increased threshold for more deliberate swipes
-
-        // Calculate absolute distances
-        const absX = Math.abs(swipeDistanceX);
-        const absY = Math.abs(swipeDistanceY);
-
-        // Only handle swipes on mobile for the 3 main tabs
-        const mainTabs: Tab[] = ['Overview', 'Order List', 'Summary'];
-        const currentIndex = mainTabs.indexOf(activeTab);
-
-        if (currentIndex === -1) {
-            setSwipeStartX(0);
-            setSwipeEndX(0);
-            setSwipeStartY(0);
-            setSwipeEndY(0);
-            return;
-        }
-
-        // Only trigger tab change if:
-        // 1. Horizontal movement exceeds minimum threshold
-        // 2. Horizontal movement is at least 2x greater than vertical (indicates horizontal swipe intent)
-        if (absX > minSwipeDistance && absX > absY * 2) {
-            if (swipeDistanceX > 0 && currentIndex < mainTabs.length - 1) {
-                // Swipe left - go to next tab
-                handleTabClick(mainTabs[currentIndex + 1]);
-            } else if (swipeDistanceX < 0 && currentIndex > 0) {
-                // Swipe right - go to previous tab
-                handleTabClick(mainTabs[currentIndex - 1]);
-            }
-        }
-        // If vertical movement is dominant, do nothing (allow normal scrolling)
-
-        setSwipeStartX(0);
-        setSwipeEndX(0);
-        setSwipeStartY(0);
-        setSwipeEndY(0);
-    };
 
     const formatDate = (dateStr: string): string => {
         try {
@@ -509,18 +451,6 @@ const DashboardLayout: React.FC = () => {
                     <div
                         className={`h-full w-full transition-opacity duration-200 animate-fade-in ${isFetchingNewRange ? 'opacity-50' : 'opacity-100'}`}
                         {...touchHandlers}
-                        onTouchStart={(e) => {
-                            touchHandlers.onTouchStart(e);
-                            handleTouchStart(e);
-                        }}
-                        onTouchMove={(e) => {
-                            touchHandlers.onTouchMove(e);
-                            handleTouchMove(e);
-                        }}
-                        onTouchEnd={() => {
-                            touchHandlers.onTouchEnd();
-                            handleTouchEnd();
-                        }}
                     >
                         {renderActiveTab()}
                     </div>
