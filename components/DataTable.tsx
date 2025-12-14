@@ -1,9 +1,42 @@
-import React, { useState, useMemo, CSSProperties } from 'react';
+import React, { useState, useMemo, useEffect, CSSProperties } from 'react';
 import { FixedSizeList as List, areEqual } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { HIDDEN_MOBILE_HEADERS } from '../constants';
 import EmptyState from './EmptyState';
 import Spinner from './Spinner';
+
+// Global cache for loaded images to prevent flickering on virtualized list scroll
+const imageCache = new Set<string>();
+
+const CachedImage: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({ src, className, ...props }) => {
+    const [isLoaded, setIsLoaded] = useState(src ? imageCache.has(src) : false);
+
+    useEffect(() => {
+        if (src && imageCache.has(src)) {
+            setIsLoaded(true);
+        }
+    }, [src]);
+
+    return (
+        <div className={`relative overflow-hidden ${className}`} style={{ width: props.width, height: props.height }}>
+            {!isLoaded && (
+                <div className="absolute inset-0 bg-gray-200 dark:bg-gray-700 animate-pulse" />
+            )}
+            <img
+                src={src}
+                className={`${className} ${isLoaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}
+                onLoad={() => {
+                    if (src) imageCache.add(src);
+                    setIsLoaded(true);
+                }}
+                loading="eager"
+                decoding="async"
+                {...props}
+            />
+        </div>
+    );
+};
+
 
 // Define ListChildComponentProps manually since named import might fail in some environments
 interface ListChildComponentProps<T = any> {
@@ -17,12 +50,13 @@ type SortDirection = 'asc' | 'desc' | null;
 
 interface DataTableProps {
     headers: string[];
-    data: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string, alt: string, fullSrc?: string } | { type: 'action_group', actions: any[] })[][];
+    data: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string, alt: string, fullSrc?: string } | { type: 'action_group', actions: any[] } | { type: 'value_with_unit', value: number, display: string })[][];
     onViewDayDetails?: (date: string) => void;
     onViewOrderDetails?: (recordId: string) => void;
     onResyncOrder?: (recordId: string) => Promise<void>;
     autoHeight?: boolean; // Prop to enable full-height rendering without internal scrolling
     mobileRowHeight?: number; // Prop to set custom row height for mobile view
+    forceCardView?: boolean; // Prop to force card view on desktop
 }
 
 interface RowData {
@@ -109,9 +143,15 @@ const renderActionCell = (cell: any, cellIndex: number, loadingItems: Set<string
 }
 
 const renderTextContent = (cell: any) => {
+    if (cell && typeof cell === 'object' && cell.type === 'value_with_unit') {
+        if (cell.value === 0 || cell.display === '--') {
+            return <span className="text-gray-300 dark:text-gray-600">--</span>;
+        }
+        return cell.display;
+    }
     return typeof cell === 'number'
         ? (cell === 0
-            ? <span className="text-gray-300 dark:text-gray-600">0</span>
+            ? <span className="text-gray-300 dark:text-gray-600">--</span>
             : (Number.isInteger(cell)
                 ? cell.toLocaleString('en-US')
                 : cell.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
@@ -164,7 +204,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         return (
                             <div key={cellIndex} className={cellClass}>
                                 {cell.src ? (
-                                    <img src={cell.src} alt={cell.alt} onClick={() => cell.fullSrc && onImageClick(cell.fullSrc)} className="w-[75px] h-[75px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer transition-transform hover:scale-105" />
+                                    <CachedImage src={cell.src} alt={cell.alt} onClick={() => cell.fullSrc && onImageClick(cell.fullSrc)} className="w-[75px] h-[75px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
                                 ) : (
                                     <div className="w-[75px] h-[75px] bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 text-center p-1">No Image</div>
                                 )}
@@ -245,7 +285,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 h-full flex flex-col justify-between">
                     <div className="flex gap-4 mb-3 items-start">
                         {imageCell?.src ? (
-                            <img src={imageCell.src} alt={imageCell.alt} onClick={() => imageCell.fullSrc && onImageClick(imageCell.fullSrc)} className="w-[75px] h-[75px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer transition-transform hover:scale-105" />
+                            <CachedImage src={imageCell.src} alt={imageCell.alt} onClick={() => imageCell.fullSrc && onImageClick(imageCell.fullSrc)} className="w-[75px] h-[75px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
                         ) : (
                             <div className="w-[75px] h-[75px] bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 text-center p-1">No Image</div>
                         )}
@@ -295,17 +335,18 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         }).filter((item): item is { h: string; val: any; i: number } => item !== null);
 
         return (
-            <div style={style} className="px-4 py-2">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 h-full flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-3 border-b border-gray-100 dark:border-gray-700 pb-2">
+
+            <div style={style} className="px-2 py-1.5 has-mobile-card">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 h-full flex flex-col justify-between">
+                    <div className="flex justify-between items-start mb-2 border-b border-gray-100 dark:border-gray-700 pb-2">
                         <div className="w-full">
-                            <span className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">{titleHeader}</span>
-                            <h4 className="text-lg font-bold text-gray-900 dark:text-white truncate" title={String(titleValue)}>
+                            <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">{titleHeader}</span>
+                            <h4 className="text-base font-bold text-gray-900 dark:text-white truncate" title={String(titleValue)}>
                                 {renderTextContent(titleValue)}
                             </h4>
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-x-2 gap-y-2 mb-3 flex-grow overflow-y-auto content-start">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-2 gap-y-1 mb-2 flex-grow overflow-y-auto content-start">
                         {bodyItems.map((item) => {
                             if (item.val === 'Click for detail') return null;
                             const isMoney = typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Funds') || item.h.includes('Cost'));
@@ -333,7 +374,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
 const MemoizedDesktopRow = React.memo(DesktopRow, areEqual);
 const MemoizedMobileCard = React.memo(MobileCard, areEqual);
 
-const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, autoHeight = false, mobileRowHeight }) => {
+const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, autoHeight = false, mobileRowHeight, forceCardView = false }) => {
     const [sortColumn, setSortColumn] = useState<number | null>(null);
     const [sortDirection, setSortDirection] = useState<SortDirection>(null);
     const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set());
@@ -381,11 +422,13 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                 if ('type' in valA && valA.type === 'button') valA = valA.label;
                 else if ('type' in valA && valA.type === 'image') valA = valA.alt;
                 else if ('type' in valA && valA.type === 'action_group') valA = '';
+                else if ('type' in valA && valA.type === 'value_with_unit') valA = valA.value;
             }
             if (valB && typeof valB === 'object') {
                 if ('type' in valB && valB.type === 'button') valB = valB.label;
                 else if ('type' in valB && valB.type === 'image') valB = valB.alt;
                 else if ('type' in valB && valB.type === 'action_group') valB = '';
+                else if ('type' in valB && valB.type === 'value_with_unit') valB = valB.value;
             }
 
             const isNumericA = typeof valA === 'number';
@@ -438,7 +481,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                     // If NOT autoHeight, height is required
                     if (!autoHeight && !height) return null;
 
-                    const isMobile = width < 768; // Mobile Breakpoint
+                    const isMobile = width < 768 || forceCardView; // Mobile Breakpoint or forced card view
                     const itemSize = isMobile ? (mobileRowHeight || 250) : 92;
                     const RowComponent = isMobile ? MemoizedMobileCard : MemoizedDesktopRow;
 
@@ -522,6 +565,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                                     itemSize={itemSize}
                                     width={width}
                                     itemData={itemData}
+                                    overscanCount={20} // Increased to 20 to keep more images in DOM
                                     className="scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600"
                                     style={autoHeight ? { overflow: 'hidden' } : undefined} // Hide inner scrollbar if autoHeight
                                 >

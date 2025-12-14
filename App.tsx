@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, lazy, useTransition, useRef } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { auth, db } from './services/firebaseService';
 import { sendLarkLoginNotification } from './services/notificationService';
@@ -37,7 +37,14 @@ const LoadingSpinner: React.FC<{ variant?: 'table-row' | 'card' | 'chart' | 'kpi
     <SkeletonLoader variant={variant} count={count} />
 );
 
+const Sidebar = lazy(() => import('./components/Sidebar'));
+import { DraggableGrid } from './components/DraggableGrid';
+
+
 const DashboardLayout: React.FC = () => {
+    // Sidebar state
+
+
     const {
         syncState,
         isAccountManagerOpen,
@@ -59,9 +66,32 @@ const DashboardLayout: React.FC = () => {
         tabOrder,
         hiddenTabs,
         handleSyncClick,
+        filterDateRange,
+
+        sourceFilter,
+        isSidebarCollapsed,
+        toggleSidebar,
     } = useDashboard();
 
     const [selectedOrder, setSelectedOrder] = useState<Record | null>(null);
+
+
+
+
+
+
+    // Dashboard Customization State (Summary Widgets)
+    const [summaryWidgets, setSummaryWidgets] = useState<string[]>(() => {
+        const saved = localStorage.getItem('dashboard_layout_summary');
+        // Default order
+        return saved ? JSON.parse(saved) : ['kpi-section', 'revenue-chart'];
+    });
+
+    const handleReorderSummary = useCallback((newOrder: string[]) => {
+        setSummaryWidgets(newOrder);
+        localStorage.setItem('dashboard_layout_summary', JSON.stringify(newOrder));
+    }, []);
+
 
     // Pull-to-refresh for mobile
     const { isPulling, isRefreshing, pullDistance, pullProgress, touchHandlers } = usePullToRefresh({
@@ -130,83 +160,7 @@ const DashboardLayout: React.FC = () => {
         }
     };
 
-    const handleExportCSV = () => {
-        // ... (Code export CSV giữ nguyên) ...
-        let dataToExport: { headers: string[]; rows: any[][]; };
-        let filename = `dashboard-export-${activeTab.toLowerCase().replace(/\s/g, '-')}.csv`;
 
-        switch (activeTab) {
-            case 'Overview':
-                dataToExport = processedData.overview.table;
-                break;
-            case 'Order List':
-                dataToExport = processedData.orders;
-                break;
-            case 'eBay':
-                dataToExport = processedData.ebay;
-                break;
-            case 'Etsy':
-                dataToExport = processedData.etsy;
-                break;
-            case 'Case':
-                dataToExport = processedData.cases;
-                break;
-            case 'Help':
-                dataToExport = processedData.help;
-                break;
-            case 'Fulfill':
-                dataToExport = processedData.fulfill.table;
-                break;
-            case 'Summary':
-                dataToExport = processedData.summary.table;
-                break;
-            default:
-                console.warn('No exportable data for this tab.');
-                alert('No data to export for the current view.');
-                return;
-        }
-
-        if (!dataToExport || dataToExport.rows.length === 0) {
-            alert('No data to export.');
-            return;
-        }
-
-        const { headers, rows } = dataToExport;
-
-        const escapeCSV = (cell: any): string => {
-            if (cell === null || cell === undefined) {
-                return '';
-            }
-            if (typeof cell === 'object' && 'type' in cell) {
-                return '';
-            }
-            let str = String(cell);
-            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-                str = `"${str.replace(/"/g, '""')}"`;
-            }
-            return str;
-        };
-
-        const csvContent = [
-            headers.map(escapeCSV).join(','),
-            ...rows.map(row => {
-                const rowToExport = activeTab === 'Order List' ? row.slice(0, headers.length) : row;
-                return rowToExport.map(escapeCSV).join(',');
-            })
-        ].join('\n');
-
-        const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        if (link.download !== undefined) {
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', filename);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-    };
 
     const renderActiveTab = () => {
         if (isLoading && records.length === 0) {
@@ -220,33 +174,93 @@ const DashboardLayout: React.FC = () => {
             case 'Overview':
                 return (
                     <div className="p-2 md:p-6 overflow-y-auto h-full">
-                        <div className="mb-4 md:mb-6 hidden md:block">
+                        {/* 1. KPIs Section (Merged from Summary) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6 mb-6">
+                            <KpiCard title="Total Orders" value={processedData.summary.kpis['Total Orders'] || { value: '---' }} />
+                            <KpiCard title="Shops" value={processedData.summary.kpis['Shops'] || { value: '---' }} />
+                            <KpiCard title="Revenue" value={processedData.summary.kpis['Revenue'] || { value: '---' }} />
+                            <KpiCard title="Funds" value={processedData.summary.kpis['Funds'] || { value: '---' }} />
+                            <KpiCard title="Cost" value={processedData.summary.kpis['Cost'] || { value: '---' }} />
+                        </div>
+
+                        {/* 2. Charts Section */}
+                        {/* 2. Charts Section */}
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+                            {/* Main Overview Chart - Takes 1/2 width */}
                             <ChartErrorBoundary>
                                 <Suspense fallback={<LoadingSpinner variant="chart" count={1} />}>
                                     <OverviewChart data={processedData.overview.chartData} />
                                 </Suspense>
                             </ChartErrorBoundary>
+
+                            {/* Revenue Chart - Takes 1/2 width */}
+                            <ChartErrorBoundary>
+                                <Suspense fallback={<LoadingSpinner variant="chart" />}>
+                                    <SummaryChart data={processedData.summary.chartData} hideTitle={true} />
+                                </Suspense>
+                            </ChartErrorBoundary>
                         </div>
-                        <div className="mb-6 md:hidden">
-                            <CollapsibleContainer title="Sales Overview Chart">
+
+                        {/* 3. Detailed Tables - Tabbed Interface */}
+                        {/* 3. Detailed Tables - Split View */}
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+                            {/* Left: Daily Breakdown (Card View) */}
+                            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+                                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Daily Breakdown</h3>
+                                </div>
+                                <div className="min-h-[400px]">
+                                    <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
+                                        <DataTable
+                                            headers={processedData.overview.table.headers}
+                                            data={processedData.overview.table.rows}
+                                            onViewDayDetails={handleViewDayDetails}
+                                            autoHeight={true}
+                                            mobileRowHeight={220} // Slightly more compact card for desktop split view
+                                            forceCardView={true}
+                                        />
+                                    </Suspense>
+                                </div>
+                            </div>
+
+                            {/* Right: Shop Summary (Table View) */}
+                            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+                                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Shop Summary</h3>
+                                </div>
+                                <div className="min-h-[400px]">
+                                    <Suspense fallback={<LoadingSpinner variant="table-row" count={5} />}>
+                                        <DataTable
+                                            headers={processedData.summary.table.headers}
+                                            data={processedData.summary.table.rows}
+                                            autoHeight={true}
+                                        />
+                                    </Suspense>
+                                </div>
+                            </div>
+                        </div>
+                    </div >
+                );
+            case 'Products':
+                return (
+                    <div className="p-2 md:p-6 overflow-y-auto h-full space-y-6">
+                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
+                            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Top Products</h3>
+                            <div>
                                 <ChartErrorBoundary>
-                                    <Suspense fallback={<LoadingSpinner variant="chart" count={1} />}>
-                                        <OverviewChart data={processedData.overview.chartData} />
+                                    <Suspense fallback={<LoadingSpinner variant="chart" />}>
+                                        <TopProductsChart data={processedData.summary.topProductsByShop} />
                                     </Suspense>
                                 </ChartErrorBoundary>
-                            </CollapsibleContainer>
+                            </div>
                         </div>
-                        <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-                            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
-                                Daily Breakdown
-                            </h3>
+                        <div className="flex-grow">
+                            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Product Details</h3>
                             <Suspense fallback={<LoadingSpinner variant="table-row" count={10} />}>
                                 <DataTable
-                                    headers={processedData.overview.table.headers}
-                                    data={processedData.overview.table.rows}
-                                    onViewDayDetails={handleViewDayDetails}
-                                    autoHeight={true} // Enable natural scrolling
-                                    mobileRowHeight={350}
+                                    headers={processedData.products.headers}
+                                    data={processedData.products.rows}
+                                    autoHeight={true}
                                 />
                             </Suspense>
                         </div>
@@ -258,25 +272,33 @@ const DashboardLayout: React.FC = () => {
 
                 if (dayFilter) {
                     orderListRows = orderListRows.filter(row => {
-                        const dtLocal = row[orderListHeaders.length] as string;
+                        const dtLocal = row[orderListHeaders.length] as string; // index 12
                         return formatDate(dtLocal) === dayFilter;
                     });
                 }
 
+                if (sourceFilter !== 'All') {
+                    orderListRows = orderListRows.filter(row => {
+                        const source = row[orderListHeaders.length + 1] as string; // index 13
+                        return source === sourceFilter;
+                    });
+                }
+
                 return (
-                    <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
-                        <DataTable
-                            headers={orderListHeaders}
-                            data={orderListRows}
-                            onViewOrderDetails={handleViewOrderDetails}
-                            onResyncOrder={handleResyncOrder}
-                            mobileRowHeight={340} // Increased height for cards
-                        />
-                    </Suspense>
+                    <div className="h-full flex flex-col">
+                        <div className="flex-grow px-2 md:px-6 pb-2 md:pb-6 overflow-hidden">
+                            <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
+                                <DataTable
+                                    headers={orderListHeaders}
+                                    data={orderListRows}
+                                    onViewOrderDetails={handleViewOrderDetails}
+                                    onResyncOrder={handleResyncOrder}
+                                />
+                            </Suspense>
+                        </div>
+                    </div>
                 );
             }
-            case 'eBay': return <Suspense fallback={<LoadingSpinner />}><DataTable headers={processedData.ebay.headers} data={processedData.ebay.rows} onViewOrderDetails={handleViewOrderDetails} onResyncOrder={handleResyncOrder} mobileRowHeight={340} /></Suspense>;
-            case 'Etsy': return <Suspense fallback={<LoadingSpinner />}><DataTable headers={processedData.etsy.headers} data={processedData.etsy.rows} onViewOrderDetails={handleViewOrderDetails} onResyncOrder={handleResyncOrder} mobileRowHeight={340} /></Suspense>;
             case 'Case': return <Suspense fallback={<LoadingSpinner />}><DataTable headers={processedData.cases.headers} data={processedData.cases.rows} /></Suspense>;
             case 'Help': return <Suspense fallback={<LoadingSpinner />}><DataTable headers={processedData.help.headers} data={processedData.help.rows} /></Suspense>;
             case 'Fulfill':
@@ -330,56 +352,7 @@ const DashboardLayout: React.FC = () => {
                         </div>
                     </div>
                 );
-            case 'Summary':
-                return (
-                    <div className="p-2 md:p-6 overflow-y-auto h-full">
-                        <div className="mb-6 hidden md:block">
-                            <ChartErrorBoundary>
-                                <Suspense fallback={<LoadingSpinner />}>
-                                    <TopProductsChart data={processedData.summary.topProductsByShop} />
-                                </Suspense>
-                            </ChartErrorBoundary>
-                        </div>
-                        <div className="mb-6 hidden md:block">
-                            <ChartErrorBoundary>
-                                <Suspense fallback={<LoadingSpinner />}>
-                                    <SummaryChart data={processedData.summary.chartData} />
-                                </Suspense>
-                            </ChartErrorBoundary>
-                        </div>
-                        <div className="md:hidden space-y-3 mb-4">
-                            <ChartErrorBoundary>
-                                <Suspense fallback={<LoadingSpinner />}>
-                                    <CollapsibleContainer title="Top Products">
-                                        <TopProductsChart data={processedData.summary.topProductsByShop} hideTitle />
-                                    </CollapsibleContainer>
-                                    <CollapsibleContainer title="Revenue & Funds">
-                                        <SummaryChart data={processedData.summary.chartData} hideTitle />
-                                    </CollapsibleContainer>
-                                </Suspense>
-                            </ChartErrorBoundary>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6 mb-4 md:mb-6">
-                            {Object.entries(processedData.summary.kpis).map(([title, value]) => (
-                                <KpiCard key={title} title={title} value={value} />
-                            ))}
-                        </div>
 
-                        {/* Auto-height table container for Summary view.
-                    Removed fixed height to allow full page scrolling.
-                */}
-                        <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-                            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Shop Summary Detail</h3>
-                            <Suspense fallback={<LoadingSpinner />}>
-                                <DataTable
-                                    headers={processedData.summary.table.headers}
-                                    data={processedData.summary.table.rows}
-                                    autoHeight={true}
-                                />
-                            </Suspense>
-                        </div>
-                    </div>
-                );
             default: return <div className="p-8 text-center text-gray-500">Selected tab content not available.</div>;
         }
     };
@@ -389,6 +362,9 @@ const DashboardLayout: React.FC = () => {
         return tabs.filter(tab => {
             if (role === 'owner') return true;
             switch (tab) {
+                case 'Products':
+                    return permissions.viewSales;
+
                 case 'Overview':
                 case 'Order List':
                 case 'eBay':
@@ -398,8 +374,7 @@ const DashboardLayout: React.FC = () => {
                     return permissions.viewSales;
                 case 'Fulfill':
                     return permissions.viewFulfill;
-                case 'Summary':
-                    return permissions.viewSummary;
+
                 default:
                     return false;
             }
@@ -408,70 +383,63 @@ const DashboardLayout: React.FC = () => {
     const visibleTabs = getPermittedTabs(tabOrder).filter(tab => !hiddenTabs.has(tab));
 
     return (
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col">
-            <Header />
-            <main className="flex-grow p-2 md:p-6 flex flex-col h-[calc(100vh-64px)] md:h-[calc(100vh-64px)] pb-20 md:pb-6 overflow-hidden">
-                <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-                    <Tabs />
-                    <div className="hidden md:flex px-4 flex-shrink-0">
-                        <button
-                            onClick={() => {
-                                triggerHaptic('light');
-                                handleExportCSV();
-                            }}
-                            className="p-2 md:px-3 md:py-1.5 text-xs font-semibold text-white bg-green-600 hover:bg-green-700 rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-green-500 flex items-center gap-2"
-                            title="Export current view to CSV"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                            </svg>
-                            <span className="hidden md:inline">Export</span>
-                        </button>
-                    </div>
-                </div>
-                <div className="relative flex-grow bg-white dark:bg-gray-800 rounded-b-lg shadow-lg overflow-hidden">
-                    {/* Pull-to-refresh indicator */}
-                    {(isPulling || isRefreshing) && (
-                        <div
-                            className="absolute top-0 left-0 right-0 flex justify-center items-center z-20 transition-all duration-200"
-                            style={{
-                                height: `${Math.min(pullDistance, 60)}px`,
-                                opacity: pullProgress
-                            }}
-                        >
-                            <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
-                                {isRefreshing ? (
-                                    <>
-                                        <Spinner size="sm" color="text-blue-600 dark:text-blue-400" />
-                                        <span className="text-sm font-medium">Refreshing...</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ transform: `rotate(${pullProgress * 360}deg)` }}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                        </svg>
-                                        <span className="text-sm font-medium">
-                                            {pullProgress >= 1 ? 'Release to refresh' : 'Pull to refresh'}
-                                        </span>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    )}
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex overflow-hidden">
+            {/* Sidebar for Desktop */}
+            <Suspense fallback={null}>
+                <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
+            </Suspense>
 
-                    {isFetchingNewRange && (
-                        <div className="absolute inset-0 bg-white/50 dark:bg-gray-800/50 flex items-center justify-center z-10">
-                            <Spinner size="lg" />
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
+                <Header />
+                <main className="flex-grow p-2 md:p-6 flex flex-col overflow-hidden relative">
+
+
+                    <div className="relative flex-grow bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden border border-gray-100 dark:border-gray-700">
+                        {/* Pull-to-refresh indicator */}
+                        {(isPulling || isRefreshing) && (
+                            <div
+                                className="absolute top-0 left-0 right-0 flex justify-center items-center z-20 transition-all duration-200"
+                                style={{
+                                    height: `${Math.min(pullDistance, 60)}px`,
+                                    opacity: pullProgress
+                                }}
+                            >
+                                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                                    {isRefreshing ? (
+                                        <>
+                                            <Spinner size="sm" color="text-blue-600 dark:text-blue-400" />
+                                            <span className="text-sm font-medium">Refreshing...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ transform: `rotate(${pullProgress * 360}deg)` }}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                            </svg>
+                                            <span className="text-sm font-medium">
+                                                {pullProgress >= 1 ? 'Release to refresh' : 'Pull to refresh'}
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {isFetchingNewRange && (
+                            <div className="absolute inset-0 bg-white/50 dark:bg-gray-800/50 flex items-center justify-center z-10 backdrop-blur-sm">
+                                <Spinner size="lg" />
+                            </div>
+                        )}
+                        <div
+                            className={`h-full w-full transition-opacity duration-200 animate-fade-in ${isFetchingNewRange ? 'opacity-50' : 'opacity-100'}`}
+                            {...touchHandlers}
+                        >
+                            {renderActiveTab()}
                         </div>
-                    )}
-                    <div
-                        className={`h-full w-full transition-opacity duration-200 animate-fade-in ${isFetchingNewRange ? 'opacity-50' : 'opacity-100'}`}
-                        {...touchHandlers}
-                    >
-                        {renderActiveTab()}
                     </div>
-                </div>
-            </main>
+                </main>
+            </div>
+
             {/* REMOVED: Footer with old status string */}
 
             {isAccountManagerOpen && (

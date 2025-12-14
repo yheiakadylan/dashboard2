@@ -65,7 +65,17 @@ interface DashboardContextType {
   setIsTabSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   reorderTabs: (fromIndex: number, toIndex: number) => void;
   toggleTabVisibility: (tab: Tab) => void;
+
   resetTabPreferences: () => void;
+  // Source Filter & Export (Moved from App.tsx)
+  sourceFilter: 'All' | 'Ebay_Sales' | 'Etsy_Sales';
+  setSourceFilter: React.Dispatch<React.SetStateAction<'All' | 'Ebay_Sales' | 'Etsy_Sales'>>;
+  handleExportCSV: () => void;
+
+
+  // Sidebar State
+  isSidebarCollapsed: boolean;
+  toggleSidebar: () => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -84,7 +94,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const savedTab = localStorage.getItem('activeTab');
-    const TABS: Tab[] = ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill', 'Summary'];
+    const TABS: Tab[] = ['Overview', 'Order List', 'Products', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill'];
     if (savedTab && TABS.includes(savedTab as Tab)) {
       return savedTab as Tab;
     }
@@ -112,19 +122,61 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   // Tab customization state
+  const [sourceFilter, setSourceFilter] = useState<'All' | 'Ebay_Sales' | 'Etsy_Sales'>('All');
+
   const [tabOrder, setTabOrder] = useState<Tab[]>(() => {
     const storageKey = `tabPreferences_${teamId}_${user.uid}`;
     const saved = localStorage.getItem(storageKey);
+    const defaultOrder: Tab[] = ['Overview', 'Order List', 'Products', 'Case', 'Help', 'Fulfill'];
+
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        return parsed.tabOrder || ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill', 'Summary'];
+        const savedTabOrder = parsed.tabOrder || [];
+        // Merge saved order with new defaults if they are missing
+        const merged = [...savedTabOrder];
+        defaultOrder.forEach(t => {
+          if (!merged.includes(t)) merged.push(t);
+        });
+        return merged;
       } catch (e) {
-        return ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill', 'Summary'];
+        console.error("Failed to parse tabOrder from localStorage", e);
+        return defaultOrder;
       }
     }
-    return ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill', 'Summary'];
+    return defaultOrder;
+
   });
+
+  // Sidebar State
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    return typeof window !== 'undefined' ? localStorage.getItem('sidebarCollapsed') === 'true' : false;
+  });
+
+  const toggleSidebar = useCallback(() => {
+    setIsSidebarCollapsed(prev => {
+      const newState = !prev;
+      localStorage.setItem('sidebarCollapsed', String(newState));
+      return newState;
+    });
+  }, []);
+
+
+
+  const permittedTabs = useMemo(() => {
+    const allPossibleTabs: Tab[] = ['Overview', 'Order List', 'Products', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill'];
+    // Example permission logic:
+    // If role is 'user' and permissions don't explicitly allow a tab, hide it.
+    // For now, let's assume all tabs are permitted unless specific logic is added.
+    return allPossibleTabs.filter(tab => {
+      // Add your permission logic here if needed.
+      // For example:
+      // if (tab === 'Admin' && role !== 'owner') return false;
+      // if (tab === 'Reports' && !permissions.canViewReports) return false;
+      return true; // By default, all tabs are permitted for now
+    });
+  }, [role, permissions]);
+
 
   const [hiddenTabs, setHiddenTabs] = useState<Set<Tab>>(() => {
     const storageKey = `tabPreferences_${teamId}_${user.uid}`;
@@ -232,7 +284,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   }, []);
 
   const resetTabPreferences = useCallback(() => {
-    const defaultOrder: Tab[] = ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill', 'Summary'];
+    const defaultOrder: Tab[] = ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill'];
     setTabOrder(defaultOrder);
     setHiddenTabs(new Set());
     addNotification('Tab preferences reset to default', 'success');
@@ -701,6 +753,85 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     );
   }, [filteredRecords, previousPeriodRecords, visibleAccounts, filterDateRange, timeZone, role, permissions, manualCosts]);
 
+
+
+
+  const handleExportCSV = useCallback(() => {
+    let dataToExport: { headers: string[]; rows: any[][]; };
+    let filename = `dashboard-export-${activeTab.toLowerCase().replace(/\s/g, '-')}.csv`;
+
+    switch (activeTab) {
+      case 'Overview':
+        dataToExport = processedData.overview.table;
+        break;
+      case 'Order List':
+        dataToExport = processedData.orders;
+        break;
+      case 'eBay':
+        dataToExport = processedData.ebay;
+        break;
+      case 'Etsy':
+        dataToExport = processedData.etsy;
+        break;
+      case 'Case':
+        dataToExport = processedData.cases;
+        break;
+      case 'Help':
+        dataToExport = processedData.help;
+        break;
+      case 'Fulfill':
+        dataToExport = processedData.fulfill.table;
+        break;
+      default:
+        console.warn('No exportable data for this tab.');
+        // alert('No data to export for the current view.');
+        addNotification('No data to export for the current view.', 'info');
+        return;
+    }
+
+    if (!dataToExport || dataToExport.rows.length === 0) {
+      // alert('No data to export.');
+      addNotification('No data to export.', 'info');
+      return;
+    }
+
+    const { headers, rows } = dataToExport;
+
+    const escapeCSV = (cell: any): string => {
+      if (cell === null || cell === undefined) {
+        return '';
+      }
+      if (typeof cell === 'object' && 'type' in cell) {
+        return '';
+      }
+      let str = String(cell);
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        str = `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const csvContent = [
+      headers.map(escapeCSV).join(','),
+      ...rows.map(row => {
+        const rowToExport = activeTab === 'Order List' ? row.slice(0, headers.length) : row;
+        return rowToExport.map(escapeCSV).join(',');
+      })
+    ].join('\n');
+
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  }, [activeTab, processedData, addNotification]);
+
   const value = {
     accounts: visibleAccounts, // Use visibleAccounts instead of allAccounts for user role filtering
     setAccounts: setAllAccounts,
@@ -747,7 +878,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     setIsTabSettingsOpen,
     reorderTabs,
     toggleTabVisibility,
-    resetTabPreferences
+    resetTabPreferences,
+
+    sourceFilter,
+    setSourceFilter,
+    handleExportCSV,
+    isSidebarCollapsed,
+    toggleSidebar
   };
 
   return (

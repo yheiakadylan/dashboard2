@@ -121,7 +121,7 @@ export const processData = (
         ? getFulfillRecords(uniqueRecords, accountLabelMap, timeZone, manualCosts, filterDateRange)
         : { table: { headers: ['Fulfill'], rows: [["Permission Denied"]] }, merchizeChartData: [], printwayChartData: [] };
 
-    const { kpis, table: summaryTable, chartData: summaryChartData, topProductsByShop } = (role === 'owner' || permissions.viewSummary)
+    const { kpis: summaryKpis, table: summaryTable, chartData: summaryChartData, topProductsByShop } = (role === 'owner' || permissions.viewSummary)
         ? calculateSummary(uniqueRecords, previousRecords, accountLabelMap, role, permissions, manualCosts, filterDateRange)
         : { kpis: {}, table: { headers: ['Summary'], rows: [["Permission Denied"]] }, chartData: [], topProductsByShop: {} };
 
@@ -133,7 +133,89 @@ export const processData = (
         cases,
         help,
         fulfill,
-        summary: { kpis, table: summaryTable, chartData: summaryChartData, topProductsByShop }
+        summary: { kpis: summaryKpis, table: summaryTable, chartData: summaryChartData, topProductsByShop },
+        products: {
+            headers: ['Image', 'Product Name', 'Shop', 'Quantity', 'Revenue'],
+            rows: (() => {
+                const productStats = new Map<string, { image: any, name: string, shop: string, quantity: number, revenue: number }>();
+
+                uniqueRecords.forEach(r => {
+                    if (r.kind !== 'order') return;
+
+                    const shopName = accountLabelMap.get(r.account) || r.account;
+                    const tax = r.details?.financials?.tax || 0;
+                    const netRevenue = r.amount - tax; // Revenue minus Tax
+
+                    if (r.details && r.details.items && r.details.items.length > 0) {
+                        // Calculate total list value to determine weights
+                        const totalListValue = r.details.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+                        r.details.items.forEach(item => {
+                            const name = item.name.trim(); // Ensure no leading/trailing spaces
+                            const key = `${name}_${shopName}`;
+
+                            // Calculate weight ensuring no division by zero
+                            const weight = totalListValue > 0 ? (item.price * item.quantity) / totalListValue : (1 / r.details!.items.length);
+                            const itemRevenue = netRevenue * weight;
+
+                            // Image Logic (High Res)
+                            let image = item.image;
+                            if (image && image.includes('il_') && image.includes('x')) {
+                                image = image.replace(/il_\d+x\w+/, 'il_fullxfull');
+                            } else if (image && image.includes('ebay')) {
+                                image = convertEbayImageToHighRes(image);
+                            }
+
+                            const current = productStats.get(key) || {
+                                image: image,
+                                name: name,
+                                shop: shopName,
+                                quantity: 0,
+                                revenue: 0
+                            };
+
+                            // Update stats
+                            // Use first available image if current is missing
+                            if (!current.image && image) current.image = image;
+
+                            current.quantity += item.quantity;
+                            current.revenue += itemRevenue;
+
+                            productStats.set(key, current);
+                        });
+                    } else if (r.product_name && r.product_name !== 'N/A') {
+                        // Fallback for records without details but with product_name
+                        const names = r.product_name.split(',').map(n => n.trim()).filter(n => n);
+                        if (names.length > 0) {
+                            const itemRevenue = netRevenue / names.length; // Equal split
+                            names.forEach(name => {
+                                const key = `${name}_${shopName}`;
+                                const current = productStats.get(key) || {
+                                    image: null,
+                                    name: name,
+                                    shop: shopName,
+                                    quantity: 0,
+                                    revenue: 0
+                                };
+                                current.quantity += 1; // Assume 1
+                                current.revenue += itemRevenue;
+                                productStats.set(key, current);
+                            });
+                        }
+                    }
+                });
+
+                return Array.from(productStats.values())
+                    .sort((a, b) => b.revenue - a.revenue)
+                    .map(p => [
+                        { type: 'image', src: p.image, fullSrc: p.image, alt: p.name },
+                        p.name,
+                        p.shop,
+                        p.quantity,
+                        p.revenue
+                    ]);
+            })()
+        }
     };
 };
 
@@ -322,6 +404,7 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
             formatDateTime(o.dt_local, timeZone),
             { type: 'action_group', actions } as any,
             o.dt_local, // Add raw ISO string for filtering, will not be displayed
+            o.source, // Add source string for filtering, will not be displayed
         ];
     });
 
@@ -598,16 +681,20 @@ const calculateSummary = (
     }
 
     const revenueKpis = processFinancialKpi(currentRawKpis.revenueByCurrency, previousRawKpis?.revenueByCurrency || null);
-    if (revenueKpis) kpis['Revenue'] = revenueKpis;
+    kpis['Revenue'] = revenueKpis || { value: '---' };
 
     if (role === 'owner' || permissions.viewFunds) {
         const fundsKpis = processFinancialKpi(currentRawKpis.fundsByCurrency, previousRawKpis?.fundsByCurrency || null);
-        if (fundsKpis) kpis['Funds'] = fundsKpis;
+        kpis['Funds'] = fundsKpis || { value: '---' };
+    } else {
+        kpis['Funds'] = { value: '---' };
     }
 
     if (role === 'owner' || permissions.viewFulfill) {
         const costKpis = processFinancialKpi(currentRawKpis.costByCurrency, previousRawKpis?.costByCurrency || null);
-        if (costKpis) kpis['Cost'] = costKpis;
+        kpis['Cost'] = costKpis || { value: '---' };
+    } else {
+        kpis['Cost'] = { value: '---' };
     }
 
     const shopData: {
@@ -618,6 +705,11 @@ const calculateSummary = (
             cost: { [currency: string]: number }
         }
     } = {};
+
+    // Initialize shopData for ALL accounts to ensure 0-order shops are listed
+    accountLabelMap.forEach((label, email) => {
+        shopData[email] = { revenue: {}, orders: new Set(), funds: {}, cost: {} };
+    });
 
     const allTableCurrencies = { revenue: new Set<string>(), funds: new Set<string>(), cost: new Set<string>() };
 
@@ -705,41 +797,67 @@ const calculateSummary = (
     const sortedFundsCurrencies = Array.from(allTableCurrencies.funds).sort();
     const sortedCostCurrencies = Array.from(allTableCurrencies.cost).sort();
 
-    const revenueHeaders = sortedRevenueCurrencies.map(c => `Revenue (${c})`);
-    const fundsHeaders = (role === 'owner' || permissions.viewFunds) ? sortedFundsCurrencies.map(c => `Funds (${c})`) : [];
-    const costHeaders = (role === 'owner' || permissions.viewFulfill) ? sortedCostCurrencies.map(c => `Cost (${c})`) : [];
+    // --- Consolidated Column Logic ---
+    const formatMixedCurrency = (amountMap: { [c: string]: number }): { value: number, display: string } => {
+        const currencies = Object.keys(amountMap).sort();
+        if (currencies.length === 0) return { value: 0, display: '--' };
 
-    const tableHeaders = ["Shop", "Orders",
-        ...revenueHeaders,
-        ...fundsHeaders,
-        ...costHeaders
-    ];
+        let totalVal = 0;
+        const parts = currencies.map(c => {
+            const val = amountMap[c];
+            totalVal += val;
+            return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val) + ' ' + c;
+        });
+
+        return { value: totalVal, display: parts.join(' + ') };
+    };
+
+    const tableHeaders = ["Shop", "Orders", "Revenue"];
+    if (role === 'owner' || permissions.viewFunds) tableHeaders.push("Funds");
+    if (role === 'owner' || permissions.viewFulfill) tableHeaders.push("Cost (USD)");
+
     const tableRows = Object.entries(shopData).map(([account, data]) => {
-        const revenueValues = sortedRevenueCurrencies.map(c => data.revenue[c] || 0);
-        const fundsValues = (role === 'owner' || permissions.viewFunds) ? sortedFundsCurrencies.map(c => data.funds[c] || 0) : [];
-        const costValues = (role === 'owner' || permissions.viewFulfill) ? sortedCostCurrencies.map(c => data.cost[c] || 0) : [];
+        const revenue = formatMixedCurrency(data.revenue);
 
-        return [
+        const row = [
             accountLabelMap.get(account) || account,
             data.orders.size,
-            ...revenueValues,
-            ...fundsValues,
-            ...costValues,
+            { type: 'value_with_unit' as const, value: revenue.value, display: revenue.display }
         ];
+
+        if (role === 'owner' || permissions.viewFunds) {
+            const funds = formatMixedCurrency(data.funds);
+            row.push({ type: 'value_with_unit' as const, value: funds.value, display: funds.display });
+        }
+
+        if (role === 'owner' || permissions.viewFulfill) {
+            // Cost is default USD per user request, but we handle the map sum for valid display number
+            let totalCost = 0;
+            Object.values(data.cost).forEach(v => totalCost += v);
+            row.push(totalCost);
+        }
+
+        return row;
     }).sort((a, b) => (b[1] as number) - (a[1] as number));
 
     if ((role === 'owner' || permissions.viewFulfill) && Object.keys(manualCostData.cost).length > 0) {
-        const revenueValues = sortedRevenueCurrencies.map(() => 0);
-        const fundsValues = (role === 'owner' || permissions.viewFunds) ? sortedFundsCurrencies.map(() => 0) : [];
-        const costValues = (role === 'owner' || permissions.viewFulfill) ? sortedCostCurrencies.map(c => manualCostData.cost[c] || 0) : [];
+        let totalManualCost = 0;
+        Object.values(manualCostData.cost).forEach(v => totalManualCost += v);
 
         const manualRow = [
             "Manual Entry",
             0,
-            ...revenueValues,
-            ...fundsValues,
-            ...costValues
+            { type: 'value_with_unit' as const, value: 0, display: '--' } // Revenue
         ];
+
+        if (role === 'owner' || permissions.viewFunds) {
+            manualRow.push({ type: 'value_with_unit' as const, value: 0, display: '--' }); // Funds
+        }
+
+        // Manual Cost is typically strictly Cost, so we push it if the column exists
+        // Since we are inside the 'if (viewFulfill)', the Cost column exists.
+        manualRow.push(totalManualCost);
+
         tableRows.push(manualRow);
     }
 

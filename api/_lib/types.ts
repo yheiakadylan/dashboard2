@@ -6,7 +6,7 @@ export interface Account {
   token: string; // For Google: stringified credentials. For MSAL: homeAccountId.
   last_synced_at?: string; // ISO string of the last successful NORMAL sync time
   order?: number; // Field to store the user-defined sort order
-  
+
   // Trường để quản lý việc quét lịch sử chạy ngầm
   history_synced_until?: string; // Mốc thời gian LÙI mà quá trình quét đã hoàn thành
   historical_sync_complete?: boolean; // Đánh dấu là true khi quá trình quét lịch sử đã hoàn tất
@@ -74,7 +74,7 @@ export interface CostData {
   product_name?: string;
 }
 
-export type Tab = 'Overview' | 'Order List' | 'eBay' | 'Etsy' | 'Case' | 'Help' | 'Fulfill' | 'Summary';
+export type Tab = 'Overview' | 'Order List' | 'eBay' | 'Etsy' | 'Case' | 'Help' | 'Fulfill' | 'Products' | 'Summary';
 export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%
@@ -88,7 +88,7 @@ export interface KpiData {
 // FIX: Allowed null in TableData rows to support records with missing cost data.
 export interface TableData {
   headers: string[];
-  rows: (string | number | null | { type: 'button', label: string, id: string })[][];
+  rows: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string } | { type: 'action_group', actions: any[] })[][];
 }
 
 export interface OverviewChartData {
@@ -135,4 +135,5 @@ export interface ProcessedData {
     chartData: SummaryChartData[];
     topProductsByShop: { [shopName: string]: TopProduct[] };
   };
+  products: TableData; // New field for detailed products table
 }

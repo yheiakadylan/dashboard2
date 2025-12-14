@@ -22,6 +22,13 @@ const Header: React.FC = () => {
     syncState,
     searchTerm,
     setSearchTerm,
+
+    setIsTabSettingsOpen,
+    activeTab,
+    sourceFilter,
+    setSourceFilter,
+    handleExportCSV,
+    isSidebarCollapsed,
   } = useDashboard();
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -171,6 +178,29 @@ const Header: React.FC = () => {
             )}
           </div>
 
+
+
+          {/* Source Filter - Only for Order List */}
+          {activeTab === 'Order List' && (
+            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-md p-0.5">
+              {(['All', 'Ebay_Sales', 'Etsy_Sales'] as const).map(src => (
+                <button
+                  key={src}
+                  onClick={() => setSourceFilter(src)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-sm transition-all duration-200 ${sourceFilter === src
+                    ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                    }`}
+                >
+                  {src === 'All' ? 'All' : src === 'Ebay_Sales' ? 'eBay' : 'Etsy'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Export Button */}
+
+
           <DateRangePicker />
 
           <select
@@ -187,28 +217,25 @@ const Header: React.FC = () => {
 
           <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
 
-          <ThemeToggle />
-
-          {(role === 'owner' || permissions.canManageSettings) && (
-            <button onClick={handleSettingsOpen} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" title="Settings">
-              <span className="text-lg leading-none">⚙️</span>
-            </button>
-          )}
-
+          {/* Export Button */}
           <button
-            onClick={handleLogout}
-            className="p-2 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-            title="Logout"
+            onClick={handleExportCSV}
+            className={`text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors flex items-center justify-center ${isSidebarCollapsed ? 'px-3 py-1.5' : 'p-2'
+              }`}
+            title="Export CSV"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
+              <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
             </svg>
+            <span className={`${isSidebarCollapsed ? 'block' : 'hidden'} ml-2 text-sm font-medium`}>Export</span>
           </button>
+
+          {/* ThemeToggle moved to TabSettings */}
+
         </div>
 
         {/* Right: Mobile Menu Toggle */}
         <div className="flex md:hidden items-center gap-2">
-          <ThemeToggle />
           <button
             onClick={handleMobileMenuToggle}
             className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md focus:outline-none"
@@ -282,16 +309,24 @@ const Header: React.FC = () => {
           </div>
 
           {/* Mobile Actions Footer */}
-          <div className="pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            {(role === 'owner' || permissions.canManageSettings) ? (
-              <button onClick={handleSettingsAndCloseMenu} className="flex items-center gap-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-sm transition-colors">
-                <span>⚙️</span> Manage Accounts
+          <div className="pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+
+            <button
+              onClick={() => { setIsTabSettingsOpen(true); setIsMobileMenuOpen(false); }}
+              className="flex items-center gap-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-sm transition-colors py-1"
+            >
+              <span className="w-5 text-center">⚙️</span> Customize Tabs & Theme
+            </button>
+
+            {(role === 'owner' || permissions.canManageSettings) && (
+              <button onClick={handleSettingsAndCloseMenu} className="flex items-center gap-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-sm transition-colors py-1">
+                <span className="w-5 text-center">🔧</span> Manage Accounts
               </button>
-            ) : <div></div>}
+            )}
 
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 font-medium text-sm px-3 py-1.5 bg-red-50 dark:bg-red-900/20 rounded-md transition-colors"
+              className="flex items-center gap-2 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 font-medium text-sm px-3 py-1.5 bg-red-50 dark:bg-red-900/20 rounded-md transition-colors w-full justify-center mt-2"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
@@ -301,7 +336,7 @@ const Header: React.FC = () => {
           </div>
         </div>
       </div>
-    </header>
+    </header >
   );
 };
 

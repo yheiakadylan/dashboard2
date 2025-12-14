@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Tab } from '../api/_lib/types';
 import { useDashboard } from '../contexts/DashboardContext';
+import ThemeToggle from './ThemeToggle';
 
 const TabSettings: React.FC = () => {
     const {
@@ -14,13 +15,11 @@ const TabSettings: React.FC = () => {
         resetTabPreferences
     } = useDashboard();
 
-    const [localTabOrder, setLocalTabOrder] = useState<Tab[]>([...tabOrder]);
-    const [localHiddenTabs, setLocalHiddenTabs] = useState<Set<Tab>>(new Set(hiddenTabs));
     const [draggedTab, setDraggedTab] = useState<Tab | null>(null);
 
     // Filter tabs based on permissions
     const getAvailableTabs = (): Tab[] => {
-        return localTabOrder.filter(tab => {
+        return tabOrder.filter(tab => {
             if (role === 'owner') return true;
 
             switch (tab) {
@@ -30,11 +29,12 @@ const TabSettings: React.FC = () => {
                 case 'Etsy':
                 case 'Case':
                 case 'Help':
+                case 'Products':
                     return permissions.viewSales;
                 case 'Fulfill':
                     return permissions.viewFulfill;
                 case 'Summary':
-                    return permissions.viewSummary;
+                    return permissions.viewSales;
                 default:
                     return false;
             }
@@ -53,7 +53,7 @@ const TabSettings: React.FC = () => {
 
         if (!draggedTab || draggedTab === targetTab) return;
 
-        const newOrder = [...localTabOrder];
+        const newOrder = [...tabOrder];
         const draggedIndex = newOrder.indexOf(draggedTab);
         const targetIndex = newOrder.indexOf(targetTab);
 
@@ -61,7 +61,7 @@ const TabSettings: React.FC = () => {
         newOrder.splice(draggedIndex, 1);
         newOrder.splice(targetIndex, 0, draggedTab);
 
-        setLocalTabOrder(newOrder);
+        setTabOrder(newOrder);
     };
 
     const handleDragEnd = () => {
@@ -69,67 +69,69 @@ const TabSettings: React.FC = () => {
     };
 
     const handleToggleVisibility = (tab: Tab) => {
-        const newHidden = new Set(localHiddenTabs);
-        if (newHidden.has(tab)) {
-            newHidden.delete(tab);
-        } else {
-            newHidden.add(tab);
-        }
-        setLocalHiddenTabs(newHidden);
-    };
-
-    const handleSave = () => {
-        // Directly set the new tab order
-        setTabOrder(localTabOrder);
-
-        // Apply visibility changes
-        localHiddenTabs.forEach(tab => {
-            if (!hiddenTabs.has(tab)) {
-                toggleTabVisibility(tab);
-            }
-        });
-
-        hiddenTabs.forEach(tab => {
-            if (!localHiddenTabs.has(tab)) {
-                toggleTabVisibility(tab);
-            }
-        });
-
-        setIsTabSettingsOpen(false);
+        toggleTabVisibility(tab);
     };
 
     const handleReset = () => {
-        const defaultOrder: Tab[] = ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill', 'Summary'];
-        setLocalTabOrder(defaultOrder);
-        setLocalHiddenTabs(new Set());
         resetTabPreferences();
     };
 
-    const handleCancel = () => {
-        setIsTabSettingsOpen(false);
+    const handleBackdropClick = (e: React.MouseEvent) => {
+        if (e.target === e.currentTarget) {
+            setIsTabSettingsOpen(false);
+        }
     };
 
-    const visibleCount = availableTabs.filter(tab => !localHiddenTabs.has(tab)).length;
-    const canSave = visibleCount >= 1;
+    const visibleCount = availableTabs.filter(tab => !hiddenTabs.has(tab)).length;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            onClick={handleBackdropClick}
+        >
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col animate-slide-in">
                 {/* Header */}
-                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                        Tab Settings
-                    </h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Customize tab order and visibility
-                    </p>
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                    <div>
+                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                            Tab Settings
+                        </h2>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                            Current changes apply immediately
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => setIsTabSettingsOpen(false)}
+                        className="text-gray-400 hover:text-gray-500 focus:outline-none"
+                    >
+                        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
                 </div>
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto px-6 py-4">
+
+                    {/* Visual Settings */}
+                    <div className="mb-6">
+                        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+                            Appearance
+                        </h3>
+                        <div className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-gray-900 dark:text-white">Dark Mode</span>
+                            </div>
+                            <ThemeToggle />
+                        </div>
+                    </div>
+
                     <div className="space-y-2">
+                        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                            Tabs Order & Visibility
+                        </h3>
                         {availableTabs.map((tab) => {
-                            const isHidden = localHiddenTabs.has(tab);
+                            const isHidden = hiddenTabs.has(tab);
                             const isDragging = draggedTab === tab;
 
                             return (
@@ -180,13 +182,7 @@ const TabSettings: React.FC = () => {
                     </div>
 
                     {/* Warning if trying to hide all tabs */}
-                    {!canSave && (
-                        <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                            <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                                ⚠️ At least one tab must be visible
-                            </p>
-                        </div>
-                    )}
+                    {/* canSave was removed, we can check visibleCount directly or just remove since we disable the button anyway */}
 
                     {/* Instructions */}
                     <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
@@ -194,36 +190,20 @@ const TabSettings: React.FC = () => {
                             💡 <strong>Tip:</strong> Drag tabs to reorder them. Toggle the switch to show/hide tabs.
                         </p>
                     </div>
+                    <div className="mt-4 flex justify-center">
+                        <button
+                            onClick={handleReset}
+                            className="text-xs font-medium text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 underline"
+                        >
+                            Reset to Default
+                        </button>
+                    </div>
                 </div>
 
-                {/* Footer */}
-                <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex gap-3">
-                    <button
-                        onClick={handleReset}
-                        className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-                    >
-                        Reset to Default
-                    </button>
-                    <div className="flex-1" />
-                    <button
-                        onClick={handleCancel}
-                        className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        disabled={!canSave}
-                        className={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors ${canSave
-                            ? 'bg-blue-600 hover:bg-blue-700'
-                            : 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed'
-                            }`}
-                    >
-                        Save Changes
-                    </button>
-                </div>
+
             </div>
         </div>
+
     );
 };
 

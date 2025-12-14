@@ -6,8 +6,12 @@ interface OverviewChartProps {
   data: OverviewChartData[];
 }
 
-// Predefined colors for the chart lines
-const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00C49F', '#FFBB28'];
+// Predefined colors matching the user's reference image
+// Order Count (Blue), Rev AUD (Purple), Rev NZD (Green), Rev USD (Yellow)
+// Note: Colors will be assigned cyclically. We'll try to map them nicely:
+// - Orders: #3B82F6 (Independent)
+// - Revenue loop: Yellow -> Purple -> Green
+const COLORS = ['#F59E0B', '#8B5CF6', '#10B981', '#EC4899'];
 
 const OverviewChart: React.FC<OverviewChartProps> = ({ data }) => {
   if (!data || data.length === 0) {
@@ -23,33 +27,78 @@ const OverviewChart: React.FC<OverviewChartProps> = ({ data }) => {
     .filter(key => key.startsWith('revenue'));
 
   return (
-    <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 animate-fade-in-up" style={{ height: '350px' }}>
+    <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 animate-fade-in-up" style={{ height: '450px' }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={data}
-          margin={{ top: 10, right: 30, left: 10, bottom: 5 }}
+          margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
         >
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--recharts-grid-stroke)" />
-          <XAxis dataKey="date" stroke="var(--recharts-text-color)" />
-          <YAxis yAxisId="left" stroke="var(--recharts-text-color)" label={{ value: 'Orders', angle: -90, position: 'insideLeft', fill: 'var(--recharts-text-color)' }} />
-          <YAxis yAxisId="right" orientation="right" stroke="#82ca9d" label={{ value: 'Revenue', angle: -90, position: 'insideRight', fill: '#82ca9d' }} />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: 'var(--recharts-tooltip-bg)',
-              border: '1px solid var(--recharts-tooltip-border)'
+          <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} vertical={false} />
+          <XAxis
+            dataKey="date"
+            stroke="#9CA3AF"
+            tick={{ fontSize: 11 }}
+            tickMargin={10}
+            axisLine={false}
+            tickLine={false}
+            minTickGap={30} // Prevent overcrowding
+            tickFormatter={(value) => {
+              // Handle HH:00 format (Daily view) - Format to 12 AM, 1 PM
+              if (typeof value === 'string' && /^\d{2}:00$/.test(value)) {
+                const hour = parseInt(value.substring(0, 2), 10);
+                const period = hour >= 12 ? 'PM' : 'AM';
+                const displayHour = hour % 12 || 12;
+                return `${displayHour} ${period}`;
+              }
+              // Handle YYYY-MM-DD format (Range view) - Format to DD/MM
+              if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                const [y, m, d] = value.split('-');
+                return `${d}/${m}`;
+              }
+              return value;
             }}
-            labelStyle={{ color: 'var(--recharts-tooltip-label-color)' }}
           />
-          <Legend />
+          <YAxis
+            yAxisId="left"
+            stroke="#9CA3AF"
+            tick={{ fontSize: 12 }}
+            tickFormatter={(value) => value}
+            axisLine={false}
+            tickLine={false}
+            label={{ value: 'Orders', angle: -90, position: 'insideLeft', fill: '#9CA3AF', style: { textAnchor: 'middle' } }}
+          />
+          <YAxis
+            yAxisId="right"
+            orientation="right"
+            stroke="#10B981"
+            tick={{ fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+            label={{ value: 'Revenue', angle: -90, position: 'insideRight', fill: '#10B981', style: { textAnchor: 'middle' } }}
+          />
+          <Tooltip
+            formatter={(value: number) => value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+            contentStyle={{
+              backgroundColor: '#1F2937',
+              borderColor: '#374151',
+              color: '#F3F4F6',
+              borderRadius: '8px',
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+            }}
+            itemStyle={{ color: '#F3F4F6' }}
+            labelStyle={{ color: '#9CA3AF', fontWeight: 'bold' }}
+          />
+          <Legend wrapperStyle={{ paddingTop: '20px' }} />
           <Line
             yAxisId="left"
             type="monotone"
             dataKey="orderCount"
-            stroke="#4299e1"
-            strokeWidth={2}
+            stroke="#3B82F6"
+            strokeWidth={3}
             name="Order Count"
             dot={false}
-            animationDuration={800}
+            activeDot={{ r: 6 }}
+            animationDuration={1000}
           />
           {revenueKeys.map((key, index) => (
             <Line
@@ -58,8 +107,11 @@ const OverviewChart: React.FC<OverviewChartProps> = ({ data }) => {
               type="monotone"
               dataKey={key}
               stroke={COLORS[index % COLORS.length]}
-              name={key.replace('revenue', 'Revenue ')}
+              strokeWidth={3}
+              name={key.replace('revenue', 'Rev ')}
               dot={false}
+              activeDot={{ r: 6 }}
+              animationDuration={1000}
             />
           ))}
         </LineChart>

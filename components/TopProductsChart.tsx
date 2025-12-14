@@ -132,8 +132,8 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
   };
 
   // Calculate dynamic height based on number of items
-  // Min 200px for empty state with selector, max 600px
-  const dynamicHeight = chartData.length === 0 ? 200 : Math.min(600, Math.max(300, chartData.length * 40 + 150));
+  // Min 300px, 50px per item + 150px buffer for header/axis
+  const dynamicHeight = chartData.length === 0 ? 200 : Math.max(300, chartData.length * 50 + 150);
 
   return (
     <div className="bg-white dark:bg-gray-800 p-2 md:p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col relative animate-fade-in-up" style={{ height: `${dynamicHeight}px` }}>
