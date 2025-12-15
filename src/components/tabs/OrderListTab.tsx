@@ -56,6 +56,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
                         data={filteredRows}
                         onViewOrderDetails={handleViewOrderDetails}
                         onResyncOrder={handleResyncOrder}
+                        mobileRowHeight={340} // Increased height to accommodate larger image and content
                     />
                 </Suspense>
             </div>

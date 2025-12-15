@@ -106,7 +106,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
     if (hasProductImage) {
         // DETAILED PRODUCT/ORDER LAYOUT
         const productIndex = findIdx('Product Name');
-        const orderIdIndex = findIdx('Order Number');
+        const orderIdIndex = findIdx('Order Number') !== -1 ? findIdx('Order Number') : findIdx('Order ID');
         const dateTimeIndex = headers.indexOf('DateTime'); // Find DateTime header index
 
         const imageCell = row[imageIndex];
@@ -114,29 +114,50 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         const orderIdValue = orderIdIndex !== -1 ? row[orderIdIndex] : 'N/A';
         const dateTimeValue = dateTimeIndex !== -1 ? row[dateTimeIndex] : null; // Get DateTime value
 
-        const specialIndexes = new Set([imageIndex, productIndex, orderIdIndex, actionIndex, dateTimeIndex]);
+        const currencyIndex = findIdx('Currency');
+        const specialIndexes = new Set([imageIndex, productIndex, orderIdIndex, actionIndex, dateTimeIndex, currencyIndex]);
         const bodyItems = headers
             .map((h, i) => {
                 if (specialIndexes.has(i) || h === 'DateTime') return null;
                 let val = row[i];
-                if (val === null || val === '-' || val === '' || (val === 0 && !h.toLowerCase().includes('count'))) return null;
+                if (h === 'Cost' && (val === null || val === '-' || val === '')) {
+                    val = 0;
+                }
+
+                if (val === null || val === '-' || val === '' || (val === 0 && !h.toLowerCase().includes('count') && h !== 'Cost')) return null;
+
+                // Merge Currency into Revenue
+                if (h === 'Revenue' && currencyIndex !== -1) {
+                    const currency = row[currencyIndex];
+                    if (currency) {
+                        return { h, val: `${renderTextContent(val)} ${currency}`, i, isMoney: true };
+                    }
+                }
+
                 return { h, val, i };
             })
-            .filter((item): item is { h: string; val: any; i: number } => item !== null);
+            .filter((item) => item !== null) as { h: string; val: any; i: number; isMoney?: boolean }[];
+
+        const viewAction = actions?.actions?.find((a: any) => a.type === 'view');
+        const viewId = viewAction?.id;
 
         return (
             <div style={{ ...style, willChange: 'transform' }} className="px-4 py-2">
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 h-full flex flex-col justify-between">
                     <div className="flex gap-4 mb-3 items-start">
                         {imageCell?.src ? (
-                            <CachedImage src={imageCell.src} alt={imageCell.alt} onClick={() => imageCell.fullSrc && onImageClick(imageCell.fullSrc)} className="w-[75px] h-[75px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
+                            <CachedImage src={imageCell.src} alt={imageCell.alt} onClick={() => imageCell.fullSrc && onImageClick(imageCell.fullSrc)} className="w-[85px] h-[85px] min-w-[85px] flex-shrink-0 object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
                         ) : (
-                            <div className="w-[75px] h-[75px] bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 text-center p-1">No Image</div>
+                            <div className="w-[85px] h-[85px] min-w-[85px] flex-shrink-0 bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 text-center p-1">No Image</div>
                         )}
                         <div className="flex-grow min-w-0">
                             <div className="pb-1">
                                 <span className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Order #{orderIdValue}</span>
-                                <h4 className="text-base font-bold text-gray-900 dark:text-white leading-tight mt-0.5 truncate" title={String(productValue)}>
+                                <h4
+                                    className={`text-base font-bold text-gray-900 dark:text-white leading-tight mt-0.5 truncate ${viewId ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
+                                    title={String(productValue)}
+                                    onClick={() => viewId && onViewOrderDetails && onViewOrderDetails(viewId)}
+                                >
                                     {renderTextContent(productValue)}
                                 </h4>
                                 {dateTimeValue && (
@@ -147,12 +168,12 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     </div>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-3 flex-grow content-start border-t border-gray-100 dark:border-gray-700 pt-3">
                         {bodyItems.map((item) => {
-                            const isMoney = typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Cost') || item.h.includes('Amount'));
+                            const isMoney = item.isMoney || (typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Cost') || item.h.includes('Amount')));
                             const valueClass = isMoney ? 'text-gray-900 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300';
                             return (
                                 <div key={item.i} className="flex flex-col min-w-0">
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate" title={item.h}>{item.h}</span>
-                                    <span className={`text-sm truncate ${valueClass}`}>{renderTextContent(item.val)}</span>
+                                    <span className={`text-sm truncate ${valueClass}`}>{item.isMoney ? item.val : renderTextContent(item.val)}</span>
                                 </div>
                             )
                         })}

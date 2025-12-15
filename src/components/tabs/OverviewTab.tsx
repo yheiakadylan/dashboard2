@@ -59,7 +59,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                                     data={processedData.overview.table.rows}
                                     onViewDayDetails={handleViewDayDetails}
                                     autoHeight={true}
-                                    mobileRowHeight={220} // Slightly more compact card for desktop split view
+                                    mobileRowHeight={260} // Increased to show all rows including Cost without scroll
                                     forceCardView={true}
                                 />
                             </Suspense>
@@ -78,7 +78,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                                 headers={processedData.summary.table.headers}
                                 data={processedData.summary.table.rows}
                                 autoHeight={true}
-                                mobileBreakpoint={0}
+                                mobileRowHeight={190} // Explicitly set smaller height for mobile card view
                                 columnWidths={{ 'Revenue': 120, 'Orders': 80 }}
                             />
                         </Suspense>

@@ -1,13 +1,15 @@
 import React, { useCallback } from 'react';
 import { Tab } from '../api/_lib/types';
-import { useDashboard } from '../contexts/DashboardContext';
+import { useUI } from '../contexts/UIContext';
+
+// ...
 
 interface BottomNavProps {
     tabs: Tab[];
 }
 
 const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
-    const { activeTab, handleTabClick } = useDashboard();
+    const { activeTab, handleTabClick } = useUI();
 
     // Show only these 3 specific tabs for bottom navigation
     const specificTabs: Tab[] = ['Overview', 'Order List'];
