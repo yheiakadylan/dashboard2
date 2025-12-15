@@ -126,6 +126,10 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     case 'Currency':
                         cellClass += 'flex-1 basis-[80px]';
                         break;
+                    case 'Message':
+                    case 'Help Kind':
+                        cellClass += 'flex-[2] basis-[250px]';
+                        break;
                     default:
                         cellClass += 'flex-1 basis-[120px]';
                         break;

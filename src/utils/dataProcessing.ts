@@ -328,7 +328,7 @@ const calculateOverview = (
 }
 
 const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Cost", "FF Code", "Case", "Help", "Account", "DateTime", "Actions"];
+    const headers = ["Image", "Product Name", "Order ID", "Revenue", "Currency", "Cost", "FF Code", "Case", "Help", "Account", "DateTime", "Actions"];
     const orders = records.filter(r => r.kind === 'order');
     const cases = records.filter(r => r.kind === 'case');
     const helps = records.filter(r => r.kind === 'help');

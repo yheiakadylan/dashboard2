@@ -44,12 +44,7 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
         );
     }
 
-    // Helper for lazy data tables
-    const LazyTable = ({ headers, data }: { headers: string[], data: any[] }) => (
-        <Suspense fallback={<LoadingSpinner />}>
-            <DataTable headers={headers} data={data} />
-        </Suspense>
-    );
+
 
     switch (activeTab) {
         case 'Overview':

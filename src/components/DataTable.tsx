@@ -237,6 +237,10 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                                             case 'Currency':
                                                 headerCellClass += 'flex-1 basis-[80px]';
                                                 break;
+                                            case 'Message':
+                                            case 'Help Kind':
+                                                headerCellClass += 'flex-[2] basis-[250px]';
+                                                break;
                                             case 'Fulfill':
                                             case 'DateTime':
                                             case 'Account':
