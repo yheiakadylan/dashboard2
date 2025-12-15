@@ -11,6 +11,7 @@ import { User } from 'firebase/auth';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { useDataSync } from '../hooks/useDataSync';
 import { useAuthLogic } from '../hooks/useAuthLogic';
+import { useRecordFiltering } from '../hooks/useRecordFiltering';
 
 // Default Tab List
 const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Case', 'Help', 'Fulfill'];
@@ -136,37 +137,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
 
   // Filter Records for Display/Processing
-  const filteredRecords = useMemo(() => {
-    if (!records || records.length === 0) return [];
-
-    // Filter out accounts without valid emails
-    const allowedEmails = new Set(
-      visibleAccounts
-        .map(a => a.email)
-        .filter((email): email is string => !!email)
-    );
-
-    // First filter: only records with valid account that's in allowedEmails
-    let baseFiltered = records.filter(r => r.account && allowedEmails.has(r.account));
-
-    // Second filter: specific account selection
-    if (selectedAccountId && selectedAccountId !== 'all') {
-      baseFiltered = baseFiltered.filter(r => r.account === selectedAccountId);
-    }
-
-    // Third filter: search term
-    if (searchTerm && searchTerm.trim()) {
-      const lowerTerm = searchTerm.toLowerCase();
-      baseFiltered = baseFiltered.filter(r => {
-        const oid = (r.order_id ?? '').toLowerCase();
-        const custName = (r.details?.customerName ?? '').toLowerCase();
-        const prodName = (r.product_name ?? r.details?.items?.[0]?.name ?? '').toLowerCase();
-        const ffCode = (r.ff_code ?? '').toLowerCase();
-        return [oid, custName, prodName, ffCode].some(field => field.includes(lowerTerm));
-      });
-    }
-    return baseFiltered;
-  }, [records, visibleAccounts, selectedAccountId, searchTerm]);
+  const filteredRecords = useRecordFiltering({
+    records,
+    accounts: visibleAccounts,
+    selectedAccountId,
+    searchTerm
+  });
 
 
 

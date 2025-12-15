@@ -2,20 +2,14 @@ import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { User } from 'firebase/auth';
 import Header from './components/Header';
 import { useDashboard } from './contexts/DashboardContext';
-import { useAuthLogic, UserProfile } from './hooks/useAuthLogic'; // Import Hook
+import { useAuthLogic, UserProfile } from './hooks/useAuthLogic';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
-import { Record, Tab } from './api/_lib/types';
-import { requestForToken, sendLarkLoginNotification } from './services/notificationService';
+import { Record } from './api/_lib/types';
 import { reprocessRecord } from './services/emailService';
-import { DashboardProvider } from './contexts/DashboardContext';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { triggerHaptic } from './utils/haptics';
 import { getPermittedTabs } from './utils/permissions';
 import { UIProvider, useUI } from './contexts/UIContext';
-
-
-
-
 import SkeletonLoader from './components/SkeletonLoader';
 import Spinner from './components/Spinner';
 
@@ -27,46 +21,12 @@ const OrderDetailModal = lazy(() => import('./components/OrderDetailModal'));
 const TabSettings = lazy(() => import('./components/TabSettings'));
 const BottomNav = lazy(() => import('./components/BottomNav'));
 const InstallPrompt = lazy(() => import('./components/InstallPrompt'));
+
+import LoginNotificationHandler from './components/LoginNotificationHandler';
+import ConnectedDashboardProvider from './components/ConnectedDashboardProvider';
 import Auth from './components/Auth';
-
-// Tab Components
-import OverviewTab from './components/tabs/OverviewTab';
-import ProductsTab from './components/tabs/ProductsTab';
-import OrderListTab from './components/tabs/OrderListTab';
-import FulfillTab from './components/tabs/FulfillTab';
-import LoadingSpinner from './components/LoadingSpinner';
+import MainContent from './components/MainContent';
 import ErrorBoundary from './components/ErrorBoundary';
-
-
-// Component to handle login notifications
-// Kept separate as it needs NotificationContext which is inside App but outside DashboardLayout
-const LoginNotificationHandler: React.FC<{
-    user: User;
-    userProfile: UserProfile;
-}> = ({ user, userProfile }) => {
-    const { addNotification } = useNotification();
-    const hasShownNotification = React.useRef(false);
-
-    React.useEffect(() => {
-        if (user && userProfile && !hasShownNotification.current) {
-            // Only show notification for user role (owner will see this notification)
-            if (userProfile.role === 'user') {
-                addNotification(
-                    `🔔 Người dùng ${user.email} đã đăng nhập vào dashboard`,
-                    'info'
-                );
-            }
-            sendLarkLoginNotification(user.email, userProfile.role, userProfile.teamId);
-            hasShownNotification.current = true;
-        }
-        if (!user) {
-            hasShownNotification.current = false;
-        }
-    }, [user, userProfile, addNotification]);
-
-    return null;
-};
-
 
 const DashboardLayout: React.FC = () => {
     const {
@@ -184,54 +144,7 @@ const DashboardLayout: React.FC = () => {
 
     const closeOrderDetail = useCallback(() => setSelectedOrder(null), []);
 
-    const renderActiveTab = () => {
-        if (isLoading && records.length === 0) {
-            return (
-                <div className="p-4">
-                    <SkeletonLoader variant="table-row" count={8} />
-                </div>
-            );
-        }
 
-        switch (activeTab) {
-            case 'Overview':
-                const isSingleDay = filterDateRange.from === filterDateRange.to;
-                return (
-                    <OverviewTab
-                        processedData={processedData}
-                        isSingleDay={isSingleDay}
-                        handleViewDayDetails={handleViewDayDetails}
-                    />
-                );
-
-            case 'Products':
-                return <ProductsTab processedData={processedData} />;
-
-            case 'Order List':
-                return (
-                    <OrderListTab
-                        processedData={processedData}
-                        dayFilter={dayFilter}
-                        sourceFilter={sourceFilter}
-                        timeZone={timeZone}
-                        handleViewOrderDetails={handleViewOrderDetails}
-                        handleResyncOrder={handleResyncOrder}
-                    />
-                );
-
-            case 'Case':
-                return <Suspense fallback={<LoadingSpinner />}><DataTable headers={processedData.cases.headers} data={processedData.cases.rows} /></Suspense>;
-
-            case 'Help':
-                return <Suspense fallback={<LoadingSpinner />}><DataTable headers={processedData.help.headers} data={processedData.help.rows} /></Suspense>;
-
-            case 'Fulfill':
-                return <FulfillTab processedData={processedData} />;
-
-            default:
-                return <div className="p-8 text-center text-gray-500">Selected tab content not available.</div>;
-        }
-    };
 
     const visibleTabs = getPermittedTabs(tabOrder, role, permissions).filter(tab => !hiddenTabs.has(tab));
 
@@ -273,7 +186,10 @@ const DashboardLayout: React.FC = () => {
                             className="h-full w-full overflow-y-auto"
                             {...touchHandlers}
                         >
-                            {renderActiveTab()}
+                            <MainContent
+                                onViewOrderDetails={handleViewOrderDetails}
+                                onResyncOrder={handleResyncOrder}
+                            />
                         </div>
                     </div>
                 </main>
@@ -313,32 +229,7 @@ const ModalLoadingFallback = () => (
     </div>
 );
 
-// Bridge component to inject UI state into DashboardProvider
-const ConnectedDashboardProvider: React.FC<{
-    user: User;
-    userProfile: UserProfile;
-    logout: () => Promise<void>;
-    children: React.ReactNode;
-}> = ({ user, userProfile, logout, children }) => {
-    const { timeZone, filterDateRange, selectedAccountId, searchTerm } = useUI();
 
-    return (
-        <DashboardProvider
-            user={user}
-            teamId={userProfile.teamId}
-            role={userProfile.role}
-            permissions={userProfile.permissions || {}}
-            allowedAccounts={userProfile.allowedAccounts || []}
-            onLogout={logout}
-            timeZone={timeZone}
-            filterDateRange={filterDateRange}
-            selectedAccountId={selectedAccountId}
-            searchTerm={searchTerm}
-        >
-            {children}
-        </DashboardProvider>
-    );
-};
 
 
 const App: React.FC = () => {
