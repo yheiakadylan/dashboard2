@@ -46,6 +46,7 @@ export const useDataSync = ({
     // Refs
     const isInitialMount = useRef(true);
     const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     // --- Helper: Enqueue Sync Task ---
     const enqueueSyncTask = useCallback((taskName: string, task: () => Promise<void>) => {
@@ -208,9 +209,10 @@ export const useDataSync = ({
                     setAllAccounts(prevAccounts => prevAccounts.map(acc => acc.id === account.id ? { ...acc, history_synced_until: newSyncedUntil } : acc));
                     currentSyncEnd = effectiveSyncStart;
                     await new Promise(resolve => setTimeout(resolve, 500));
-                } catch (chunkError: any) {
+                } catch (chunkError) {
                     console.error(`Error syncing history chunk for ${account.email}`, chunkError);
-                    addNotification(`[${account.email}] History sync paused: ${chunkError.message}`, "error");
+                    const errorMessage = chunkError instanceof Error ? chunkError.message : 'Unknown error';
+                    addNotification(`[${account.email}] History sync paused: ${errorMessage}`, "error");
                     break;
                 }
             }
@@ -228,6 +230,11 @@ export const useDataSync = ({
     // --- Effect: Load Initial Data ---
     useEffect(() => {
         if (!user) return;
+
+        // Create AbortController for this effect
+        abortControllerRef.current = new AbortController();
+        const signal = abortControllerRef.current.signal;
+
         const loadInitialData = async () => {
             setIsLoading(true);
             setSyncState('Loading data...');
@@ -237,6 +244,12 @@ export const useDataSync = ({
                     getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone),
                     getManualCosts(teamId)
                 ]);
+
+                // Check if component was unmounted
+                if (signal.aborted) {
+                    console.log('[useDataSync] Component unmounted, aborting initial data load');
+                    return;
+                }
 
                 setAllAccounts(fbAccounts);
                 setRecords(initialDisplayRecords);
@@ -250,35 +263,61 @@ export const useDataSync = ({
                     }
                 });
 
-                if (fbAccounts.length > 0) {
+                if (fbAccounts.length > 0 && !signal.aborted) {
                     setSyncState('Auto-syncing...');
                     runSync(fbAccounts, initialDisplayRecords).then(async (addedRecords) => {
+                        // Check abort signal before continuing
+                        if (signal.aborted) {
+                            console.log('[useDataSync] Component unmounted, aborting sync continuation');
+                            return;
+                        }
+
                         const updatedDisplayRecords = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
+
+                        if (signal.aborted) return;
                         setRecords(updatedDisplayRecords);
 
                         const latestAccounts = await getAccountsFromFirebase(teamId);
+
+                        if (signal.aborted) return;
                         setAllAccounts(latestAccounts);
+
                         const accountsForHistoricalSync = latestAccounts.filter(acc => !acc.historical_sync_complete);
-                        if (accountsForHistoricalSync.length > 0) { runHistoricalSync(accountsForHistoricalSync, updatedDisplayRecords); }
+                        if (accountsForHistoricalSync.length > 0 && !signal.aborted) {
+                            runHistoricalSync(accountsForHistoricalSync, updatedDisplayRecords);
+                        }
                     }).catch(error => {
+                        if (signal.aborted) return; // Don't show error if aborted
                         console.error("Failed during initial sync:", error);
                         addNotification("Initial sync encountered an error.", "error");
                     });
                 }
             } catch (error) {
+                if (signal.aborted) return; // Don't show error if aborted
                 console.error("Failed to load initial data:", error);
                 addNotification("Could not load data from Firebase.", "error");
                 setIsLoading(false);
                 setSyncState(null);
             }
         };
+
         loadInitialData();
+
+        // Cleanup: abort ongoing operations when component unmounts
+        return () => {
+            console.log('[useDataSync] Component unmounting, aborting all operations');
+            abortControllerRef.current?.abort();
+        };
     }, [user, teamId]); // Depend only on user/team, not ranges
 
     // --- Effect: Fetch Data on Range Change ---
     useEffect(() => {
         if (isInitialMount.current) { isInitialMount.current = false; return; }
         if (!user) return;
+
+        // Create local abort controller for this range fetch
+        const rangeAbortController = new AbortController();
+        const signal = rangeAbortController.signal;
 
         const fetchDataForRange = async () => {
             setIsFetchingNewRange(true);
@@ -298,17 +337,32 @@ export const useDataSync = ({
                 const previousRecordsPromise = shouldFetchPrevious && previousRange ? getRecordsForDateRange(teamId, previousRange.from, previousRange.to, timeZone) : Promise.resolve(null);
                 const [fbRecords, prevRecords] = await Promise.all([currentRecordsPromise, previousRecordsPromise]);
 
+                // Check if this effect was cancelled before setting state
+                if (signal.aborted) {
+                    console.log('[useDataSync] Range fetch aborted (user changed range again)');
+                    return;
+                }
+
                 setRecords(fbRecords);
                 setPreviousPeriodRecords(prevRecords);
             } catch (error) {
+                if (signal.aborted) return; // Don't show error if aborted
                 console.error("Failed to fetch records for range:", error);
                 addNotification('Error loading records for this range.', "error");
             } finally {
-                setIsFetchingNewRange(false);
-                setSyncState(null);
+                if (!signal.aborted) {
+                    setIsFetchingNewRange(false);
+                    setSyncState(null);
+                }
             }
         };
+
         fetchDataForRange();
+
+        // Cleanup: abort if range changes before fetch completes
+        return () => {
+            rangeAbortController.abort();
+        };
     }, [filterDateRange, user, timeZone, teamId, addNotification]);
 
     // --- Effect: Listen for New Records ---

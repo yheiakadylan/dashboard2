@@ -40,16 +40,27 @@ const Header: React.FC = () => {
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Keyboard shortcut Ctrl+F to toggle search
+  // Keyboard shortcuts - Combined to prevent duplicate event listeners (memory leak fix)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+F: Toggle search
       if (e.ctrlKey && e.key === 'f') {
         e.preventDefault();
         setIsSearchExpanded(true);
-        // Focus input after state updates
         setTimeout(() => searchInputRef.current?.focus(), 100);
+        return;
       }
-      // ESC to collapse
+
+      // Ctrl+S: Quick sync
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault(); // Prevent browser save dialog
+        if (!isSyncing && handleSyncClick) {
+          handleSyncClick();
+        }
+        return;
+      }
+
+      // Escape: Collapse search if expanded
       if (e.key === 'Escape' && isSearchExpanded) {
         setIsSearchExpanded(false);
         setSearchTerm('');
@@ -58,22 +69,7 @@ const Header: React.FC = () => {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isSearchExpanded, setSearchTerm]);
-
-  // Keyboard shortcut Ctrl+S for quick sync
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 's') {
-        e.preventDefault(); // Prevent browser save dialog
-        if (!isSyncing && handleSyncClick) {
-          handleSyncClick();
-        }
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isSyncing, handleSyncClick]);
+  }, [isSearchExpanded, isSyncing, handleSyncClick, setSearchTerm]);
 
   // --- HÀM LÀM SẠCH THÔNG BÁO ---
   const formatSyncState = (rawState: string) => {

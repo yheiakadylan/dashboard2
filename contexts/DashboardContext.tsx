@@ -239,9 +239,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
         const initialRecords = await runSync([updatedAccount], records);
         await runHistoricalSync([updatedAccount], [...records, ...initialRecords]);
         addNotification(`Re-sync finished for ${account.email}`, "success");
-      } catch (e: any) {
-        console.error(e);
-        addNotification(`Failed to re-sync ${account.email}`, "error");
+      } catch (error) {
+        console.error(error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        addNotification(`Failed to re-sync ${account.email}: ${errorMessage}`, "error");
       } finally { setSyncState(null); }
     });
     addNotification(`Queued re-sync for ${account.email}`, "info");
@@ -258,8 +259,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
         setSyncState(`[Queue] Quick sync ${account.email}...`);
         await runSync([account], records, range);
         addNotification(`Quick sync complete for ${account.email}`, "success");
-      } catch (e: any) {
-        addNotification(`Quick sync failed: ${e.message}`, "error");
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        addNotification(`Quick sync failed: ${errorMessage}`, "error");
       } finally { setSyncState(null); }
     });
     addNotification(`Queued quick sync for ${account.email}`, "info");

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
+import { User } from 'firebase/auth';
 import Header from './components/Header';
 import { useDashboard } from './contexts/DashboardContext';
 import { useAuthLogic, UserProfile } from './hooks/useAuthLogic'; // Import Hook
@@ -34,13 +35,14 @@ import ProductsTab from './components/tabs/ProductsTab';
 import OrderListTab from './components/tabs/OrderListTab';
 import FulfillTab from './components/tabs/FulfillTab';
 import LoadingSpinner from './components/LoadingSpinner';
+import ErrorBoundary from './components/ErrorBoundary';
 
 
 // Component to handle login notifications
 // Kept separate as it needs NotificationContext which is inside App but outside DashboardLayout
 const LoginNotificationHandler: React.FC<{
-    user: any;
-    userProfile: any;
+    user: User;
+    userProfile: UserProfile;
 }> = ({ user, userProfile }) => {
     const { addNotification } = useNotification();
     const hasShownNotification = React.useRef(false);
@@ -95,6 +97,8 @@ const DashboardLayout: React.FC = () => {
         handleViewDayDetails
     } = useUI();
 
+    const { addNotification } = useNotification();
+
 
     const [selectedOrder, setSelectedOrder] = useState<Record | null>(null);
 
@@ -111,22 +115,40 @@ const DashboardLayout: React.FC = () => {
 
     const handleViewOrderDetails = useCallback((recordId: string) => {
         const record = records.find(r => r.id === recordId);
-        if (record && record.details) {
-            setSelectedOrder(record);
-        } else {
-            alert("Details not available for this order.");
+
+        // Check if record exists
+        if (!record) {
+            addNotification("Order not found.", "error");
+            return;
         }
-    }, [records]);
+
+        // Check if record has details
+        if (!record.details) {
+            addNotification("Details not available for this order.", "error");
+            return;
+        }
+
+        setSelectedOrder(record);
+    }, [records, addNotification]);
 
     const handleResyncOrder = useCallback(async (recordId: string) => {
         const record = records.find(r => r.id === recordId);
-        if (!record || !record.email_id) {
-            alert("Cannot resync this order (missing email_id).");
+
+        // Check if record exists and has email_id
+        if (!record) {
+            addNotification("Order not found.", "error");
             return;
         }
+
+        if (!record.email_id) {
+            addNotification("Cannot resync this order (missing email_id).", "error");
+            return;
+        }
+
+        // Check if account exists
         const account = accounts.find(a => a.email === record.account);
         if (!account) {
-            alert("Account for this order not found.");
+            addNotification("Account for this order not found.", "error");
             return;
         }
 
@@ -135,15 +157,16 @@ const DashboardLayout: React.FC = () => {
             const updatedRecord = await reprocessRecord(teamId, account, record);
             if (updatedRecord) {
                 setRecords(prev => prev.map(r => r.id === recordId ? updatedRecord : r));
-                alert(`Order #${record.order_id} resynced successfully!`);
+                addNotification(`Order #${record.order_id} resynced successfully!`, 'success');
             } else {
-                alert(`Failed to resync order #${record.order_id}. No data parsed.`);
+                addNotification(`Failed to resync order #${record.order_id}. No data parsed.`, 'error');
             }
-        } catch (e: any) {
-            console.error(e);
-            alert(`Error resyncing order: ${e.message}`);
+        } catch (error) {
+            console.error(error);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+            addNotification(`Error resyncing order: ${errorMessage}`, 'error');
         }
-    }, [records, accounts, teamId, setRecords]);
+    }, [records, accounts, teamId, setRecords, addNotification]);
 
     const closeOrderDetail = useCallback(() => setSelectedOrder(null), []);
 
@@ -266,8 +289,8 @@ const ModalLoadingFallback = () => (
 
 // Bridge component to inject UI state into DashboardProvider
 const ConnectedDashboardProvider: React.FC<{
-    user: any;
-    userProfile: any;
+    user: User;
+    userProfile: UserProfile;
     logout: () => Promise<void>;
     children: React.ReactNode;
 }> = ({ user, userProfile, logout, children }) => {
@@ -313,7 +336,9 @@ const App: React.FC = () => {
             <LoginNotificationHandler user={user} userProfile={userProfile} />
             <UIProvider userUid={user.uid} teamId={userProfile.teamId}>
                 <ConnectedDashboardProvider user={user} userProfile={userProfile} logout={logout}>
-                    <DashboardLayout />
+                    <ErrorBoundary>
+                        <DashboardLayout />
+                    </ErrorBoundary>
                 </ConnectedDashboardProvider>
             </UIProvider>
         </NotificationProvider>
