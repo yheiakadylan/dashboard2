@@ -23,9 +23,10 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val
                 return JSON.parse(item);
             } catch (jsonError) {
                 // If parsing fails, it might be a raw string from previous versions
-                // If initialValue is a string, assume the raw item is valid
+                // If initialValue is a string, we can safely return the raw item
                 if (typeof initialValue === 'string') {
-                    return item as unknown as T;
+                    // Safe: we already verified initialValue is string type
+                    return item as T;
                 }
                 console.error(`Error reading localStorage key "${key}":`, jsonError);
                 return initialValue;

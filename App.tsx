@@ -114,6 +114,13 @@ const DashboardLayout: React.FC = () => {
     });
 
     const handleViewOrderDetails = useCallback((recordId: string) => {
+        // Validate input
+        if (!recordId || typeof recordId !== 'string' || recordId.trim() === '') {
+            console.error('Invalid recordId:', recordId);
+            addNotification("Invalid order ID.", "error");
+            return;
+        }
+
         const record = records.find(r => r.id === recordId);
 
         // Check if record exists
@@ -132,6 +139,13 @@ const DashboardLayout: React.FC = () => {
     }, [records, addNotification]);
 
     const handleResyncOrder = useCallback(async (recordId: string) => {
+        // Validate input
+        if (!recordId || typeof recordId !== 'string' || recordId.trim() === '') {
+            console.error('Invalid recordId:', recordId);
+            addNotification("Invalid order ID.", "error");
+            return;
+        }
+
         const record = records.find(r => r.id === recordId);
 
         // Check if record exists and has email_id

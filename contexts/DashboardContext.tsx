@@ -137,22 +137,32 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   // Filter Records for Display/Processing
   const filteredRecords = useMemo(() => {
-    if (!records) return [];
-    const allowedEmails = new Set(visibleAccounts.map(a => a.email));
-    let baseFiltered = records.filter(r => allowedEmails.has(r.account));
+    if (!records || records.length === 0) return [];
 
-    if (selectedAccountId !== 'all') {
+    // Filter out accounts without valid emails
+    const allowedEmails = new Set(
+      visibleAccounts
+        .map(a => a.email)
+        .filter((email): email is string => !!email)
+    );
+
+    // First filter: only records with valid account that's in allowedEmails
+    let baseFiltered = records.filter(r => r.account && allowedEmails.has(r.account));
+
+    // Second filter: specific account selection
+    if (selectedAccountId && selectedAccountId !== 'all') {
       baseFiltered = baseFiltered.filter(r => r.account === selectedAccountId);
     }
 
-    if (searchTerm.trim()) {
+    // Third filter: search term
+    if (searchTerm && searchTerm.trim()) {
       const lowerTerm = searchTerm.toLowerCase();
       baseFiltered = baseFiltered.filter(r => {
-        const oid = (r.order_id || '').toLowerCase();
-        const custName = (r.details?.customerName || '').toLowerCase();
-        const prodName = (r.product_name || r.details?.items?.[0]?.name || '').toLowerCase();
-        const ffCode = (r.ff_code || '').toLowerCase();
-        return oid.includes(lowerTerm) || custName.includes(lowerTerm) || prodName.includes(lowerTerm) || ffCode.includes(lowerTerm);
+        const oid = (r.order_id ?? '').toLowerCase();
+        const custName = (r.details?.customerName ?? '').toLowerCase();
+        const prodName = (r.product_name ?? r.details?.items?.[0]?.name ?? '').toLowerCase();
+        const ffCode = (r.ff_code ?? '').toLowerCase();
+        return [oid, custName, prodName, ffCode].some(field => field.includes(lowerTerm));
       });
     }
     return baseFiltered;
@@ -310,7 +320,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
             const updated = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
             setRecords(updated);
             runHistoricalSync(newAccounts, updated);
-          } catch (e) { /* ignore */ }
+          } catch (e) {
+            console.error('Error refreshing view after adding new accounts:', e);
+            const errorMessage = e instanceof Error ? e.message : 'Unknown error';
+            addNotification(`Failed to refresh view: ${errorMessage}`, "error");
+          }
         });
       }
       setSyncState(null);

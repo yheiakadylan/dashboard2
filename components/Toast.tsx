@@ -32,11 +32,13 @@ const Toast: React.FC<ToastProps> = ({ id, message, type, onClose }) => {
   }, [isPaused]);
 
   // Separate effect to handle auto-close when progress reaches 0
+  // Note: onClose is stable (useCallback in parent), so it's safe to omit from deps
   useEffect(() => {
     if (progress <= 0) {
       onClose(id);
     }
-  }, [progress, id, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress, id]);
 
   const typeConfig = {
     success: {
