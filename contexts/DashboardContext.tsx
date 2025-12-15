@@ -34,6 +34,7 @@ interface DashboardContextType {
   isSyncing: boolean;
   isFetchingNewRange: boolean;
   isSavingAccounts: boolean;
+  isProcessing: boolean; // Worker processing status
   syncState: string | null;
   isAccountManagerOpen: boolean;
   setIsAccountManagerOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -94,7 +95,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const savedTab = localStorage.getItem('activeTab');
-    const TABS: Tab[] = ['Overview', 'Order List', 'Products', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill'];
+    const TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Case', 'Help', 'Fulfill'];
     if (savedTab && TABS.includes(savedTab as Tab)) {
       return savedTab as Tab;
     }
@@ -284,7 +285,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   }, []);
 
   const resetTabPreferences = useCallback(() => {
-    const defaultOrder: Tab[] = ['Overview', 'Order List', 'eBay', 'Etsy', 'Case', 'Help', 'Fulfill'];
+    const defaultOrder: Tab[] = ['Overview', 'Order List', 'Products', 'Case', 'Help', 'Fulfill'];
     setTabOrder(defaultOrder);
     setHiddenTabs(new Set());
     addNotification('Tab preferences reset to default', 'success');
@@ -740,17 +741,58 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     return baseFiltered;
   }, [records, visibleAccounts, selectedAccountId, searchTerm]);
 
-  const processedData = useMemo(() => {
-    return processData(
-      filteredRecords,
-      previousPeriodRecords,
-      visibleAccounts,
+  // Initial empty state for processed data
+  const initialProcessedData: ProcessedData = {
+    overview: { table: { headers: [], rows: [] }, chartData: [] },
+    orders: { headers: [], rows: [] },
+    ebay: { headers: [], rows: [] },
+    etsy: { headers: [], rows: [] },
+    cases: { headers: [], rows: [] },
+    help: { headers: [], rows: [] },
+    fulfill: { table: { headers: [], rows: [] }, merchizeChartData: [], printwayChartData: [] },
+    summary: { kpis: {}, table: { headers: [], rows: [] }, chartData: [], topProductsByShop: {} },
+    products: { headers: [], rows: [] }
+  };
+
+  const [processedData, setProcessedData] = useState<ProcessedData>(initialProcessedData);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const workerRef = useRef<Worker | null>(null);
+
+  useEffect(() => {
+    // Initialize Web Worker
+    workerRef.current = new Worker(new URL('../workers/dataWorker.ts', import.meta.url), { type: 'module' });
+
+    workerRef.current.onmessage = (e) => {
+      const { success, data, error } = e.data;
+      if (success) {
+        setProcessedData(data);
+      } else {
+        console.error("Worker processing failed:", error);
+        addNotification("Error processing data", "error");
+      }
+      setIsProcessing(false);
+    };
+
+    return () => {
+      workerRef.current?.terminate();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!workerRef.current) return;
+
+    setIsProcessing(true);
+    workerRef.current.postMessage({
+      records: filteredRecords,
+      previousRecords: previousPeriodRecords,
+      accounts: visibleAccounts,
       filterDateRange,
       timeZone,
       role,
       permissions,
       manualCosts
-    );
+    });
+
   }, [filteredRecords, previousPeriodRecords, visibleAccounts, filterDateRange, timeZone, role, permissions, manualCosts]);
 
 
@@ -847,6 +889,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     isSyncing,
     isFetchingNewRange,
     isSavingAccounts,
+    isProcessing,
     syncState,
     isAccountManagerOpen,
     setIsAccountManagerOpen,

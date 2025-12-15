@@ -4,7 +4,7 @@ import { TopProduct } from '../api/_lib/types';
 import useMediaQuery from '../hooks/useMediaQuery';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
-import { getHighResImage } from '../utils/imageUtils.js';
+import { getHighResImageUrl } from '../utils/imageUtils.js';
 
 interface TopProductsChartProps {
   data: { [shopName: string]: TopProduct[] };
@@ -261,7 +261,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
             )}
 
             <img
-              src={getHighResImage(previewProduct.image) || previewProduct.image}
+              src={getHighResImageUrl(previewProduct.image) || previewProduct.image}
               alt="Product Mockup"
               className={`max-w-full max-h-[85vh] object-contain rounded transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
               onLoad={() => setImageLoaded(true)}

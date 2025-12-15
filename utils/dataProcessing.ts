@@ -1,4 +1,5 @@
 import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../api/_lib/types';
+import { getHighResImageUrl } from './imageUtils';
 
 const formatCurrency = (value: number, currency: string = 'USD'): string => {
     // Per user request to simplify KPI card display, always use a '$' symbol
@@ -55,20 +56,7 @@ const formatDateTime = (dateStr: string, timeZone: string): string => {
 }
 
 // Helper function to convert eBay image URLs to higher resolution
-const convertEbayImageToHighRes = (url: string): string => {
-    if (!url || !url.includes('ebay')) return url;
-
-    // Check if it's an eBay render service URL
-    if (url.includes('imageser/v1/image/render')) {
-        // Replace imgWidth, imgHeight, and length parameters from 276 to 800
-        return url
-            .replace(/(imgWidth=)\d+/g, '$1800')
-            .replace(/(imgHeight=)\d+/g, '$1800')
-            .replace(/(length=)\d+/g, '$1800');
-    }
-
-    return url;
-}
+// MOVED TO utils/imageUtils.ts
 
 export const processData = (
     records: Record[],
@@ -158,13 +146,8 @@ export const processData = (
                             const weight = totalListValue > 0 ? (item.price * item.quantity) / totalListValue : (1 / r.details!.items.length);
                             const itemRevenue = netRevenue * weight;
 
-                            // Image Logic (High Res)
-                            let image = item.image;
-                            if (image && image.includes('il_') && image.includes('x')) {
-                                image = image.replace(/il_\d+x\w+/, 'il_fullxfull');
-                            } else if (image && image.includes('ebay')) {
-                                image = convertEbayImageToHighRes(image);
-                            }
+                            // Image Logic (High Res) -> Refactored to use util
+                            const image = getHighResImageUrl(item.image) || item.image;
 
                             const current = productStats.get(key) || {
                                 image: image,
@@ -377,16 +360,8 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
             // Get image of the first item
             productImage = o.details.items[0].image || null;
 
-            // Convert to high-res based on platform
-            if (productImage && productImage.includes('il_') && productImage.includes('x')) {
-                // Etsy: Convert to fullxfull
-                fullProductImage = productImage.replace(/il_\d+x\w+/, 'il_fullxfull');
-            } else if (productImage && productImage.includes('ebay')) {
-                // eBay: Convert to 800px
-                fullProductImage = convertEbayImageToHighRes(productImage);
-            } else {
-                fullProductImage = productImage;
-            }
+            // Convert to high-res based on platform -> Refactored
+            fullProductImage = getHighResImageUrl(productImage);
         }
         // --- End of new logic ---
 
@@ -441,16 +416,8 @@ const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sale
             }
             productImage = r.details.items[0].image || null;
 
-            // Convert to high-res based on platform
-            if (productImage && productImage.includes('il_') && productImage.includes('x')) {
-                // Etsy: Convert to fullxfull
-                fullProductImage = productImage.replace(/il_\d+x\w+/, 'il_fullxfull');
-            } else if (productImage && productImage.includes('ebay')) {
-                // eBay: Convert to 800px
-                fullProductImage = convertEbayImageToHighRes(productImage);
-            } else {
-                fullProductImage = productImage;
-            }
+            // Convert to high-res based on platform -> Refactored
+            fullProductImage = getHighResImageUrl(productImage);
         }
         // --- End of logic ---
 
@@ -747,15 +714,8 @@ const calculateSummary = (
                     const name = item.name.trim();
                     const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
 
-                    // --- High Res Image Logic ---
-                    let image = item.image || current.image;
-                    if (image && image.includes('il_') && image.includes('x')) {
-                        // Etsy: Replace common small sizes (75x75, 170x135, 340x270, 570xN) with fullxfull
-                        image = image.replace(/il_\d+x\w+/, 'il_fullxfull');
-                    } else if (image && image.includes('ebay')) {
-                        // eBay: Convert to 800px
-                        image = convertEbayImageToHighRes(image);
-                    }
+                    // --- High Res Image Logic --- -> Refactored
+                    const image = getHighResImageUrl(item.image || current.image);
 
                     productStatsByShop[shopLabel].set(name, {
                         qty: current.qty + item.quantity,

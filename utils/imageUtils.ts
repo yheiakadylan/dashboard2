@@ -24,7 +24,7 @@ export const convertEbayImageToHighRes = (url: string): string => {
  * @param image - Original image URL
  * @returns High resolution image URL
  */
-export const getHighResImage = (image: string | null | undefined): string | null => {
+export const getHighResImageUrl = (image: string | null | undefined): string | null => {
     if (!image) return null;
 
     // Etsy: Replace common small sizes (il_XXxXX) with fullxfull

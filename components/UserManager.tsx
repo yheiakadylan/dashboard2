@@ -17,7 +17,7 @@ interface UserRole {
     viewSales: boolean;
     viewFunds: boolean;
     viewFulfill: boolean;
-    viewSummary: boolean;
+
     canManageSettings: boolean;
   };
   allowedAccounts?: string[];
@@ -194,7 +194,7 @@ const UserManager: React.FC = () => {
             viewSales: false,
             viewFunds: false,
             viewFulfill: false,
-            viewSummary: false,
+
             canManageSettings: false,
           };
         }
@@ -362,11 +362,10 @@ const UserManager: React.FC = () => {
   }
 
   const permissionKeys: (keyof UserRole['permissions'])[] = [
-    'viewSales', 'viewFunds', 'viewFulfill', 'viewSummary', 'canManageSettings',
+    'viewSales', 'viewFunds', 'viewFulfill', 'canManageSettings',
   ];
   const permissionLabels: { [key: string]: string } = {
-    viewSales: 'Sales', viewFunds: 'Funds', viewFulfill: 'Fulfill (Cost)',
-    viewSummary: 'Summary', canManageSettings: 'Settings (⚙️)',
+    viewSales: 'Sales', viewFunds: 'Funds', viewFulfill: 'Fulfill (Cost)', canManageSettings: 'Settings (⚙️)',
   };
 
   return (

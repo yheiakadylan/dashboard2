@@ -35,8 +35,7 @@ const Tabs: React.FC = () => {
         case 'Fulfill':
           return permissions.viewFulfill;
 
-        case 'Summary':
-          return permissions.viewSummary;
+
 
         default:
           return false;

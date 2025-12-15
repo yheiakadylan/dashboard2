@@ -26,7 +26,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     if (
       lastNotificationRef.current &&
       lastNotificationRef.current.message === message &&
-      now - lastNotificationRef.current.time < 5000
+      now - lastNotificationRef.current.time < 10000
     ) {
       console.log('Duplicate notification prevented:', message);
       return;

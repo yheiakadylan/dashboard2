@@ -65,7 +65,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
             case 'Case': return <QuestionMarkCircleIcon className={className} />;
             case 'Help': return <QuestionMarkCircleIcon className={className} />;
             case 'Fulfill': return <TruckIcon className={className} />;
-            case 'Summary': return <ChartPieIcon className={className} />;
+
             case 'Products': return <TagIcon className={className} />;
             default: return <HomeIcon className={className} />;
         }
@@ -75,9 +75,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
         <aside
             className={`
         hidden md:flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700
-        transition-all duration-300 ease-in-out h-screen overflow-hidden
+        transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] h-screen overflow-hidden flex-shrink-0
         ${isCollapsed ? 'w-16' : 'w-64'}
       `}
+            style={{ willChange: 'width' }}
         >
             <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-700">
                 {/* Header Title Removed */}

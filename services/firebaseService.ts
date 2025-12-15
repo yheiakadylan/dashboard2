@@ -1,25 +1,24 @@
 import { initializeApp } from "firebase/app";
-import { 
-    getFirestore, 
-    collection, 
-    getDocs, 
-    writeBatch, 
-    doc, 
-    query, 
-    where, 
-    onSnapshot, 
-    QuerySnapshot, 
-    DocumentData, 
-    addDoc, 
-    Timestamp, 
-    updateDoc, 
-    deleteDoc, 
-    setDoc 
+import {
+  getFirestore,
+  collection,
+  getDocs,
+  writeBatch,
+  doc,
+  query,
+  where,
+  onSnapshot,
+  QuerySnapshot,
+  DocumentData,
+  addDoc,
+  Timestamp,
+  updateDoc,
+  deleteDoc,
+  setDoc
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getMessaging, isSupported } from "firebase/messaging";
 import { Account, Record } from '../api/_lib/types';
-
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY || "AIzaSyCf9A3apdFE24uU4M3E4j1cnBvmjiB9Z7E",
   authDomain: process.env.FIREBASE_AUTH_DOMAIN || "dashboard-13ec8.firebaseapp.com",
@@ -29,12 +28,12 @@ const firebaseConfig = {
   appId: process.env.FIREBASE_APP_ID || "1:604763790543:web:26905ec5742624300e6bba",
 };
 /*const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY || "AIzaSyCMfkDrGBzVa2ungr5iX8VDNpfdssw1RhA",
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN || "servertest-25b17.firebaseapp.com",
-  projectId: process.env.FIREBASE_PROJECT_ID || "servertest-25b17",
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "servertest-25b17.firebasestorage.app",
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "1056476786050",
-  appId: process.env.FIREBASE_APP_ID || "1:1056476786050:web:e60baea741d839de3ab39b",
+  apiKey: process.env.FIREBASE_API_KEY,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.FIREBASE_PROJECT_ID,
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.FIREBASE_APP_ID,
 };*/
 // Initialize Firebase and Firestore.
 const app = initializeApp(firebaseConfig);
@@ -61,17 +60,17 @@ const getTimezoneOffsetString = (timeZone: string, dateStr: string): string => {
     // Use noon of the given date to safely avoid DST crossover issues at midnight
     const date = new Date(dateStr + "T12:00:00Z");
     const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone,
-        timeZoneName: 'longOffset'
+      timeZone,
+      timeZoneName: 'longOffset'
     });
     const parts = formatter.formatToParts(date);
     const gmtPart = parts.find(p => p.type === 'timeZoneName');
 
     if (gmtPart) {
-        // gmtPart.value is "GMT-07:00", "GMT+05:30", etc.
-        return gmtPart.value.replace('GMT', ''); 
+      // gmtPart.value is "GMT-07:00", "GMT+05:30", etc.
+      return gmtPart.value.replace('GMT', '');
     }
-    
+
     console.warn(`Could not determine offset for ${timeZone} using 'longOffset'. Falling back to UTC.`);
     return '+00:00';
   } catch (e) {
@@ -85,12 +84,12 @@ export const getAccountsFromFirebase = async (teamId: string): Promise<Account[]
   const accountsCol = collection(db, 'user', teamId, 'accounts');
   const accountSnapshot = await getDocs(accountsCol);
   const accountList = accountSnapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as Account));
-  
+
   // Sort by the order field
   accountList.sort((a, b) => {
-      const orderA = typeof a.order === 'number' ? a.order : Infinity;
-      const orderB = typeof b.order === 'number' ? b.order : Infinity;
-      return orderA - orderB;
+    const orderA = typeof a.order === 'number' ? a.order : Infinity;
+    const orderB = typeof b.order === 'number' ? b.order : Infinity;
+    return orderA - orderB;
   });
 
   return accountList;
@@ -99,7 +98,7 @@ export const getAccountsFromFirebase = async (teamId: string): Promise<Account[]
 export const saveAccountsToFirebase = async (teamId: string, accounts: Account[]): Promise<void> => {
   const batch = writeBatch(db);
   const accountsCollectionRef = collection(db, 'user', teamId, 'accounts');
-  
+
   const existingDocsSnapshot = await getDocs(accountsCollectionRef);
   const newAccountIds = new Set(accounts.map(acc => acc.id));
 
@@ -118,38 +117,38 @@ export const saveAccountsToFirebase = async (teamId: string, accounts: Account[]
 };
 
 export const updateAccountsInFirebase = async (teamId: string, accountsToUpdate: (Partial<Account> & { id: string })[]): Promise<void> => {
-    if (!accountsToUpdate || accountsToUpdate.length === 0) {
-        return;
+  if (!accountsToUpdate || accountsToUpdate.length === 0) {
+    return;
+  }
+  const batch = writeBatch(db);
+  accountsToUpdate.forEach(accountUpdate => {
+    const { id, ...dataToUpdate } = accountUpdate;
+    if (id && Object.keys(dataToUpdate).length > 0) {
+      const accountRef = doc(db, 'user', teamId, 'accounts', id);
+      batch.set(accountRef, dataToUpdate, { merge: true });
     }
-    const batch = writeBatch(db);
-    accountsToUpdate.forEach(accountUpdate => {
-        const { id, ...dataToUpdate } = accountUpdate;
-        if (id && Object.keys(dataToUpdate).length > 0) {
-            const accountRef = doc(db, 'user', teamId, 'accounts', id);
-            batch.set(accountRef, dataToUpdate, { merge: true });
-        }
-    });
-    await batch.commit();
+  });
+  await batch.commit();
 };
 
 export const updateRecordsInFirebase = async (teamId: string, recordsToUpdate: (Partial<Record> & { id: string })[]): Promise<void> => {
-    if (!recordsToUpdate || recordsToUpdate.length === 0) {
-        return;
+  if (!recordsToUpdate || recordsToUpdate.length === 0) {
+    return;
+  }
+  const batch = writeBatch(db);
+  recordsToUpdate.forEach(recordUpdate => {
+    const { id, ...dataToUpdate } = recordUpdate;
+    if (id && Object.keys(dataToUpdate).length > 0) {
+      const recordRef = doc(db, 'user', teamId, 'records', id);
+      batch.update(recordRef, dataToUpdate);
     }
-    const batch = writeBatch(db);
-    recordsToUpdate.forEach(recordUpdate => {
-        const { id, ...dataToUpdate } = recordUpdate;
-        if (id && Object.keys(dataToUpdate).length > 0) {
-            const recordRef = doc(db, 'user', teamId, 'records', id);
-            batch.update(recordRef, dataToUpdate);
-        }
-    });
-    await batch.commit();
+  });
+  await batch.commit();
 };
 
 export const getRecordsForDateRange = async (teamId: string, startDate: string, endDate: string, timeZone: string): Promise<Record[]> => {
   const recordsCol = collection(db, 'user', teamId, 'records');
-  
+
   const startOffset = getTimezoneOffsetString(timeZone, startDate);
   const endOffset = getTimezoneOffsetString(timeZone, endDate);
 
@@ -159,13 +158,13 @@ export const getRecordsForDateRange = async (teamId: string, startDate: string, 
   const toDate = new Date(`${endDate}T23:59:59.999${endOffset}`);
   const toISO = toDate.toISOString();
 
-  const q = query(recordsCol, 
+  const q = query(recordsCol,
     where("dt_local", ">=", fromISO),
     where("dt_local", "<=", toISO)
-  ); 
+  );
 
   const recordSnapshot = await getDocs(q);
-  const recordList = recordSnapshot.docs.map(doc => ({...(doc.data() as object), id: doc.id } as Record));
+  const recordList = recordSnapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as Record));
   return recordList;
 };
 
@@ -178,128 +177,128 @@ export const getAllRecordsForAccount = async (teamId: string, accountEmail: stri
 };
 
 export const deleteRecordsForAccounts = async (teamId: string, accountEmails: string[]): Promise<void> => {
-    if (accountEmails.length === 0) return;
+  if (accountEmails.length === 0) return;
 
-    const recordsCollectionRef = collection(db, 'user', teamId, 'records');
-    const q = query(recordsCollectionRef, where('account', 'in', accountEmails));
-    const querySnapshot = await getDocs(q);
+  const recordsCollectionRef = collection(db, 'user', teamId, 'records');
+  const q = query(recordsCollectionRef, where('account', 'in', accountEmails));
+  const querySnapshot = await getDocs(q);
 
-    if (querySnapshot.empty) return;
+  if (querySnapshot.empty) return;
 
-    const BATCH_LIMIT = 500;
-    const promises: Promise<void>[] = [];
-    let batch = writeBatch(db);
-    let count = 0;
+  const BATCH_LIMIT = 500;
+  const promises: Promise<void>[] = [];
+  let batch = writeBatch(db);
+  let count = 0;
 
-    querySnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-        count++;
-        if (count === BATCH_LIMIT) {
-            promises.push(batch.commit());
-            batch = writeBatch(db);
-            count = 0;
-        }
-    });
-
-    if (count > 0) {
-        promises.push(batch.commit());
+  querySnapshot.forEach((doc) => {
+    batch.delete(doc.ref);
+    count++;
+    if (count === BATCH_LIMIT) {
+      promises.push(batch.commit());
+      batch = writeBatch(db);
+      count = 0;
     }
+  });
 
-    await Promise.all(promises);
+  if (count > 0) {
+    promises.push(batch.commit());
+  }
+
+  await Promise.all(promises);
 };
 
 // Helper to chunk arrays
 const chunkArray = <T>(array: T[], size: number): T[][] => {
-    const chunks: T[][] = [];
-    for (let i = 0; i < array.length; i += size) {
-        chunks.push(array.slice(i, i + size));
-    }
-    return chunks;
+  const chunks: T[][] = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
 };
 
 // === [UPDATED] Hàm quan trọng: Lưu record với ID là email_id ===
 export const saveRecordsToFirebase = async (
-    teamId: string,
-    newlyFetchedRecords: Record[]
+  teamId: string,
+  newlyFetchedRecords: Record[]
 ): Promise<Record[]> => {
-    const emailIdsToCheck = newlyFetchedRecords
-        .map(r => r.email_id)
-        .filter((id): id is string => !!id);
+  const emailIdsToCheck = newlyFetchedRecords
+    .map(r => r.email_id)
+    .filter((id): id is string => !!id);
 
-    const existingEmailIds = new Set<string>();
+  const existingEmailIds = new Set<string>();
 
-    // Vẫn giữ bước kiểm tra này để hạn chế write không cần thiết,
-    // nhưng bước lưu bên dưới sẽ đảm bảo tính Unique bằng Document ID.
-    if (emailIdsToCheck.length > 0) {
-        const IN_QUERY_LIMIT = 30;
-        const idChunks = chunkArray(emailIdsToCheck, IN_QUERY_LIMIT);
-        const recordsRef = collection(db, 'user', teamId, 'records');
-        
-        for (const chunk of idChunks) {
-            if (chunk.length > 0) {
-                // Lưu ý: Query này kiểm tra field 'email_id' bên trong document
-                const q = query(recordsRef, where('email_id', 'in', chunk));
-                const querySnapshot = await getDocs(q);
-                querySnapshot.forEach(doc => {
-                    existingEmailIds.add((doc.data() as { email_id: string }).email_id);
-                });
-            }
-        }
-    }
-    
-    // Lọc ra các record chưa tồn tại để lưu
-    const recordsToAdd = newlyFetchedRecords.filter(
-        r => !r.email_id || !existingEmailIds.has(r.email_id)
-    );
+  // Vẫn giữ bước kiểm tra này để hạn chế write không cần thiết,
+  // nhưng bước lưu bên dưới sẽ đảm bảo tính Unique bằng Document ID.
+  if (emailIdsToCheck.length > 0) {
+    const IN_QUERY_LIMIT = 30;
+    const idChunks = chunkArray(emailIdsToCheck, IN_QUERY_LIMIT);
+    const recordsRef = collection(db, 'user', teamId, 'records');
 
-    if (recordsToAdd.length === 0) {
-        return [];
-    }
-
-    const recordsCollectionRef = collection(db, 'user', teamId, 'records');
-    const BATCH_LIMIT = 500;
-    try {
-        const addPromises: Promise<void>[] = [];
-        let addBatch = writeBatch(db);
-        let addCount = 0;
-        
-        recordsToAdd.forEach((record) => {
-            // --- THAY ĐỔI QUAN TRỌNG ---
-            // Nếu có email_id, dùng nó làm Document ID.
-            // Nếu không, mới để Firestore tự sinh ID.
-            const newRecordRef = record.email_id 
-                ? doc(recordsCollectionRef, record.email_id) 
-                : doc(recordsCollectionRef);
-            
-            // Xóa id ảo trong data để tránh lưu dư thừa
-            const { id, ...recordData } = record;
-
-            // Dùng set thay vì addDoc để có thể chỉ định ID
-            addBatch.set(newRecordRef, recordData);
-            // --------------------------
-
-            addCount++;
-            if (addCount >= BATCH_LIMIT) {
-                addPromises.push(addBatch.commit());
-                addBatch = writeBatch(db);
-                addCount = 0;
-            }
+    for (const chunk of idChunks) {
+      if (chunk.length > 0) {
+        // Lưu ý: Query này kiểm tra field 'email_id' bên trong document
+        const q = query(recordsRef, where('email_id', 'in', chunk));
+        const querySnapshot = await getDocs(q);
+        querySnapshot.forEach(doc => {
+          existingEmailIds.add((doc.data() as { email_id: string }).email_id);
         });
-        if (addCount > 0) {
-            addPromises.push(addBatch.commit());
-        }
-        await Promise.all(addPromises);
-        return recordsToAdd;
-    } catch(error) {
-        console.error("Error while adding new records:", error);
-        throw new Error("Failed to add new records.");
+      }
     }
+  }
+
+  // Lọc ra các record chưa tồn tại để lưu
+  const recordsToAdd = newlyFetchedRecords.filter(
+    r => !r.email_id || !existingEmailIds.has(r.email_id)
+  );
+
+  if (recordsToAdd.length === 0) {
+    return [];
+  }
+
+  const recordsCollectionRef = collection(db, 'user', teamId, 'records');
+  const BATCH_LIMIT = 500;
+  try {
+    const addPromises: Promise<void>[] = [];
+    let addBatch = writeBatch(db);
+    let addCount = 0;
+
+    recordsToAdd.forEach((record) => {
+      // --- THAY ĐỔI QUAN TRỌNG ---
+      // Nếu có email_id, dùng nó làm Document ID.
+      // Nếu không, mới để Firestore tự sinh ID.
+      const newRecordRef = record.email_id
+        ? doc(recordsCollectionRef, record.email_id)
+        : doc(recordsCollectionRef);
+
+      // Xóa id ảo trong data để tránh lưu dư thừa
+      const { id, ...recordData } = record;
+
+      // Dùng set thay vì addDoc để có thể chỉ định ID
+      addBatch.set(newRecordRef, recordData);
+      // --------------------------
+
+      addCount++;
+      if (addCount >= BATCH_LIMIT) {
+        addPromises.push(addBatch.commit());
+        addBatch = writeBatch(db);
+        addCount = 0;
+      }
+    });
+    if (addCount > 0) {
+      addPromises.push(addBatch.commit());
+    }
+    await Promise.all(addPromises);
+    return recordsToAdd;
+  } catch (error) {
+    console.error("Error while adding new records:", error);
+    throw new Error("Failed to add new records.");
+  }
 };
 
 export const listenForNewRecords = (teamId: string, callback: (record: Record) => void): (() => void) => {
   const recordsCollectionRef = collection(db, 'user', teamId, 'records');
   const q = query(recordsCollectionRef, where("dt_local", ">", new Date().toISOString()));
-  
+
   const unsubscribe = onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => {
     snapshot.docChanges().forEach((change) => {
       if (change.type === "added" && !change.doc.metadata.hasPendingWrites) {
@@ -351,35 +350,35 @@ export const deleteManualCost = async (teamId: string, costId: string): Promise<
 };
 
 export const deleteRecord = async (teamId: string, recordId: string): Promise<void> => {
-    const recordRef = doc(db, 'user', teamId, 'records', recordId);
-    await deleteDoc(recordRef);
+  const recordRef = doc(db, 'user', teamId, 'records', recordId);
+  await deleteDoc(recordRef);
 };
 
 export const deleteRecordsByEmailId = async (teamId: string, emailId: string): Promise<void> => {
-    const recordsCol = collection(db, 'user', teamId, 'records');
-    const q = query(recordsCol, where('email_id', '==', emailId));
-    const querySnapshot = await getDocs(q);
+  const recordsCol = collection(db, 'user', teamId, 'records');
+  const q = query(recordsCol, where('email_id', '==', emailId));
+  const querySnapshot = await getDocs(q);
 
-    if (querySnapshot.empty) return;
+  if (querySnapshot.empty) return;
 
-    const batch = writeBatch(db);
-    querySnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-    });
-    await batch.commit();
+  const batch = writeBatch(db);
+  querySnapshot.forEach((doc) => {
+    batch.delete(doc.ref);
+  });
+  await batch.commit();
 };
 
 // === [UPDATED] Hàm thêm 1 record, hỗ trợ Document ID ===
 export const addRecord = async (teamId: string, record: Record): Promise<Record> => {
-    const recordsCollectionRef = collection(db, 'user', teamId, 'records');
-    const { id, ...data } = record; 
-    
-    // Nếu có email_id -> Dùng làm Document ID
-    const docRef = record.email_id 
-        ? doc(recordsCollectionRef, record.email_id)
-        : doc(recordsCollectionRef); // Fallback: Auto ID
+  const recordsCollectionRef = collection(db, 'user', teamId, 'records');
+  const { id, ...data } = record;
 
-    // Dùng setDoc để ghi đè nếu đã tồn tại (hoặc tạo mới)
-    await setDoc(docRef, data);
-    return { ...record, id: docRef.id };
+  // Nếu có email_id -> Dùng làm Document ID
+  const docRef = record.email_id
+    ? doc(recordsCollectionRef, record.email_id)
+    : doc(recordsCollectionRef); // Fallback: Auto ID
+
+  // Dùng setDoc để ghi đè nếu đã tồn tại (hoặc tạo mới)
+  await setDoc(docRef, data);
+  return { ...record, id: docRef.id };
 };

@@ -21,25 +21,21 @@ import Spinner from './components/Spinner';
 import ChartErrorBoundary from './components/ChartErrorBoundary';
 
 // Lazy load heavy components
+const Sidebar = lazy(() => import('./components/Sidebar'));
 const DataTable = lazy(() => import('./components/DataTable'));
 const AccountManager = lazy(() => import('./components/AccountManager'));
-const OverviewChart = lazy(() => import('./components/OverviewChart'));
-const SummaryChart = lazy(() => import('./components/SummaryChart'));
-const TopProductsChart = lazy(() => import('./components/TopProductsChart'));
-const FulfillChart = lazy(() => import('./components/FulfillChart'));
 const OrderDetailModal = lazy(() => import('./components/OrderDetailModal'));
 const TabSettings = lazy(() => import('./components/TabSettings'));
 const BottomNav = lazy(() => import('./components/BottomNav'));
 const InstallPrompt = lazy(() => import('./components/InstallPrompt'));
 
-// Loading component for Suspense fallback
-const LoadingSpinner: React.FC<{ variant?: 'table-row' | 'card' | 'chart' | 'kpi-card'; count?: number }> = ({ variant = 'table-row', count = 3 }) => (
-    <SkeletonLoader variant={variant} count={count} />
-);
+// Tab Components
+import OverviewTab from './components/tabs/OverviewTab';
+import ProductsTab from './components/tabs/ProductsTab';
+import OrderListTab from './components/tabs/OrderListTab';
+import FulfillTab from './components/tabs/FulfillTab';
 
-const Sidebar = lazy(() => import('./components/Sidebar'));
-import { DraggableGrid } from './components/DraggableGrid';
-
+import LoadingSpinner from './components/LoadingSpinner';
 
 const DashboardLayout: React.FC = () => {
     // Sidebar state
@@ -145,20 +141,7 @@ const DashboardLayout: React.FC = () => {
 
     const closeOrderDetail = useCallback(() => setSelectedOrder(null), []);
 
-    const formatDate = (dateStr: string): string => {
-        try {
-            const date = new Date(dateStr);
-            if (isNaN(date.getTime())) return 'Invalid Date';
-            return new Intl.DateTimeFormat('en-CA', {
-                timeZone,
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            }).format(date);
-        } catch (e) {
-            return 'Invalid Date';
-        }
-    };
+
 
 
 
@@ -170,190 +153,44 @@ const DashboardLayout: React.FC = () => {
                 </div>
             );
         }
+
         switch (activeTab) {
             case 'Overview':
+                const isSingleDay = filterDateRange.from === filterDateRange.to;
                 return (
-                    <div className="p-2 md:p-6 overflow-y-auto h-full">
-                        {/* 1. KPIs Section (Merged from Summary) */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6 mb-6">
-                            <KpiCard title="Total Orders" value={processedData.summary.kpis['Total Orders'] || { value: '---' }} />
-                            <KpiCard title="Shops" value={processedData.summary.kpis['Shops'] || { value: '---' }} />
-                            <KpiCard title="Revenue" value={processedData.summary.kpis['Revenue'] || { value: '---' }} />
-                            <KpiCard title="Funds" value={processedData.summary.kpis['Funds'] || { value: '---' }} />
-                            <KpiCard title="Cost" value={processedData.summary.kpis['Cost'] || { value: '---' }} />
-                        </div>
-
-                        {/* 2. Charts Section */}
-                        {/* 2. Charts Section */}
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-                            {/* Main Overview Chart - Takes 1/2 width */}
-                            <ChartErrorBoundary>
-                                <Suspense fallback={<LoadingSpinner variant="chart" count={1} />}>
-                                    <OverviewChart data={processedData.overview.chartData} />
-                                </Suspense>
-                            </ChartErrorBoundary>
-
-                            {/* Revenue Chart - Takes 1/2 width */}
-                            <ChartErrorBoundary>
-                                <Suspense fallback={<LoadingSpinner variant="chart" />}>
-                                    <SummaryChart data={processedData.summary.chartData} hideTitle={true} />
-                                </Suspense>
-                            </ChartErrorBoundary>
-                        </div>
-
-                        {/* 3. Detailed Tables - Tabbed Interface */}
-                        {/* 3. Detailed Tables - Split View */}
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-                            {/* Left: Daily Breakdown (Card View) */}
-                            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-                                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Daily Breakdown</h3>
-                                </div>
-                                <div className="min-h-[400px]">
-                                    <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
-                                        <DataTable
-                                            headers={processedData.overview.table.headers}
-                                            data={processedData.overview.table.rows}
-                                            onViewDayDetails={handleViewDayDetails}
-                                            autoHeight={true}
-                                            mobileRowHeight={220} // Slightly more compact card for desktop split view
-                                            forceCardView={true}
-                                        />
-                                    </Suspense>
-                                </div>
-                            </div>
-
-                            {/* Right: Shop Summary (Table View) */}
-                            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-                                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Shop Summary</h3>
-                                </div>
-                                <div className="min-h-[400px]">
-                                    <Suspense fallback={<LoadingSpinner variant="table-row" count={5} />}>
-                                        <DataTable
-                                            headers={processedData.summary.table.headers}
-                                            data={processedData.summary.table.rows}
-                                            autoHeight={true}
-                                        />
-                                    </Suspense>
-                                </div>
-                            </div>
-                        </div>
-                    </div >
+                    <OverviewTab
+                        processedData={processedData}
+                        isSingleDay={isSingleDay}
+                        handleViewDayDetails={handleViewDayDetails}
+                    />
                 );
+
             case 'Products':
+                return <ProductsTab processedData={processedData} />;
+
+            case 'Order List':
                 return (
-                    <div className="p-2 md:p-6 overflow-y-auto h-full space-y-6">
-                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
-                            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Top Products</h3>
-                            <div>
-                                <ChartErrorBoundary>
-                                    <Suspense fallback={<LoadingSpinner variant="chart" />}>
-                                        <TopProductsChart data={processedData.summary.topProductsByShop} />
-                                    </Suspense>
-                                </ChartErrorBoundary>
-                            </div>
-                        </div>
-                        <div className="flex-grow">
-                            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Product Details</h3>
-                            <Suspense fallback={<LoadingSpinner variant="table-row" count={10} />}>
-                                <DataTable
-                                    headers={processedData.products.headers}
-                                    data={processedData.products.rows}
-                                    autoHeight={true}
-                                />
-                            </Suspense>
-                        </div>
-                    </div>
+                    <OrderListTab
+                        processedData={processedData}
+                        dayFilter={dayFilter}
+                        sourceFilter={sourceFilter}
+                        timeZone={timeZone}
+                        handleViewOrderDetails={handleViewOrderDetails}
+                        handleResyncOrder={handleResyncOrder}
+                    />
                 );
-            case 'Order List': {
-                const orderListHeaders = processedData.orders.headers;
-                let orderListRows = processedData.orders.rows;
 
-                if (dayFilter) {
-                    orderListRows = orderListRows.filter(row => {
-                        const dtLocal = row[orderListHeaders.length] as string; // index 12
-                        return formatDate(dtLocal) === dayFilter;
-                    });
-                }
+            case 'Case':
+                return <Suspense fallback={<LoadingSpinner />}><DataTable headers={processedData.cases.headers} data={processedData.cases.rows} /></Suspense>;
 
-                if (sourceFilter !== 'All') {
-                    orderListRows = orderListRows.filter(row => {
-                        const source = row[orderListHeaders.length + 1] as string; // index 13
-                        return source === sourceFilter;
-                    });
-                }
+            case 'Help':
+                return <Suspense fallback={<LoadingSpinner />}><DataTable headers={processedData.help.headers} data={processedData.help.rows} /></Suspense>;
 
-                return (
-                    <div className="h-full flex flex-col">
-                        <div className="flex-grow px-2 md:px-6 pb-2 md:pb-6 overflow-hidden">
-                            <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
-                                <DataTable
-                                    headers={orderListHeaders}
-                                    data={orderListRows}
-                                    onViewOrderDetails={handleViewOrderDetails}
-                                    onResyncOrder={handleResyncOrder}
-                                />
-                            </Suspense>
-                        </div>
-                    </div>
-                );
-            }
-            case 'Case': return <Suspense fallback={<LoadingSpinner />}><DataTable headers={processedData.cases.headers} data={processedData.cases.rows} /></Suspense>;
-            case 'Help': return <Suspense fallback={<LoadingSpinner />}><DataTable headers={processedData.help.headers} data={processedData.help.rows} /></Suspense>;
             case 'Fulfill':
-                return (
-                    <div className="p-2 md:p-6 overflow-y-auto h-full">
-                        <div className="mb-6 hidden md:block">
-                            <ChartErrorBoundary>
-                                <Suspense fallback={<LoadingSpinner />}>
-                                    <div className="flex flex-col md:flex-row gap-6 mb-6">
-                                        <FulfillChart
-                                            title="Top 10 Merchize Products"
-                                            data={processedData.fulfill.merchizeChartData}
-                                        />
-                                        <FulfillChart
-                                            title="Top 10 Printway Products"
-                                            data={processedData.fulfill.printwayChartData}
-                                        />
-                                    </div>
-                                </Suspense>
-                            </ChartErrorBoundary>
-                        </div>
-                        <div className="md:hidden space-y-4 mb-6">
-                            <ChartErrorBoundary>
-                                <Suspense fallback={<LoadingSpinner />}>
-                                    <CollapsibleContainer title="Top 10 Merchize Products">
-                                        <FulfillChart
-                                            title="Top 10 Merchize Products"
-                                            data={processedData.fulfill.merchizeChartData}
-                                        />
-                                    </CollapsibleContainer>
-                                    <CollapsibleContainer title="Top 10 Printway Products">
-                                        <FulfillChart
-                                            title="Top 10 Printway Products"
-                                            data={processedData.fulfill.printwayChartData}
-                                        />
-                                    </CollapsibleContainer>
-                                </Suspense>
-                            </ChartErrorBoundary>
-                        </div>
-                        <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-                            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
-                                All Fulfillment Records
-                            </h3>
-                            <Suspense fallback={<LoadingSpinner />}>
-                                <DataTable
-                                    headers={processedData.fulfill.table.headers}
-                                    data={processedData.fulfill.table.rows}
-                                    autoHeight={true}
-                                />
-                            </Suspense>
-                        </div>
-                    </div>
-                );
+                return <FulfillTab processedData={processedData} />;
 
-            default: return <div className="p-8 text-center text-gray-500">Selected tab content not available.</div>;
+            default:
+                return <div className="p-8 text-center text-gray-500">Selected tab content not available.</div>;
         }
     };
 
@@ -443,17 +280,17 @@ const DashboardLayout: React.FC = () => {
             {/* REMOVED: Footer with old status string */}
 
             {isAccountManagerOpen && (
-                <Suspense fallback={<LoadingSpinner />}>
+                <Suspense fallback={<ModalLoadingFallback />}>
                     <AccountManager />
                 </Suspense>
             )}
             {isTabSettingsOpen && (
-                <Suspense fallback={<LoadingSpinner />}>
+                <Suspense fallback={<ModalLoadingFallback />}>
                     <TabSettings />
                 </Suspense>
             )}
             {selectedOrder && (
-                <Suspense fallback={<LoadingSpinner />}>
+                <Suspense fallback={<ModalLoadingFallback />}>
                     <OrderDetailModal record={selectedOrder} onClose={closeOrderDetail} />
                 </Suspense>
             )}
@@ -502,7 +339,17 @@ const LoginNotificationHandler: React.FC<{
     return null;
 };
 
+const ModalLoadingFallback = () => (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60]">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl flex flex-col items-center">
+            <Spinner size="lg" />
+            <span className="mt-4 text-gray-500 dark:text-gray-400 font-medium">Loading...</span>
+        </div>
+    </div>
+);
+
 const App: React.FC = () => {
+    // ... (rest of App component)
     const [user, setUser] = useState<User | null>(null);
     const [userProfile, setUserProfile] = useState<any>(null);
     const [authLoading, setAuthLoading] = useState(true);

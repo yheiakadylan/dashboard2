@@ -20,21 +20,21 @@ const TabSettings: React.FC = () => {
     // Filter tabs based on permissions
     const getAvailableTabs = (): Tab[] => {
         return tabOrder.filter(tab => {
+            // Hardcoded exclusions to match Sidebar
+            if (tab === 'eBay' || tab === 'Etsy') return false;
+
             if (role === 'owner') return true;
 
             switch (tab) {
                 case 'Overview':
                 case 'Order List':
-                case 'eBay':
-                case 'Etsy':
                 case 'Case':
                 case 'Help':
                 case 'Products':
                     return permissions.viewSales;
                 case 'Fulfill':
                     return permissions.viewFulfill;
-                case 'Summary':
-                    return permissions.viewSales;
+
                 default:
                     return false;
             }

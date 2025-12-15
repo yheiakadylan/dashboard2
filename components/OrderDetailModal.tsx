@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Record } from '../api/_lib/types';
 import { useDashboard } from '../contexts/DashboardContext';
-import { getHighResImage } from '../utils/imageUtils.js';
+import { getHighResImageUrl } from '../utils/imageUtils.js';
 
 interface OrderDetailModalProps {
   record: Record;
@@ -249,7 +249,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
             )}
 
             <img
-              src={getHighResImage(previewImage) || previewImage}
+              src={getHighResImageUrl(previewImage) || previewImage}
               alt="Product"
               className={`max-w-full max-h-[95vh] object-contain rounded-lg shadow-2xl transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
               onLoad={() => setImageLoaded(true)}
