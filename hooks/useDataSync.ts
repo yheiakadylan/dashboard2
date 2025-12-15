@@ -322,6 +322,8 @@ export const useDataSync = ({
         const fetchDataForRange = async () => {
             setIsFetchingNewRange(true);
             setSyncState('Fetching...');
+            // DON'T clear records - keep previous data visible (optimistic UI)
+
             const { from, to } = filterDateRange;
 
             const diffDays = Math.round(Math.abs(new Date(to).getTime() - new Date(from).getTime()) / (1000 * 60 * 60 * 24)) + 1;

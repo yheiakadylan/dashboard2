@@ -231,7 +231,7 @@ const DashboardLayout: React.FC = () => {
                 <Header />
                 <main className="flex-grow p-2 md:p-6 flex flex-col overflow-hidden relative">
                     <div className="relative flex-grow bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden border border-gray-100 dark:border-gray-700">
-                        {/* Pull-to-refresh UI omitted for brevity, logic exists in hook */}
+                        {/* Pull-to-refresh UI */}
                         {(isPulling || isRefreshing) && (
                             <div className="absolute top-0 left-0 right-0 flex justify-center items-center z-20" style={{ height: `${Math.min(pullDistance, 60)}px`, opacity: pullProgress }}>
                                 <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
@@ -241,12 +241,24 @@ const DashboardLayout: React.FC = () => {
                             </div>
                         )}
 
+                        {/* Loading Overlay when fetching new date range */}
                         {isFetchingNewRange && (
-                            <div className="absolute inset-0 bg-white/50 dark:bg-gray-800/50 flex items-center justify-center z-10 backdrop-blur-sm">
-                                <Spinner size="lg" />
+                            <div className="absolute inset-0 bg-white/60 dark:bg-gray-900/60 backdrop-blur-sm z-30 flex items-center justify-center">
+                                <div className="flex flex-col items-center gap-3">
+                                    <Spinner size="lg" />
+                                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                        Loading new data...
+                                    </p>
+                                </div>
                             </div>
                         )}
-                        <div className={`h-full w-full transition-opacity duration-200 animate-fade-in ${isFetchingNewRange ? 'opacity-50' : 'opacity-100'}`} {...touchHandlers}>
+
+                        {/* Single scroll container - SIMPLE! */}
+                        <div
+                            id="active-tab-container"
+                            className="h-full w-full overflow-y-auto"
+                            {...touchHandlers}
+                        >
                             {renderActiveTab()}
                         </div>
                     </div>

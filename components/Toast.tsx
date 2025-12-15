@@ -22,7 +22,6 @@ const Toast: React.FC<ToastProps> = ({ id, message, type, onClose }) => {
         const newProgress = prev - (100 / (DURATION / 50)); // Update every 50ms
         if (newProgress <= 0) {
           clearInterval(interval);
-          onClose(id);
           return 0;
         }
         return newProgress;
@@ -30,7 +29,14 @@ const Toast: React.FC<ToastProps> = ({ id, message, type, onClose }) => {
     }, 50);
 
     return () => clearInterval(interval);
-  }, [id, onClose, isPaused]);
+  }, [isPaused]);
+
+  // Separate effect to handle auto-close when progress reaches 0
+  useEffect(() => {
+    if (progress <= 0) {
+      onClose(id);
+    }
+  }, [progress, id, onClose]);
 
   const typeConfig = {
     success: {

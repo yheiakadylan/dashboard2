@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { Tab } from '../api/_lib/types';
 import { useNotification } from './NotificationContext';
@@ -69,9 +69,22 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     // Convert array back to Set for internal logic
     const [hiddenTabs, setHiddenTabs] = useState<Set<Tab>>(new Set(tabPreferences.hiddenTabs));
 
-    // Sync tabPreferences from local storage/state
+    // Use ref to track if we're initializing to prevent infinite loop
+    const isInitialized = useRef(false);
+
+    // Sync tabPreferences from local storage/state - but only when user changes them, not on every render
     useEffect(() => {
-        setTabPreferences({ tabOrder, hiddenTabs: Array.from(hiddenTabs) });
+        // Skip initial render to prevent loop
+        if (!isInitialized.current) {
+            isInitialized.current = true;
+            return;
+        }
+
+        const timeoutId = setTimeout(() => {
+            setTabPreferences({ tabOrder, hiddenTabs: Array.from(hiddenTabs) });
+        }, 300); // Debounce to prevent rapid updates
+
+        return () => clearTimeout(timeoutId);
     }, [tabOrder, hiddenTabs, setTabPreferences]);
 
     // Date Range

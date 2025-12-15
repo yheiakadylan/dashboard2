@@ -175,8 +175,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   };
 
   const [processedData, setProcessedData] = useState<ProcessedData>(initialProcessedData);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isSavingAccounts, setIsSavingAccounts] = useState(false);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [isSavingAccounts, setIsSavingAccounts] = useState<boolean>(false);
+
+  // DON'T reset processedData - we'll show loading overlay instead (optimistic UI)
+
   const workerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
@@ -193,7 +196,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   useEffect(() => {
     if (!workerRef.current) return;
-    setIsProcessing(true);
+
     workerRef.current.postMessage({
       records: filteredRecords,
       previousRecords: previousPeriodRecords,
