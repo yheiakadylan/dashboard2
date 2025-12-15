@@ -1,15 +1,17 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { useDashboard } from '../contexts/DashboardContext';
+import { useUI } from '../contexts/UIContext';
+
+
 
 // --- Date Utilities ---
 const formatDateISO = (date: Date): string => date.toISOString().split('T')[0];
 const getTodayInTimezone = (timeZone: string): Date => {
-  const formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
-  const [year, month, day] = formatter.format(new Date()).split('-').map(Number);
-  // Use UTC functions to create the date to avoid local timezone interference
-  return new Date(Date.UTC(year, month - 1, day));
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    const [year, month, day] = formatter.format(new Date()).split('-').map(Number);
+    // Use UTC functions to create the date to avoid local timezone interference
+    return new Date(Date.UTC(year, month - 1, day));
 };
 
 const presets = [
@@ -27,8 +29,9 @@ const presets = [
 
 
 const DateRangePicker: React.FC = () => {
-    const { filterDateRange, setFilterDateRange, timeZone } = useDashboard();
-    
+    const { filterDateRange, setFilterDateRange, timeZone } = useUI();
+
+
     const [isOpen, setIsOpen] = useState(false);
     const [tempRange, setTempRange] = useState({ from: new Date(`${filterDateRange.from}T00:00:00Z`), to: new Date(`${filterDateRange.to}T00:00:00Z`) });
     const [viewDate, setViewDate] = useState(new Date(`${filterDateRange.to}T00:00:00Z`));
@@ -44,14 +47,14 @@ const DateRangePicker: React.FC = () => {
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
-    
+
     // Sync component state with global context
     useEffect(() => {
         const from = new Date(`${filterDateRange.from}T00:00:00Z`);
         const to = new Date(`${filterDateRange.to}T00:00:00Z`);
         setTempRange({ from, to });
         setViewDate(to);
-        
+
         const todayInTz = getTodayInTimezone(timeZone);
         let matchedPreset = '';
         for (const preset of presets) {
@@ -70,12 +73,12 @@ const DateRangePicker: React.FC = () => {
         }
         const fromFormatted = tempRange.from.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
         const toFormatted = tempRange.to.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
-        
+
         return formatDateISO(tempRange.from) === formatDateISO(tempRange.to)
             ? fromFormatted
             : `${fromFormatted} → ${toFormatted}`;
     }, [activePreset, tempRange]);
-    
+
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node) && !isMobile) {
@@ -103,7 +106,7 @@ const DateRangePicker: React.FC = () => {
 
     const handlePresetClick = (presetLabel: string) => {
         const preset = presets.find(p => p.label === presetLabel);
-        if(preset) {
+        if (preset) {
             const range = preset.getRange(getTodayInTimezone(timeZone));
             setTempRange(range);
             setActivePreset(preset.label);
@@ -111,7 +114,7 @@ const DateRangePicker: React.FC = () => {
             setSelectingStart(true); // Reset for next custom selection
         }
     };
-    
+
     const handleDayClick = (day: Date) => {
         setActivePreset(''); // A custom range is being selected
         if (selectingStart) {
@@ -150,7 +153,7 @@ const DateRangePicker: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-7 gap-1 mt-2">
                     {days.map((day, index) => {
-                        if (!(day instanceof Date)) return <div key={index}/>;
+                        if (!(day instanceof Date)) return <div key={index} />;
                         const dayTime = day.getTime();
                         const isSelected = dayTime >= fromTime && dayTime <= toTime;
                         const isStart = dayTime === fromTime;
@@ -166,10 +169,10 @@ const DateRangePicker: React.FC = () => {
                             if (isEnd) dayClasses += ' rounded-l-none';
                             if (isStart && isEnd) dayClasses += ' rounded-full';
                         } else {
-                           dayClasses += ' hover:bg-gray-100 dark:hover:bg-gray-700';
+                            dayClasses += ' hover:bg-gray-100 dark:hover:bg-gray-700';
                         }
-                        if(isStart || isEnd) dayClasses += ' bg-blue-600 text-white font-bold rounded-full';
-                        if(isToday && !isSelected) dayClasses += ' border border-gray-400 dark:border-gray-500';
+                        if (isStart || isEnd) dayClasses += ' bg-blue-600 text-white font-bold rounded-full';
+                        if (isToday && !isSelected) dayClasses += ' border border-gray-400 dark:border-gray-500';
 
                         return <button key={index} onClick={() => handleDayClick(day)} className={dayClasses}>{day.getUTCDate()}</button>
                     })}
@@ -188,18 +191,18 @@ const DateRangePicker: React.FC = () => {
     const popupContent = (
         <div className={containerClass} onClick={(e) => e.stopPropagation()}>
             <div className={sidebarClass}>
-               <ul className={isMobile ? "contents" : "space-y-1"}>
+                <ul className={isMobile ? "contents" : "space-y-1"}>
                     {presets.map(p => (
                         <li key={p.label} className={isMobile ? "" : ""}>
-                            <button 
-                              onClick={() => handlePresetClick(p.label)} 
-                              className={`w-full text-left px-3 py-1.5 text-sm rounded transition-colors ${activePreset === p.label ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                            <button
+                                onClick={() => handlePresetClick(p.label)}
+                                className={`w-full text-left px-3 py-1.5 text-sm rounded transition-colors ${activePreset === p.label ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                             >
                                 {p.label}
                             </button>
                         </li>
                     ))}
-               </ul>
+                </ul>
             </div>
             <div className="flex flex-col flex-1 pr-2 max-w-full">
                 <div className="p-2">
@@ -208,9 +211,9 @@ const DateRangePicker: React.FC = () => {
                             <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
                         </button>
                         <div className="flex gap-2">
-                            <input type="text" readOnly value={tempRange.from.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })} className="w-24 md:w-32 text-center bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-1 md:px-2 py-1 text-xs md:text-sm"/>
+                            <input type="text" readOnly value={tempRange.from.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })} className="w-24 md:w-32 text-center bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-1 md:px-2 py-1 text-xs md:text-sm" />
                             <span className="self-center">→</span>
-                            <input type="text" readOnly value={tempRange.to.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })} className="w-24 md:w-32 text-center bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-1 md:px-2 py-1 text-xs md:text-sm"/>
+                            <input type="text" readOnly value={tempRange.to.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })} className="w-24 md:w-32 text-center bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-1 md:px-2 py-1 text-xs md:text-sm" />
                         </div>
                         <button onClick={() => setViewDate(new Date(Date.UTC(viewDate.getUTCFullYear(), viewDate.getUTCMonth() + 1, 1)))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
                             <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
@@ -236,16 +239,16 @@ const DateRangePicker: React.FC = () => {
                 <span className="text-sm ml-2 flex-grow text-left truncate" title={getButtonText()}>{getButtonText()}</span>
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
             </button>
-            
+
             {isOpen && (
-                isMobile 
-                ? createPortal(
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200" onClick={() => setIsOpen(false)}>
-                        {popupContent}
-                    </div>, 
-                    document.body
-                  )
-                : <div className="absolute top-full mt-2 z-20 w-auto">{popupContent}</div>
+                isMobile
+                    ? createPortal(
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200" onClick={() => setIsOpen(false)}>
+                            {popupContent}
+                        </div>,
+                        document.body
+                    )
+                    : <div className="absolute top-full mt-2 z-20 w-auto">{popupContent}</div>
             )}
         </div>
     );

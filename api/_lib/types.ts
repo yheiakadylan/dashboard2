@@ -137,3 +137,13 @@ export interface ProcessedData {
   };
   products: TableData; // New field for detailed products table
 }
+
+export interface ManualCost {
+  id: string;
+  providerName: string;
+  cost: number;
+  date: string;
+  timeZone?: string;
+  currency?: string;
+  createdAt?: any; // Firestore Timestamp
+}

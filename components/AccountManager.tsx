@@ -3,7 +3,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Account, Record } from '../api/_lib/types';
 import { signInWithGoogle, signInWithMicrosoft } from '../services/authService';
 import { useDashboard } from '../contexts/DashboardContext';
+import { useUI } from '../contexts/UIContext';
 import { useNotification } from '../contexts/NotificationContext';
+
 import UserManager from './UserManager';
 import ManualCostManager from './ManualCostManager';
 import NotificationSettings from './NotificationSettings'; // <-- Import
@@ -93,12 +95,12 @@ const MailManager: React.FC = () => {
     handleSaveAccounts,
     isSavingAccounts,
     syncState,
-    timeZone,
-    setRecords,
-    setAccounts,
     handleResyncAccount,
     handleQuickSync // Add new handler
   } = useDashboard();
+
+  const { timeZone } = useUI();
+
 
   const { addNotification } = useNotification();
 
@@ -367,8 +369,10 @@ const MailManager: React.FC = () => {
 
 // --- MAIN ACCOUNT MANAGER MODAL ---
 const AccountManager: React.FC = () => {
-  const { setIsAccountManagerOpen, role } = useDashboard();
+  const { role } = useDashboard();
+  const { setIsAccountManagerOpen } = useUI();
   const [activeTab, setActiveTab] = useState<'mail' | 'users' | 'costs' | 'notifications'>('mail');
+
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[100] p-2 md:p-4 animate-modal-backdrop">

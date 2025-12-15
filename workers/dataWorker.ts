@@ -1,5 +1,5 @@
 import { processData } from '../utils/dataProcessing';
-import { Record, Account } from '../api/_lib/types';
+import { Record, Account, ManualCost } from '../api/_lib/types';
 
 interface WorkerMessage {
     records: Record[];
@@ -9,7 +9,7 @@ interface WorkerMessage {
     timeZone: string;
     role: string;
     permissions: { [key: string]: boolean };
-    manualCosts: any[];
+    manualCosts: ManualCost[];
 }
 
 self.onmessage = (e: MessageEvent<WorkerMessage>) => {

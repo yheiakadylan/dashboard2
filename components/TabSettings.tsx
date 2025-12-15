@@ -1,19 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Tab } from '../api/_lib/types';
 import { useDashboard } from '../contexts/DashboardContext';
+import { useUI } from '../contexts/UIContext';
 import ThemeToggle from './ThemeToggle';
 
+
 const TabSettings: React.FC = () => {
+    const { role, permissions } = useDashboard();
     const {
         tabOrder,
         hiddenTabs,
-        role,
-        permissions,
         setIsTabSettingsOpen,
         setTabOrder,
         toggleTabVisibility,
         resetTabPreferences
-    } = useDashboard();
+    } = useUI();
+
 
     const [draggedTab, setDraggedTab] = useState<Tab | null>(null);
 

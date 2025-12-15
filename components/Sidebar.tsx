@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
+import { useUI } from '../contexts/UIContext';
+
+import { getPermittedTabs } from '../utils/permissions';
 import {
     HomeIcon,
     DocumentTextIcon,
@@ -17,40 +20,20 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
+    const { role, permissions, handleLogout } = useDashboard();
     const {
         activeTab,
         handleTabClick,
         tabOrder,
         hiddenTabs,
-        role,
-        permissions,
-        handleLogout,
         setIsAccountManagerOpen,
         setIsTabSettingsOpen,
-    } = useDashboard();
+    } = useUI();
+
 
     // Filter tabs logic (duplicated from App.tsx temporarily, can be refactored)
-    const getPermittedTabs = (tabs: any[]) => {
-        return tabs.filter(tab => {
-            if (role === 'owner') return true;
-            switch (tab) {
-                case 'Overview':
-                case 'Order List':
-                case 'eBay':
-                case 'Etsy':
-                case 'Case':
-                case 'Help':
-                case 'Products':
-                    return permissions.viewSales;
-                case 'Fulfill':
-                    return permissions.viewFulfill;
-                default:
-                    return false;
-            }
-        });
-    };
-
-    const permittedTabs = getPermittedTabs(tabOrder);
+    // Filter tabs logic
+    const permittedTabs = getPermittedTabs(tabOrder, role, permissions);
 
     const getIconForTab = (tab: string, className: string = "h-5 w-5") => {
         switch (tab) {

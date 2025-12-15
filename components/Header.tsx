@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
+import { useUI } from '../contexts/UIContext';
+
 import { timezones } from '../utils/timezones';
 import ThemeToggle from './ThemeToggle';
 import DateRangePicker from './DateRangePicker';
@@ -12,24 +14,27 @@ const Header: React.FC = () => {
     handleSyncClick,
     isSyncing,
     accounts,
+    role,
+    permissions,
+    syncState,
+    handleExportCSV,
+  } = useDashboard();
+
+  const {
     selectedAccountId,
     setSelectedAccountId,
     setIsAccountManagerOpen,
     timeZone,
     setTimeZone,
-    role,
-    permissions,
-    syncState,
     searchTerm,
     setSearchTerm,
-
     setIsTabSettingsOpen,
     activeTab,
     sourceFilter,
     setSourceFilter,
-    handleExportCSV,
     isSidebarCollapsed,
-  } = useDashboard();
+  } = useUI();
+
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
