@@ -6,6 +6,12 @@ import type { CostData, Record } from './_lib/types.js';
 // --- START: Printway Functions ---
 const formatPrintwayDate = (date: Date): string => date.toISOString().replace('T', ' ').substring(0, 19);
 
+// Helper: Normalize Order ID via Regex (Extract first numeric sequence)
+const normalizeOrderId = (rawId: string): string => {
+    const match = rawId.match(/^(\d+)/);
+    return match ? match[1] : rawId;
+};
+
 const sliceTimeRange = (startDt: Date, endDt: Date, hoursPerSlice: number): { from: string, to: string }[] => {
     const slices: { from: string, to: string }[] = [];
     let current = new Date(startDt);
@@ -47,27 +53,27 @@ async function fetchPrintwayCostsForSlice(dateRange: { from: string, to: string 
             const data = await response.json();
             const orders = data.orders || data.data || [];
             if (orders.length === 0) break;
-            
+
             for (const order of orders) {
                 const orderName = order.order_name?.trim();
                 if (orderName) {
-                    
-                    // --- BẮT ĐẦU THAY ĐỔI: Lấy product_name ---
+
+                    // --- BẮT ĐẦU THAY ĐỔI: Lấy product_name & Fuzzy Match ID ---
                     let product_name = 'N/A';
                     if (Array.isArray(order.orderitems) && order.orderitems.length > 0) {
-                        // Nối tên tất cả sản phẩm trong đơn hàng
                         product_name = order.orderitems
                             .map((item: any) => item.product_name || 'Unknown')
                             .join(', ');
                     }
-                    // --- KẾT THÚC THAY ĐỔI ---
+
+                    const normalizedId = normalizeOrderId(orderName);
 
                     allCosts.push({
-                        order_id: orderName,
+                        order_id: normalizedId, // Use normalized ID
                         cost_total: parseFloat(order.total_price || 0),
                         ff_code: String(order.pw_order_id).trim() || '',
                         currency: order.currency || 'USD',
-                        product_name: product_name, // <-- Thêm vào
+                        product_name: product_name,
                     });
                 }
             }
@@ -108,7 +114,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (orderRecords.length === 0) {
             return res.status(200).json({});
         }
-        
+
         const dates = orderRecords.map(r => new Date(r.dt_local).getTime()).filter(t => !isNaN(t));
         if (dates.length === 0) {
             return res.status(200).json({}); // No valid dates to query
@@ -119,7 +125,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         minDate.setDate(minDate.getDate() - 1);
         maxDate.setDate(maxDate.getDate() + 1);
         const printwayDateRange = { from: minDate.toISOString(), to: maxDate.toISOString() };
-        
+
         const printwayData = await fetchPrintwayCosts(printwayDateRange);
 
         // --- CẬP NHẬT LOGIC MERGE ---
