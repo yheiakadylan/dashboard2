@@ -256,7 +256,7 @@ const extractEbayDetails = (html: string): OrderDetails => {
   let orderId = "";
   let size = "";
   let material = "";
-  let buyer = "";
+  // let buyer = "";
 
   rows.forEach(row => {
     const cols = [...row[0].matchAll(colRegex)];
@@ -269,7 +269,7 @@ const extractEbayDetails = (html: string): OrderDetails => {
       else if (/^Order$/i.test(keyRaw)) orderId = valRaw;
       else if (/^Size$/i.test(keyRaw)) size = valRaw;
       else if (/^Material$/i.test(keyRaw)) material = valRaw;
-      else if (/^Buyer$/i.test(keyRaw)) buyer = valRaw;
+      // else if (/^Buyer$/i.test(keyRaw)) buyer = valRaw; // Unused
     }
   });
 

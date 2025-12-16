@@ -1,15 +1,12 @@
-import React, { Suspense, /* lazy */ } from 'react';
+import React, { Suspense } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useUI } from '../contexts/UIContext';
 import SkeletonLoader from './SkeletonLoader';
-import Spinner from './Spinner';
 import OverviewTab from './tabs/OverviewTab';
 import ProductsTab from './tabs/ProductsTab';
 import OrderListTab from './tabs/OrderListTab';
 import FulfillTab from './tabs/FulfillTab';
 import ErrorBoundary from './ErrorBoundary';
-import { Record } from '../types';
-import LoadingSpinner from './LoadingSpinner';
 
 const DataTable = React.lazy(() => import('./DataTable'));
 

@@ -5,7 +5,7 @@ import { ProcessedData } from '../../types';
 import CollapsibleContainer from '../CollapsibleContainer';
 import DataTable from '../DataTable';
 
-const FulfillChart = lazy(() => import('../FulfillChart'));
+import FulfillChart from '../FulfillChart';
 
 interface FulfillTabProps {
     processedData: ProcessedData;
@@ -24,37 +24,33 @@ const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
                 {isDesktop ? (
                     <div className="mb-6 fade-in">
                         <ChartErrorBoundary>
-                            <Suspense fallback={<LoadingSpinner />}>
-                                <div className="flex flex-col md:flex-row gap-6 mb-6">
-                                    <FulfillChart
-                                        title="Top 10 Merchize Products"
-                                        data={processedData.fulfill.merchizeChartData}
-                                    />
-                                    <FulfillChart
-                                        title="Top 10 Printway Products"
-                                        data={processedData.fulfill.printwayChartData}
-                                    />
-                                </div>
-                            </Suspense>
+                            <div className="flex flex-col md:flex-row gap-6 mb-6">
+                                <FulfillChart
+                                    title="Top 10 Merchize Products"
+                                    data={processedData.fulfill.merchizeChartData}
+                                />
+                                <FulfillChart
+                                    title="Top 10 Printway Products"
+                                    data={processedData.fulfill.printwayChartData}
+                                />
+                            </div>
                         </ChartErrorBoundary>
                     </div>
                 ) : (
                     <div className="space-y-4 mb-6 fade-in">
                         <ChartErrorBoundary>
-                            <Suspense fallback={<LoadingSpinner />}>
-                                <CollapsibleContainer title="Top 10 Merchize Products">
-                                    <FulfillChart
-                                        title="Top 10 Merchize Products"
-                                        data={processedData.fulfill.merchizeChartData}
-                                    />
-                                </CollapsibleContainer>
-                                <CollapsibleContainer title="Top 10 Printway Products">
-                                    <FulfillChart
-                                        title="Top 10 Printway Products"
-                                        data={processedData.fulfill.printwayChartData}
-                                    />
-                                </CollapsibleContainer>
-                            </Suspense>
+                            <CollapsibleContainer title="Top 10 Merchize Products">
+                                <FulfillChart
+                                    title="Top 10 Merchize Products"
+                                    data={processedData.fulfill.merchizeChartData}
+                                />
+                            </CollapsibleContainer>
+                            <CollapsibleContainer title="Top 10 Printway Products">
+                                <FulfillChart
+                                    title="Top 10 Printway Products"
+                                    data={processedData.fulfill.printwayChartData}
+                                />
+                            </CollapsibleContainer>
                         </ChartErrorBoundary>
                     </div>
                 )}

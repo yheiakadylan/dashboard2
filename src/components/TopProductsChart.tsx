@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TopProduct } from '../types';
 import useMediaQuery from '../hooks/useMediaQuery';
@@ -16,7 +16,7 @@ const CustomYAxisTick = ({ x, y, payload, data, onClick }: any) => {
   // Tìm thông tin sản phẩm để lấy ảnh
   const product = data?.find((p: TopProduct) => p.name === payload.value);
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = () => {
     if (product?.image) {
       onClick(product); // Pass the whole product object
     } else {

@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
-import { User } from 'firebase/auth';
+import React, { useState, useCallback, Suspense, lazy } from 'react';
+// import { User } from 'firebase/auth';
 import Header from './components/Header';
 import { useDashboard } from './contexts/DashboardContext';
-import { useAuthLogic, UserProfile } from './hooks/useAuthLogic';
+import { useAuthLogic } from './hooks/useAuthLogic';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { Record } from './types';
 import { reprocessRecord } from './services/emailService';
@@ -10,18 +10,17 @@ import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { triggerHaptic } from './utils/haptics';
 import { getPermittedTabs } from './utils/permissions';
 import { UIProvider, useUI } from './contexts/UIContext';
-import SkeletonLoader from './components/SkeletonLoader';
 import SidebarSkeleton from './components/SidebarSkeleton';
 import Spinner from './components/Spinner';
 
 // Lazy load heavy components
-const Sidebar = lazy(() => import('./components/Sidebar'));
-const DataTable = lazy(() => import('./components/DataTable'));
-const AccountManager = lazy(() => import('./components/AccountManager'));
-const OrderDetailModal = lazy(() => import('./components/OrderDetailModal'));
-const TabSettings = lazy(() => import('./components/TabSettings'));
-const BottomNav = lazy(() => import('./components/BottomNav'));
-const InstallPrompt = lazy(() => import('./components/InstallPrompt'));
+import Sidebar from './components/Sidebar';
+// const DataTable = lazy(() => import('./components/DataTable'));
+import AccountManager from './components/AccountManager';
+import OrderDetailModal from './components/OrderDetailModal';
+import TabSettings from './components/TabSettings';
+import BottomNav from './components/BottomNav';
+import InstallPrompt from './components/InstallPrompt';
 
 import LoginNotificationHandler from './components/LoginNotificationHandler';
 import ConnectedDashboardProvider from './components/ConnectedDashboardProvider';
@@ -31,12 +30,9 @@ import ErrorBoundary from './components/ErrorBoundary';
 
 const DashboardLayout: React.FC = () => {
     const {
-        syncState,
-        isLoading,
         records,
         setRecords,
         isFetchingNewRange,
-        processedData,
         teamId,
         accounts,
         role,
@@ -44,18 +40,12 @@ const DashboardLayout: React.FC = () => {
     } = useDashboard();
 
     const {
-        activeTab,
         isTabSettingsOpen,
         isAccountManagerOpen,
         isSidebarCollapsed,
         toggleSidebar,
         tabOrder,
         hiddenTabs,
-        filterDateRange,
-        sourceFilter,
-        dayFilter,
-        timeZone,
-        handleViewDayDetails,
         isMobileMenuOpen,
         setIsMobileMenuOpen
     } = useUI();
@@ -153,9 +143,7 @@ const DashboardLayout: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex overflow-hidden">
-            <Suspense fallback={<SidebarSkeleton isCollapsed={isSidebarCollapsed} />}>
-                <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
-            </Suspense>
+            <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
 
             <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
                 <Header />
@@ -210,26 +198,18 @@ const DashboardLayout: React.FC = () => {
             </div>
 
             {isAccountManagerOpen && (
-                <Suspense fallback={<ModalLoadingFallback />}>
-                    <AccountManager />
-                </Suspense>
+                <AccountManager />
             )}
             {isTabSettingsOpen && (
-                <Suspense fallback={<ModalLoadingFallback />}>
-                    <TabSettings />
-                </Suspense>
+                <TabSettings />
             )}
             {selectedOrder && (
-                <Suspense fallback={<ModalLoadingFallback />}>
-                    <OrderDetailModal record={selectedOrder} onClose={closeOrderDetail} />
-                </Suspense>
+                <OrderDetailModal record={selectedOrder} onClose={closeOrderDetail} />
             )}
-            <Suspense fallback={<div className="md:hidden h-16 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 fixed bottom-0 w-full z-50"></div>}>
+            <div className="md:hidden border-t border-gray-200 dark:border-gray-700 fixed bottom-0 w-full z-50 bg-white dark:bg-gray-800">
                 <BottomNav tabs={visibleTabs} />
-            </Suspense>
-            <Suspense fallback={null}>
-                <InstallPrompt />
-            </Suspense>
+            </div>
+            <InstallPrompt />
         </div>
     );
 };

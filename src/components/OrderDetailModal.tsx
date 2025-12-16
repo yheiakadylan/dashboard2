@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Record } from '../types';
 import { useDashboard } from '../contexts/DashboardContext';
+import { useUI } from '../contexts/UIContext';
 import { getHighResImageUrl } from '../utils/imageUtils.js';
 
 interface OrderDetailModalProps {
@@ -9,7 +10,8 @@ interface OrderDetailModalProps {
 }
 
 const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) => {
-  const { accounts, timeZone } = useDashboard();
+  const { accounts } = useDashboard();
+  const { timeZone } = useUI();
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [imageLoaded, setImageLoaded] = useState(false);
 

@@ -28,7 +28,6 @@ export const requestForToken = async (userId?: string) => {
           await updateDoc(userRef, {
             fcmTokens: arrayUnion(token)
           });
-          console.log('Token saved to Firestore automatically.');
         } catch (saveError) {
           console.error('Error saving token to Firestore:', saveError);
         }

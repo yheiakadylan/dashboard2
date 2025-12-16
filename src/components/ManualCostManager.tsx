@@ -1,6 +1,7 @@
 // components/ManualCostManager.tsx
 import React, { useState } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
+import { useUI } from '../contexts/UIContext';
 import { addManualCost, updateManualCost, deleteManualCost } from '../services/firebaseService';
 
 interface ManualCostEntry {
@@ -8,12 +9,13 @@ interface ManualCostEntry {
   providerName: string;
   cost: number;
   date: string;
-  currency: string;
+  currency?: string;
   timeZone?: string;
 }
 
 const ManualCostManager: React.FC = () => {
-  const { teamId, timeZone, manualCosts, setManualCosts } = useDashboard();
+  const { teamId, manualCosts, setManualCosts } = useDashboard();
+  const { timeZone } = useUI();
 
   const getTodayInTimezone = () => {
     const formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -159,28 +161,28 @@ const ManualCostManager: React.FC = () => {
         <h3 className="text-lg font-semibold mb-3 border-b pb-2">Recent Manual Entries</h3>
         <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
           {manualCosts.length === 0 && <p className="text-gray-500">No manual entries found.</p>}
-          {[...manualCosts].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((entry) => (
+          {[...manualCosts].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((entry) => (
             <div key={entry.id} className="bg-gray-100 dark:bg-gray-700 p-3 rounded">
               {editingCostId === entry.id ? (
                 <div className="space-y-2">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                     <input
+                    <input
                       type="date"
                       value={editFormData.date}
-                      onChange={e => setEditFormData({...editFormData, date: e.target.value})}
+                      onChange={e => setEditFormData({ ...editFormData, date: e.target.value })}
                       className="px-2 py-1 bg-gray-50 dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md text-sm"
                     />
                     <input
                       type="text"
                       value={editFormData.providerName}
-                      onChange={e => setEditFormData({...editFormData, providerName: e.target.value})}
+                      onChange={e => setEditFormData({ ...editFormData, providerName: e.target.value })}
                       className="px-2 py-1 bg-gray-50 dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md text-sm"
                     />
                     <input
                       type="number"
                       step="0.01"
                       value={editFormData.cost}
-                      onChange={e => setEditFormData({...editFormData, cost: e.target.value})}
+                      onChange={e => setEditFormData({ ...editFormData, cost: e.target.value })}
                       className="px-2 py-1 bg-gray-50 dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md text-sm"
                     />
                   </div>

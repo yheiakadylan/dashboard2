@@ -1,19 +1,23 @@
 import React, { useCallback } from 'react';
 import { Tab } from '../types';
 import { useDashboard } from '../contexts/DashboardContext';
+import { useUI } from '../contexts/UIContext';
 import { TABS_TO_HIDE_ON_MOBILE } from '../constants';
 
 const Tabs: React.FC = () => {
   // Get tab customization state from context
   const {
+    role,
+    permissions
+  } = useDashboard();
+
+  const {
     activeTab,
     handleTabClick,
-    role,
-    permissions,
     tabOrder,
     hiddenTabs,
     setIsTabSettingsOpen
-  } = useDashboard();
+  } = useUI();
 
   // Filter TABS based on permissions
   const getPermittedTabs = (tabs: Tab[]): Tab[] => {

@@ -4,7 +4,6 @@ import {
   getSavedReportForDate,
   sendLarkTextReply,
   sendLarkInteractiveReply,
-  sendReportBuilderCardToChat,
   ianaToUtcOffsetString,
 } from './_lib/larkHelper.js';
 import { getDb } from './_lib/firebaseAdminHelper.js';
@@ -12,7 +11,7 @@ import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 import { Record as MailRecord } from './_lib/types.js';
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 
 /** Dedupe theo id; với card-action ưu tiên dùng uuid nếu có */
 async function markOnceOrSkip(id: string): Promise<boolean> {
@@ -153,7 +152,7 @@ function verifyToken(kind: Parsed['kind'], incoming?: string): boolean {
 }
 
 /** Handlers */
-async function onText(messageId: string, chatId: string | undefined, command: string) {
+async function onText(messageId: string, command: string) {
   const lowerCommand = command.toLowerCase();
 
   // --- /menu command ---
@@ -461,7 +460,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!(await markOnceOrSkip(parsed.dedupeId))) {
         return res.status(200).send('OK (duplicate ignored)');
       }
-      await onText(parsed.messageId, parsed.chatId, parsed.text);
+      await onText(parsed.messageId, parsed.text);
       return res.status(200).send('OK');
     }
 

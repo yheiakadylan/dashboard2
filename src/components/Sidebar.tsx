@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useUI } from '../contexts/UIContext';
 
@@ -8,10 +8,7 @@ import {
     DocumentTextIcon,
     QuestionMarkCircleIcon,
     TruckIcon,
-    ChartPieIcon,
-    ChartBarIcon,
-    TagIcon,
-    ShoppingBagIcon
+    TagIcon
 } from '@heroicons/react/24/outline';
 
 interface SidebarProps {

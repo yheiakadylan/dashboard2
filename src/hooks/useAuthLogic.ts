@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../services/firebaseService';
-import { requestForToken, sendLarkLoginNotification } from '../services/notificationService';
-import { useNotification } from '../contexts/NotificationContext';
+import { requestForToken } from '../services/notificationService';
+
 
 export interface UserProfile {
     teamId: string;

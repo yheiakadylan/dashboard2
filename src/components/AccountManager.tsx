@@ -1,6 +1,6 @@
 // components/AccountManager.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import { Account, Record } from '../types';
+import { Account } from '../types';
 import { signInWithGoogle, signInWithMicrosoft } from '../services/authService';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useUI } from '../contexts/UIContext';
@@ -9,88 +9,14 @@ import { useNotification } from '../contexts/NotificationContext';
 import UserManager from './UserManager';
 import ManualCostManager from './ManualCostManager';
 import NotificationSettings from './NotificationSettings';
-import { updateAccountsInFirebase, getAllRecordsForAccount } from '../services/firebaseService';
-import { parseMessage, RULES } from '../services/rules';
-import { reprocessRecord } from '../services/emailService';
 import Spinner from './Spinner';
 
-// --- HELPERS (Giữ nguyên logic decode) ---
-const decodeQP = (input: string): string => {
-  const clean = input.replace(/=\r?\n/g, '');
-  const bytes: number[] = [];
-  for (let i = 0; i < clean.length; i++) {
-    if (clean[i] === '=') {
-      const hex = clean.substring(i + 1, i + 3);
-      if (/^[0-9A-F]{2}$/i.test(hex)) {
-        bytes.push(parseInt(hex, 16));
-        i += 2;
-        continue;
-      }
-    }
-    bytes.push(clean.charCodeAt(i));
-  }
-  try {
-    return new TextDecoder('utf-8').decode(new Uint8Array(bytes));
-  } catch (e) {
-    return clean;
-  }
-};
-
-const decodeBase64 = (input: string): string => {
-  try {
-    const clean = input.replace(/\s/g, '');
-    const binaryString = atob(clean);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return new TextDecoder('utf-8').decode(bytes);
-  } catch (e) {
-    return input;
-  }
-};
-
-const parseEmlContent = (eml: string): { subject: string; htmlBody: string } => {
-  let subject = "Unknown Subject";
-  let htmlBody = "";
-
-  const subjectMatch = eml.match(/^Subject:\s*(.+)$/m);
-  if (subjectMatch) subject = subjectMatch[1].trim();
-
-  const htmlContentTypeRegex = /Content-Type:\s*text\/html/i;
-  const htmlStartMatch = eml.match(htmlContentTypeRegex);
-
-  if (htmlStartMatch && htmlStartMatch.index !== undefined) {
-    const sectionStart = htmlStartMatch.index;
-    const followingText = eml.substring(sectionStart);
-    const encodingMatch = followingText.match(/Content-Transfer-Encoding:\s*(\S+)/i);
-    const encoding = encodingMatch ? encodingMatch[1].toLowerCase() : "7bit";
-    const headerEndMatch = followingText.match(/\r?\n\r?\n/);
-
-    if (headerEndMatch && headerEndMatch.index !== undefined) {
-      const bodyStartIndex = headerEndMatch.index + headerEndMatch[0].length;
-      let rawBody = followingText.substring(bodyStartIndex);
-      const boundaryMatch = rawBody.match(/^\s*--/m);
-      if (boundaryMatch && boundaryMatch.index !== undefined) {
-        rawBody = rawBody.substring(0, boundaryMatch.index);
-      }
-
-      if (encoding === 'base64') htmlBody = decodeBase64(rawBody);
-      else if (encoding === 'quoted-printable') htmlBody = decodeQP(rawBody);
-      else htmlBody = rawBody;
-    }
-  } else {
-    const htmlTagIdx = eml.indexOf('<html');
-    if (htmlTagIdx > -1) htmlBody = eml.substring(htmlTagIdx);
-  }
-  return { subject, htmlBody };
-};
+// --- MAIL MANAGER COMPONENT ---
 
 
 // --- MAIL MANAGER COMPONENT ---
 const MailManager: React.FC = () => {
   const {
-    teamId,
     accounts,
     handleSaveAccounts,
     isSavingAccounts,
@@ -107,7 +33,6 @@ const MailManager: React.FC = () => {
   const [localAccounts, setLocalAccounts] = useState<Account[]>([]);
   const [isAuthenticating, setIsAuthenticating] = useState<false | 'google' | 'microsoft'>(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setLocalAccounts(JSON.parse(JSON.stringify(accounts)));
@@ -193,8 +118,17 @@ const MailManager: React.FC = () => {
       };
 
       if (!localAccounts.find(acc => acc.id === newAccountWithFlag.id)) {
-        setLocalAccounts(prev => [...prev, newAccountWithFlag]);
-        addNotification("Account added locally. Click 'Save' to confirm.", "success");
+        const updatedAccounts = [...localAccounts, newAccountWithFlag];
+        setLocalAccounts(updatedAccounts);
+
+        // Save immediately
+        const orderedAccounts = updatedAccounts.map((acc, index) => ({
+          ...acc,
+          order: index
+        }));
+        await handleSaveAccounts(orderedAccounts);
+
+        addNotification("Account added and saved successfully.", "success");
       } else {
         addNotification("This account is already in the list.", "info");
       }
@@ -213,8 +147,15 @@ const MailManager: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm("Remove this account? This action applies after Saving.")) {
-      setLocalAccounts(localAccounts.filter(acc => acc.id !== id));
+    if (window.confirm("Are you sure you want to remove this account? This action is immediate.")) {
+      const updatedAccounts = localAccounts.filter(acc => acc.id !== id);
+      setLocalAccounts(updatedAccounts);
+
+      const orderedAccounts = updatedAccounts.map((acc, index) => ({
+        ...acc,
+        order: index
+      }));
+      handleSaveAccounts(orderedAccounts);
     }
   };
 
@@ -251,13 +192,7 @@ const MailManager: React.FC = () => {
     setLocalAccounts(accountsCopy);
   };
 
-  const handleSaveChanges = () => {
-    const orderedAccounts = localAccounts.map((acc, index) => ({
-      ...acc,
-      order: index
-    }));
-    handleSaveAccounts(orderedAccounts);
-  };
+
 
   return (
     <div className="flex flex-col h-full">

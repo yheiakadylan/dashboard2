@@ -1,10 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { compareValues, SortDirection } from '../utils/sortUtils';
-import { FixedSizeList as List, areEqual } from 'react-window';
+import { FixedSizeList as List } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { HIDDEN_MOBILE_HEADERS } from '../constants';
 import EmptyState from './EmptyState';
-import Spinner from './Spinner';
 import DesktopRow from './datatable/DesktopRow';
 import MobileCard from './datatable/MobileCard';
 import { RowData, DataTableProps } from './datatable/types';

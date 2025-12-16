@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef, createContext } from 'react';
-import { Record, Account, Tab, ProcessedData, ManualCost } from '../types';
+import React, { useState, useEffect, useMemo, useRef, createContext } from 'react';
+import { Record, Account, ProcessedData, ManualCost } from '../types';
 import {
   saveAccountsToFirebase,
   deleteRecordsForAccounts,
@@ -8,13 +8,12 @@ import {
 import { setupGmailWatch } from '../services/emailService';
 import { useNotification } from './NotificationContext';
 import { User } from 'firebase/auth';
-import useLocalStorage from '../hooks/useLocalStorage';
 import { useDataSync } from '../hooks/useDataSync';
-import { useAuthLogic } from '../hooks/useAuthLogic';
 import { useRecordFiltering } from '../hooks/useRecordFiltering';
 
 // Default Tab List
-const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Case', 'Help', 'Fulfill'];
+// Default Tab List
+// const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Case', 'Help', 'Fulfill']; // Unused
 
 interface DashboardContextType {
   // Auth & Permissions
@@ -291,7 +290,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
           if (acc.provider === 'gmail') setupGmailWatch(teamId, acc).catch(console.error);
         });
 
-        runSync(newAccounts, nextRecords).then(async (added) => {
+        runSync(newAccounts, nextRecords).then(async () => {
           try {
             const updated = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
             setRecords(updated);

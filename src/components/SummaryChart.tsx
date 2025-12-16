@@ -14,7 +14,7 @@ const FUNDS_COLORS = ['#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#06B6D4'];   
 const ITEMS_PER_PAGE = 10;
 
 // Custom Tooltip Component
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     const revenues: React.ReactElement[] = [];

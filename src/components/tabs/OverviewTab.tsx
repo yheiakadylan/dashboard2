@@ -5,8 +5,8 @@ import LoadingSpinner from '../LoadingSpinner';
 import { ProcessedData } from '../../types';
 import DataTable from '../DataTable';
 
-const OverviewChart = lazy(() => import('../OverviewChart'));
-const SummaryChart = lazy(() => import('../SummaryChart'));
+import OverviewChart from '../OverviewChart';
+import SummaryChart from '../SummaryChart';
 
 interface OverviewTabProps {
     processedData: ProcessedData;
@@ -30,16 +30,12 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
                 {/* Main Overview Chart - Takes 1/2 width */}
                 <ChartErrorBoundary>
-                    <Suspense fallback={<LoadingSpinner variant="chart" count={1} />}>
-                        <OverviewChart data={processedData.overview.chartData} />
-                    </Suspense>
+                    <OverviewChart data={processedData.overview.chartData} />
                 </ChartErrorBoundary>
 
                 {/* Revenue Chart - Takes 1/2 width */}
                 <ChartErrorBoundary>
-                    <Suspense fallback={<LoadingSpinner variant="chart" />}>
-                        <SummaryChart data={processedData.summary.chartData} hideTitle={true} />
-                    </Suspense>
+                    <SummaryChart data={processedData.summary.chartData} hideTitle={true} />
                 </ChartErrorBoundary>
             </div>
 

@@ -19,7 +19,7 @@ export function getOffsetInfo(timeZone: string): { offset: number; offsetStr: st
         const sign = offset >= 0 ? '+' : '-';
 
         const offsetStr = `UTC${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-        
+
         return { offset, offsetStr };
     } catch (e) {
         return { offset: 0, offsetStr: 'UTC+00:00' };
@@ -73,13 +73,13 @@ const uniqueOffsets = new Map<string, { value: string, label: string, offset: nu
 // 1. Load from the curated representative list
 Object.entries(representativeZones).forEach(([label, ianaId]) => {
     try {
-        const { offset, offsetStr } = getOffsetInfo(ianaId);
+        const { offset } = getOffsetInfo(ianaId);
         // We prioritize the label from our map keys to keep it consistent (e.g. UTC-07:00)
         // regardless of whether DST makes specific zones shift.
         uniqueOffsets.set(label, {
             value: ianaId,
             label: label, // Force the clean label
-            offset: offset 
+            offset: offset
         });
     } catch (e) {
         // Skip invalid zones
@@ -90,7 +90,7 @@ Object.entries(representativeZones).forEach(([label, ianaId]) => {
 for (let i = -12; i <= 14; i++) {
     const sign = i >= 0 ? '+' : '-';
     const offsetStr = `UTC${sign}${String(Math.abs(i)).padStart(2, '0')}:00`;
-    
+
     if (!uniqueOffsets.has(offsetStr)) {
         const gmtSign = i > 0 ? '-' : '+'; // Etc/GMT signs are inverted
         const gmtVal = `Etc/GMT${gmtSign}${Math.abs(i)}`;

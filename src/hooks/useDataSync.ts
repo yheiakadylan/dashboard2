@@ -247,7 +247,6 @@ export const useDataSync = ({
 
                 // Check if component was unmounted
                 if (signal.aborted) {
-                    console.log('[useDataSync] Component unmounted, aborting initial data load');
                     return;
                 }
 
@@ -265,7 +264,7 @@ export const useDataSync = ({
 
                 if (fbAccounts.length > 0 && !signal.aborted) {
                     setSyncState('Auto-syncing...');
-                    runSync(fbAccounts, initialDisplayRecords).then(async (addedRecords) => {
+                    runSync(fbAccounts, initialDisplayRecords).then(async () => {
                         // Check abort signal before continuing
                         if (signal.aborted) {
                             console.log('[useDataSync] Component unmounted, aborting sync continuation');
@@ -305,7 +304,6 @@ export const useDataSync = ({
 
         // Cleanup: abort ongoing operations when component unmounts
         return () => {
-            console.log('[useDataSync] Component unmounting, aborting all operations');
             abortControllerRef.current?.abort();
         };
     }, [user, teamId]); // Depend only on user/team, not ranges

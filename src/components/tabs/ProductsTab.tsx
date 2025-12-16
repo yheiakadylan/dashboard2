@@ -4,7 +4,7 @@ import LoadingSpinner from '../LoadingSpinner';
 import { ProcessedData } from '../../types';
 import DataTable from '../DataTable';
 
-const TopProductsChart = lazy(() => import('../TopProductsChart'));
+import TopProductsChart from '../TopProductsChart';
 
 interface ProductsTabProps {
     processedData: ProcessedData;
@@ -19,9 +19,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                         <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Top Products</h3>
                         <div>
                             <ChartErrorBoundary>
-                                <Suspense fallback={<LoadingSpinner variant="chart" />}>
-                                    <TopProductsChart data={processedData.summary.topProductsByShop} />
-                                </Suspense>
+                                <TopProductsChart data={processedData.summary.topProductsByShop} />
                             </ChartErrorBoundary>
                         </div>
                     </div>

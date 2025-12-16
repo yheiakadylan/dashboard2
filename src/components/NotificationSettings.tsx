@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { getToken } from 'firebase/messaging';
-import { doc, getDoc, updateDoc, arrayUnion, setDoc } from 'firebase/firestore';
-import { db, auth } from '../services/firebaseService';
+import { doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { db } from '../services/firebaseService';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { getMessagingInstance } from '../services/firebaseService';

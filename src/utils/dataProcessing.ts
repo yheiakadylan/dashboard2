@@ -1,7 +1,7 @@
 import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../types';
 import { getHighResImageUrl } from './imageUtils';
 
-const formatCurrency = (value: number, currency: string = 'USD'): string => {
+const formatCurrency = (value: number): string => {
     // Per user request to simplify KPI card display, always use a '$' symbol
     // as the currency code (e.g., AUD) is displayed separately.
     return '$' + new Intl.NumberFormat('en-US', {
@@ -640,7 +640,7 @@ const calculateSummary = (
             const previous = previousData?.[c] || 0;
             const comparison = previousRawKpis ? calculatePercentageChange(current, previous) : {};
             financialKpis[c] = {
-                value: formatCurrency(current, c),
+                value: formatCurrency(current),
                 ...comparison,
             };
         });
@@ -674,7 +674,7 @@ const calculateSummary = (
     } = {};
 
     // Initialize shopData for ALL accounts to ensure 0-order shops are listed
-    accountLabelMap.forEach((label, email) => {
+    accountLabelMap.forEach((_label, email) => {
         shopData[email] = { revenue: {}, orders: new Set(), funds: {}, cost: {} };
     });
 
@@ -755,7 +755,7 @@ const calculateSummary = (
 
     const sortedRevenueCurrencies = Array.from(allTableCurrencies.revenue).sort();
     const sortedFundsCurrencies = Array.from(allTableCurrencies.funds).sort();
-    const sortedCostCurrencies = Array.from(allTableCurrencies.cost).sort();
+    // sortedCostCurrencies removed as it was unused
 
     // --- Consolidated Column Logic ---
     const formatMixedCurrency = (amountMap: { [c: string]: number }): { value: number, display: string } => {

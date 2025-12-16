@@ -28,7 +28,6 @@ const Header: React.FC = () => {
     setTimeZone,
     searchTerm,
     setSearchTerm,
-    setIsTabSettingsOpen,
     activeTab,
     sourceFilter,
     setSourceFilter,
@@ -94,10 +93,6 @@ const Header: React.FC = () => {
     setSearchTerm('');
     setIsSearchExpanded(false);
   }, [setSearchTerm]);
-
-  const handleSettingsOpen = useCallback(() => {
-    setIsAccountManagerOpen(true);
-  }, [setIsAccountManagerOpen]);
 
   const handleMobileMenuToggle = useCallback(() => {
     toggleMobileMenu();
