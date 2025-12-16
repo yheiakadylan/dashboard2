@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, createContext } from 'react';
-import { Record, Account, Tab, ProcessedData, ManualCost } from '../api/_lib/types';
+import { Record, Account, Tab, ProcessedData, ManualCost } from '../types';
 import {
   saveAccountsToFirebase,
   deleteRecordsForAccounts,

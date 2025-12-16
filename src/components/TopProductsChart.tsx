@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { TopProduct } from '../api/_lib/types';
+import { TopProduct } from '../types';
 import useMediaQuery from '../hooks/useMediaQuery';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';

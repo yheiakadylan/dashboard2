@@ -18,7 +18,7 @@ import {
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getMessaging, isSupported } from "firebase/messaging";
-import { Account, Record } from '../api/_lib/types';
+import { Account, Record } from '../types';
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY || "AIzaSyCf9A3apdFE24uU4M3E4j1cnBvmjiB9Z7E",
   authDomain: process.env.FIREBASE_AUTH_DOMAIN || "dashboard-13ec8.firebaseapp.com",

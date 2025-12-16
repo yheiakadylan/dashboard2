@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import useLocalStorage from '../hooks/useLocalStorage';
-import { Tab } from '../api/_lib/types';
+import { Tab } from '../types';
 import { useNotification } from './NotificationContext';
 
 // Constants moved here or imported? For now, defining strict types/constants.

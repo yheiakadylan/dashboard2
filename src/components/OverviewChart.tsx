@@ -1,6 +1,6 @@
 import React from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { OverviewChartData } from '../api/_lib/types';
+import { OverviewChartData } from '../types';
 
 interface OverviewChartProps {
   data: OverviewChartData[];

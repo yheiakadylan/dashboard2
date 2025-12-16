@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Tab } from '../api/_lib/types';
+import { Tab } from '../types';
 import { useDashboard } from '../contexts/DashboardContext';
 import { TABS_TO_HIDE_ON_MOBILE } from '../constants';
 

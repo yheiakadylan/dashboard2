@@ -1,5 +1,5 @@
 import React from 'react';
-import { KpiValue } from '../api/_lib/types';
+import { KpiValue } from '../types';
 
 interface KpiCardProps {
   title: string;

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Record } from '../api/_lib/types';
+import { Record } from '../types';
 import { useDashboard } from '../contexts/DashboardContext';
 import { getHighResImageUrl } from '../utils/imageUtils.js';
 

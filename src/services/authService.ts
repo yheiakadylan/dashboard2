@@ -1,5 +1,5 @@
 import { GOOGLE_CLIENT_ID, MSAL_CLIENT_ID, MSAL_AUTHORITY, MSAL_SCOPES } from '../config';
-import { Account } from '../api/_lib/types';
+import { Account } from '../types';
 
 // Extend the Window interface to include the google object from GSI script
 declare global {

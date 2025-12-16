@@ -1,5 +1,5 @@
 import { processData } from '../utils/dataProcessing';
-import { Record, Account, ManualCost } from '../api/_lib/types';
+import { Record, Account, ManualCost } from '../types';
 
 interface WorkerMessage {
     records: Record[];

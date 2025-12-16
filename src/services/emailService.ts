@@ -1,5 +1,5 @@
 // emailService.ts
-import { Account, Record } from '../api/_lib/types';
+import { Account, Record } from '../types';
 import { Rule, RULES, parseMessage } from './rules';
 import { getMicrosoftToken, getGoogleAccessToken } from './authService';
 import { updateAccountsInFirebase, deleteRecordsByEmailId, addRecord } from './firebaseService';

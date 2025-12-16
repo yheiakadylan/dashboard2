@@ -4,7 +4,7 @@ import Header from './components/Header';
 import { useDashboard } from './contexts/DashboardContext';
 import { useAuthLogic, UserProfile } from './hooks/useAuthLogic';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
-import { Record } from './api/_lib/types';
+import { Record } from './types';
 import { reprocessRecord } from './services/emailService';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { triggerHaptic } from './utils/haptics';

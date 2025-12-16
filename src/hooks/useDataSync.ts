@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Record, Account, CostData, ManualCost } from '../api/_lib/types';
+import { Record, Account, CostData, ManualCost } from '../types';
 import {
     fetchAllRecords,
     checkEmailsExistInRange,

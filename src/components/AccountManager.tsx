@@ -1,6 +1,6 @@
 // components/AccountManager.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import { Account, Record } from '../api/_lib/types';
+import { Account, Record } from '../types';
 import { signInWithGoogle, signInWithMicrosoft } from '../services/authService';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useUI } from '../contexts/UIContext';

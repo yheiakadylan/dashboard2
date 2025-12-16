@@ -8,7 +8,7 @@ import ProductsTab from './tabs/ProductsTab';
 import OrderListTab from './tabs/OrderListTab';
 import FulfillTab from './tabs/FulfillTab';
 import ErrorBoundary from './ErrorBoundary';
-import { Record } from '../api/_lib/types';
+import { Record } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 
 const DataTable = React.lazy(() => import('./DataTable'));

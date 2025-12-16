@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Record, Account } from '../api/_lib/types';
+import { Record, Account } from '../types';
 
 interface UseRecordFilteringProps {
     records: Record[];

@@ -1,4 +1,4 @@
-import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../api/_lib/types';
+import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../types';
 import { getHighResImageUrl } from './imageUtils';
 
 const formatCurrency = (value: number, currency: string = 'USD'): string => {

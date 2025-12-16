@@ -1,5 +1,5 @@
 // src/services/rules.ts
-import { Record, OrderDetails, OrderItem } from '../api/_lib/types';
+import { Record, OrderDetails, OrderItem } from '../types';
 import { getHighResImageUrl } from '../utils/imageUtils.js';
 
 export interface Rule {

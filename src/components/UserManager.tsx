@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { db, auth } from '../services/firebaseService';
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
-import { Account } from '../api/_lib/types';
+import { Account } from '../types';
 import Spinner from './Spinner';
 
 // Định nghĩa kiểu dữ liệu cho User Role

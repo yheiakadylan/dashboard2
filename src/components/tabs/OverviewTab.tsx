@@ -2,7 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import KpiCard from '../KpiCard';
 import ChartErrorBoundary from '../ChartErrorBoundary';
 import LoadingSpinner from '../LoadingSpinner';
-import { ProcessedData } from '../../api/_lib/types';
+import { ProcessedData } from '../../types';
 import DataTable from '../DataTable';
 
 const OverviewChart = lazy(() => import('../OverviewChart'));

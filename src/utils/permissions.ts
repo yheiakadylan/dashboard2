@@ -1,4 +1,4 @@
-import { Tab } from '../api/_lib/types';
+import { Tab } from '../types';
 
 export const getPermittedTabs = (
     tabs: Tab[],

@@ -1,7 +1,7 @@
 // components/FulfillChart.tsx
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { FulfillChartData } from '../api/_lib/types';
+import { FulfillChartData } from '../types';
 
 interface FulfillChartProps {
   data: FulfillChartData[];

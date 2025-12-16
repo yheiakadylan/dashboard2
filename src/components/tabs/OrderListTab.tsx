@@ -1,6 +1,6 @@
 import React, { Suspense, useMemo } from 'react';
 import LoadingSpinner from '../LoadingSpinner';
-import { ProcessedData } from '../../api/_lib/types';
+import { ProcessedData } from '../../types';
 import DataTable from '../DataTable';
 import { ORDER_LIST_INDICES } from '../../constants/dataIndices';
 import { formatDateEfficiently } from '../../utils/dateFormatter';

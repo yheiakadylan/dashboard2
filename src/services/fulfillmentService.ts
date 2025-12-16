@@ -1,5 +1,5 @@
 // FIX: Import `CostData` from shared `types.ts` and remove local definition.
-import { Record, CostData } from '../api/_lib/types';
+import { Record, CostData } from '../types';
 
 export const fetchCostsForRecords = async (records: Record[]): Promise<Map<string, CostData>> => {
   const orderRecords = records.filter(r => r.kind === 'order' && r.order_id);

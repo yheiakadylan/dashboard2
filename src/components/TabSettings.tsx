@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Tab } from '../api/_lib/types';
+import { Tab } from '../types';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useUI } from '../contexts/UIContext';
 import ThemeToggle from './ThemeToggle';

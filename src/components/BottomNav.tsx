@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Tab } from '../api/_lib/types';
+import { Tab } from '../types';
 import { useUI } from '../contexts/UIContext';
 
 // ...

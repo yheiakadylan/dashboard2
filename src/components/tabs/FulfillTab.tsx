@@ -1,7 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import ChartErrorBoundary from '../ChartErrorBoundary';
 import LoadingSpinner from '../LoadingSpinner';
-import { ProcessedData } from '../../api/_lib/types';
+import { ProcessedData } from '../../types';
 import CollapsibleContainer from '../CollapsibleContainer';
 import DataTable from '../DataTable';
 
