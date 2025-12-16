@@ -204,7 +204,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
                     className={`
                 w-full flex items-center py-2.5 rounded-lg transition-colors group relative
                 ${isCollapsed ? 'justify-center px-0' : 'px-3'}
-                text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-700 dark:hover:text-red-400
+                text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-700 dark:hover:text-red-400
             `}
                     title={isCollapsed ? "Logout" : undefined}
                 >

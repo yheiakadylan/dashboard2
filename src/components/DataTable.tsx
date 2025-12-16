@@ -173,10 +173,19 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         <div className={rootClasses} ref={containerRef}>
             <AutoSizer disableHeight={autoHeight as any}>
                 {({ height, width }: { height: number; width: number }) => {
-                    // Safety check for width
-                    if (!width) return null;
-                    // If NOT autoHeight, height is required
-                    if (!autoHeight && !height) return null;
+                    // Render Skeleton if dimensions are not yet available (prevent CLS)
+                    if (!width || (!autoHeight && !height)) {
+                        return (
+                            <div style={{ width: '100%', height: autoHeight ? 400 : '100%' }} className="p-4">
+                                <div className="animate-pulse space-y-4">
+                                    <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded w-full"></div>
+                                    {[...Array(10)].map((_, i) => (
+                                        <div key={i} className="h-16 bg-gray-100 dark:bg-gray-800 rounded w-full"></div>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    }
 
                     const isMobile = width < mobileBreakpoint || forceCardView; // Mobile Breakpoint or forced card view
                     const itemSize = isMobile ? (mobileRowHeight || 250) : 92;

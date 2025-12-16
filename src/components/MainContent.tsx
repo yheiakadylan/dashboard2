@@ -15,7 +15,11 @@ const DataTable = React.lazy(() => import('./DataTable'));
 
 // Helper for lazy data tables
 const LazyTable = ({ headers, data }: { headers: string[], data: any[] }) => (
-    <Suspense fallback={<LoadingSpinner />}>
+    <Suspense fallback={
+        <div className="p-4 h-full bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <SkeletonLoader variant="table-row" count={10} />
+        </div>
+    }>
         <DataTable headers={headers} data={data} />
     </Suspense>
 );

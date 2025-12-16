@@ -11,6 +11,7 @@ import { triggerHaptic } from './utils/haptics';
 import { getPermittedTabs } from './utils/permissions';
 import { UIProvider, useUI } from './contexts/UIContext';
 import SkeletonLoader from './components/SkeletonLoader';
+import SidebarSkeleton from './components/SidebarSkeleton';
 import Spinner from './components/Spinner';
 
 // Lazy load heavy components
@@ -152,7 +153,7 @@ const DashboardLayout: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex overflow-hidden">
-            <Suspense fallback={null}>
+            <Suspense fallback={<SidebarSkeleton isCollapsed={isSidebarCollapsed} />}>
                 <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
             </Suspense>
 
@@ -223,7 +224,7 @@ const DashboardLayout: React.FC = () => {
                     <OrderDetailModal record={selectedOrder} onClose={closeOrderDetail} />
                 </Suspense>
             )}
-            <Suspense fallback={null}>
+            <Suspense fallback={<div className="md:hidden h-16 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 fixed bottom-0 w-full z-50"></div>}>
                 <BottomNav tabs={visibleTabs} />
             </Suspense>
             <Suspense fallback={null}>
