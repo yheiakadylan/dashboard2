@@ -1,5 +1,7 @@
 import React, { Suspense, lazy } from 'react';
+import { useDashboard } from '../../contexts/DashboardContext';
 import KpiCard from '../KpiCard';
+import { KpiValue } from '../../types';
 import ChartErrorBoundary from '../ChartErrorBoundary';
 import LoadingSpinner from '../LoadingSpinner';
 import { ProcessedData } from '../../types';
@@ -15,6 +17,12 @@ interface OverviewTabProps {
 }
 
 const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, handleViewDayDetails }) => {
+    const { role, permissions } = useDashboard();
+    const isOwner = role === 'owner';
+    const canViewFunds = isOwner || permissions.viewFunds;
+    const canViewCost = isOwner || permissions.viewFulfill;
+    const hiddenValue: KpiValue = { value: '---', direction: 'neutral' };
+
     return (
         <div className="p-2 md:p-6">
             {/* 1. KPIs Section (Merged from Summary) */}
@@ -22,8 +30,8 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                 <KpiCard title="Total Orders" value={processedData.summary.kpis['Total Orders'] || { value: '---' }} />
                 <KpiCard title="Shops" value={processedData.summary.kpis['Shops'] || { value: '---' }} />
                 <KpiCard title="Revenue" value={processedData.summary.kpis['Revenue'] || { value: '---' }} />
-                <KpiCard title="Funds" value={processedData.summary.kpis['Funds'] || { value: '---' }} />
-                <KpiCard title="Cost" value={processedData.summary.kpis['Cost'] || { value: '---' }} />
+                <KpiCard title="Funds" value={canViewFunds ? (processedData.summary.kpis['Funds'] || { value: '---' }) : hiddenValue} />
+                <KpiCard title="Cost" value={canViewCost ? (processedData.summary.kpis['Cost'] || { value: '---' }) : hiddenValue} />
             </div>
 
             {/* 2. Charts Section */}
@@ -35,7 +43,11 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
 
                 {/* Revenue Chart - Takes 1/2 width */}
                 <ChartErrorBoundary>
-                    <SummaryChart data={processedData.summary.chartData} hideTitle={true} />
+                    <SummaryChart
+                        data={processedData.summary.chartData}
+                        hideTitle={true}
+                        hideFunds={!canViewFunds}
+                    />
                 </ChartErrorBoundary>
             </div>
 

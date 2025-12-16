@@ -5,6 +5,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 interface SummaryChartProps {
   data: any[];
   hideTitle?: boolean;
+  hideFunds?: boolean;
 }
 
 // Predefined colors for the chart bars
@@ -97,7 +98,7 @@ const renderLegend = (props: any) => {
   );
 };
 
-const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false }) => {
+const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hideFunds = false }) => {
   const [page, setPage] = useState(0);
 
   if (!data || data.length === 0) {
@@ -107,7 +108,7 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false }) 
   // Find all unique keys for Revenue and Funds
   const allKeys = Object.keys(data.reduce((acc, cur) => ({ ...acc, ...cur }), {}));
   const revenueKeys = allKeys.filter(key => key.startsWith('revenue'));
-  const fundsKeys = allKeys.filter(key => key.startsWith('funds'));
+  const fundsKeys = hideFunds ? [] : allKeys.filter(key => key.startsWith('funds'));
 
   // Sort by Total Revenue (Desc) and Filter for Shops with Sales > 0
   const sortedData = [...data]
@@ -143,7 +144,7 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false }) 
             <XAxis
               type="number"
               stroke="#6B7280"
-              tickFormatter={(val) => `$${val}`}
+              tickFormatter={(val) => `$${val} `}
               tick={{ fontSize: 11 }}
               axisLine={false}
               tickLine={false}
@@ -190,10 +191,10 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false }) 
           <button
             onClick={handlePrev}
             disabled={page === 0}
-            className={`p-1.5 rounded-full transition-colors flex items-center justify-center ${page === 0
-              ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed hidden'
-              : 'text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-gray-700 dark:text-blue-400'
-              }`}
+            className={`p - 1.5 rounded - full transition - colors flex items - center justify - center ${page === 0
+                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed hidden'
+                : 'text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-gray-700 dark:text-blue-400'
+              } `}
             aria-label="Previous Page"
           >
             <ChevronLeftIcon className="w-5 h-5" />
@@ -206,10 +207,10 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false }) 
           <button
             onClick={handleNext}
             disabled={page >= totalPages - 1}
-            className={`p-1.5 rounded-full transition-colors flex items-center justify-center ${page >= totalPages - 1
-              ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed hidden'
-              : 'text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-gray-700 dark:text-blue-400'
-              }`}
+            className={`p - 1.5 rounded - full transition - colors flex items - center justify - center ${page >= totalPages - 1
+                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed hidden'
+                : 'text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-gray-700 dark:text-blue-400'
+              } `}
             aria-label="Next Page"
           >
             <ChevronRightIcon className="w-5 h-5" />

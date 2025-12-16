@@ -365,7 +365,7 @@ const UserManager: React.FC = () => {
     'viewSales', 'viewFunds', 'viewFulfill', 'canManageSettings',
   ];
   const permissionLabels: { [key: string]: string } = {
-    viewSales: 'Sales', viewFunds: 'Funds', viewFulfill: 'Fulfill (Cost)', canManageSettings: 'Settings (⚙️)',
+    viewSales: 'Sales', viewFunds: 'Funds', viewFulfill: 'Cost', canManageSettings: 'Mail Account',
   };
 
   return (

@@ -325,7 +325,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   return (
     <DashboardContext.Provider value={{
       user, teamId, role, permissions,
-      accounts: allAccounts, setAccounts: setAllAccounts,
+      accounts: visibleAccounts, setAccounts: setAllAccounts,
       records, setRecords,
       manualCosts, setManualCosts,
       isLoading, isSyncing, isFetchingNewRange, syncState, isProcessing, isSavingAccounts,
