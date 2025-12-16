@@ -11,6 +11,11 @@ interface UIContextType {
     isSidebarCollapsed: boolean;
     toggleSidebar: () => void;
 
+    // Mobile Menu
+    isMobileMenuOpen: boolean;
+    setIsMobileMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    toggleMobileMenu: () => void;
+
     // Modals
     isAccountManagerOpen: boolean;
     setIsAccountManagerOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -107,9 +112,11 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const [sourceFilter, setSourceFilter] = useState<'All' | 'Ebay_Sales' | 'Etsy_Sales'>('All');
     const [isAccountManagerOpen, setIsAccountManagerOpen] = useState<boolean>(false);
     const [isTabSettingsOpen, setIsTabSettingsOpen] = useState<boolean>(false);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
     // --- 3. Logic Functions ---
     const toggleSidebar = useCallback(() => setIsSidebarCollapsed(prev => !prev), [setIsSidebarCollapsed]);
+    const toggleMobileMenu = useCallback(() => setIsMobileMenuOpen(prev => !prev), []);
 
     const setActiveTab = (tab: Tab) => {
         setActiveTabRaw(tab);
@@ -152,6 +159,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     return (
         <UIContext.Provider value={{
             isSidebarCollapsed, toggleSidebar,
+            isMobileMenuOpen, setIsMobileMenuOpen, toggleMobileMenu,
             isAccountManagerOpen, setIsAccountManagerOpen,
             isTabSettingsOpen, setIsTabSettingsOpen,
             activeTab, setActiveTab,

@@ -16,7 +16,7 @@ interface OverviewTabProps {
 
 const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, handleViewDayDetails }) => {
     return (
-        <div className="p-2 md:p-6 overflow-y-auto h-full">
+        <div className="p-2 md:p-6">
             {/* 1. KPIs Section (Merged from Summary) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6 mb-6">
                 <KpiCard title="Total Orders" value={processedData.summary.kpis['Total Orders'] || { value: '---' }} />

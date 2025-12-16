@@ -54,7 +54,9 @@ const DashboardLayout: React.FC = () => {
         sourceFilter,
         dayFilter,
         timeZone,
-        handleViewDayDetails
+        handleViewDayDetails,
+        isMobileMenuOpen,
+        setIsMobileMenuOpen
     } = useUI();
 
     const { addNotification } = useNotification();
@@ -184,7 +186,18 @@ const DashboardLayout: React.FC = () => {
                         <div
                             id="active-tab-container"
                             className="h-full w-full overflow-y-auto"
-                            {...touchHandlers}
+                            onScroll={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
+                            onClick={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
+                            onWheel={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
+                            onTouchStart={(e) => {
+                                if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+                                touchHandlers.onTouchStart(e);
+                            }}
+                            onTouchMove={(e) => {
+                                if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+                                touchHandlers.onTouchMove(e);
+                            }}
+                            onTouchEnd={touchHandlers.onTouchEnd}
                         >
                             <MainContent
                                 onViewOrderDetails={handleViewOrderDetails}

@@ -33,10 +33,13 @@ const Header: React.FC = () => {
     sourceFilter,
     setSourceFilter,
     isSidebarCollapsed,
+    isMobileMenuOpen,
+    setIsMobileMenuOpen,
+    toggleMobileMenu,
   } = useUI();
 
 
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -97,8 +100,8 @@ const Header: React.FC = () => {
   }, [setIsAccountManagerOpen]);
 
   const handleMobileMenuToggle = useCallback(() => {
-    setIsMobileMenuOpen(prev => !prev);
-  }, []);
+    toggleMobileMenu();
+  }, [toggleMobileMenu]);
 
   const handleSettingsAndCloseMenu = useCallback(() => {
     setIsAccountManagerOpen(true);
@@ -235,8 +238,9 @@ const Header: React.FC = () => {
 
         </div>
 
-        {/* Right: Mobile Menu Toggle */}
-        <div className="flex md:hidden items-center gap-2">
+        {/* Right: Mobile Menu Toggle & Theme */}
+        <div className="flex md:hidden items-center gap-1">
+          <ThemeToggle className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md" />
           <button
             onClick={handleMobileMenuToggle}
             className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md focus:outline-none"
@@ -256,21 +260,21 @@ const Header: React.FC = () => {
       </div>
 
       {/* Mobile Menu Content (Collapsible) */}
-      <div className={`md:hidden overflow-hidden transition-all duration-300 ease-in-out ${isMobileMenuOpen ? 'max-h-screen opacity-100 border-t border-gray-200 dark:border-gray-700' : 'max-h-0 opacity-0'}`}>
-        <div className="p-4 bg-gray-50 dark:bg-gray-800/95 space-y-4 shadow-inner">
+      <div className={`md:hidden overflow-hidden transition-all duration-300 ease-in-out ${isMobileMenuOpen ? 'max-h-screen opacity-100 border-t border-gray-200 dark:border-gray-700 shadow-xl' : 'max-h-0 opacity-0'}`}>
+        <div className="p-4 bg-white dark:bg-gray-800 space-y-5">
 
-          {/* Sync State in Mobile Menu (if present) */}
+          {/* Sync State Banner */}
           {syncState && (
-            <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 p-2 rounded-md">
-              <Spinner size="xs" color="text-blue-600 dark:text-blue-400" />
-              <span>{formatSyncState(syncState)}</span>
+            <div className="flex items-center gap-3 text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800/30">
+              <Spinner size="sm" color="text-blue-600 dark:text-blue-400" />
+              <span className="font-medium">{formatSyncState(syncState)}</span>
             </div>
           )}
 
           {/* Mobile Search */}
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg className="h-4 w-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
@@ -279,57 +283,60 @@ const Header: React.FC = () => {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search Orders, Customers..."
-              className="w-full pl-10 pr-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:ring-2 focus:ring-blue-500 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+              className="w-full pl-10 pr-3 py-2.5 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg text-base focus:ring-2 focus:ring-blue-500 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 transition-colors"
             />
           </div>
 
           {/* Mobile Filters */}
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div className="w-full">
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Date Range</label>
+              <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 mb-1.5 uppercase tracking-wider">Date Range</label>
               <DateRangePicker />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Account</label>
-                <select
-                  value={selectedAccountId}
-                  onChange={(e) => setSelectedAccountId(e.target.value)}
-                  className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="all">All Accounts</option>
-                  {accounts.map((acc) => (<option key={acc.id} value={acc.email}>{acc.label || acc.email}</option>))}
-                </select>
+                <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 mb-1.5 uppercase tracking-wider">Account</label>
+                <div className="relative">
+                  <select
+                    value={selectedAccountId}
+                    onChange={(e) => setSelectedAccountId(e.target.value)}
+                    className="w-full bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
+                  >
+                    <option value="all">All Accounts</option>
+                    {accounts.map((acc) => (<option key={acc.id} value={acc.email}>{acc.label || acc.email}</option>))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                  </div>
+                </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Timezone</label>
+                <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 mb-1.5 uppercase tracking-wider">Timezone</label>
                 <TimezoneSelect value={timeZone} onChange={setTimeZone} options={timezones} />
               </div>
             </div>
           </div>
 
           {/* Mobile Actions Footer */}
-          <div className="pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+          <div className="pt-4 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
 
-            <button
-              onClick={() => { setIsTabSettingsOpen(true); setIsMobileMenuOpen(false); }}
-              className="flex items-center gap-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-sm transition-colors py-1"
-            >
-              <span className="w-5 text-center">⚙️</span> Customize Tabs & Theme
-            </button>
-
-            {(role === 'owner' || permissions.canManageSettings) && (
-              <button onClick={handleSettingsAndCloseMenu} className="flex items-center gap-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-sm transition-colors py-1">
-                <span className="w-5 text-center">🔧</span> Manage Accounts
+            {(role === 'owner' || permissions.canManageSettings) ? (
+              <button onClick={handleSettingsAndCloseMenu} className="flex items-center gap-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-sm transition-colors">
+                <div className="p-1.5 bg-gray-100 dark:bg-gray-700 rounded-full">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                Manage Accounts
               </button>
-            )}
+            ) : <div></div>}
 
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 font-medium text-sm px-3 py-1.5 bg-red-50 dark:bg-red-900/20 rounded-md transition-colors w-full justify-center mt-2"
+              className="flex items-center gap-1 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 font-medium text-sm transition-colors"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
               </svg>
               Logout
