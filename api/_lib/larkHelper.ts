@@ -1,5 +1,5 @@
 import { getDb } from './firebaseAdminHelper.js';
-import { SHARED_USER_ID } from '../../constants.js';
+import { SHARED_USER_ID } from '../../src/constants.js';
 import type { Account, Record as MailRecord } from './types.js';
 
 // --- ENV ---

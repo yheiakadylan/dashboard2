@@ -2,8 +2,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getDb } from './_lib/firebaseAdminHelper.js';
 import { MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET } from './_lib/microsoftConfig.js';
-import { SHARED_USER_ID } from '../constants.js';
-import { RULES, parseMessage } from '../services/rules.js';
+import { SHARED_USER_ID } from '../src/constants.js';
+import { RULES, parseMessage } from '../src/services/rules.js';
 import type { Account, Record } from './_lib/types.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 
@@ -134,7 +134,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (snapshot.empty) {
       return res.status(200).json({ message: 'No Outlook accounts configured.' });
     }
-    
+
     // Map account để lấy thông tin (Label/Tên Shop)
     const outlookAccounts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Account));
     // Tạo Map: Email -> Tên Shop (Label)
@@ -192,7 +192,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (totalNewRecords > 0) {
         const batch = db.batch();
         const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
-        
+
         // --- CHUẨN BỊ THÔNG BÁO ---
         const notificationEvents: { type: 'order' | 'funds', text: string }[] = [];
 
@@ -236,34 +236,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
           // Gửi thông báo Order
           if (orders.length > 0) {
-             if (orders.length === 1) {
-                // Nếu chỉ có 1 đơn, hiện chi tiết
-                await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
-                    title: 'New Order',
-                    body: orders[0].text
-                });
-             } else {
-                // Nếu có nhiều đơn, hiện tổng quan
-                await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
-                    title: 'New Orders',
-                    body: `You have ${orders.length} new orders from Outlook sync.`
-                });
-             }
+            if (orders.length === 1) {
+              // Nếu chỉ có 1 đơn, hiện chi tiết
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                title: 'New Order',
+                body: orders[0].text
+              });
+            } else {
+              // Nếu có nhiều đơn, hiện tổng quan
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                title: 'New Orders',
+                body: `You have ${orders.length} new orders from Outlook sync.`
+              });
+            }
           }
-          
+
           // Gửi thông báo Funds
           if (funds.length > 0) {
-             if (funds.length === 1) {
-                await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
-                    title: 'Funds Received',
-                    body: funds[0].text
-                });
-             } else {
-                await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
-                    title: 'New Funds',
-                    body: `You have ${funds.length} new payout updates.`
-                });
-             }
+            if (funds.length === 1) {
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
+                title: 'Funds Received',
+                body: funds[0].text
+              });
+            } else {
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
+                title: 'New Funds',
+                body: `You have ${funds.length} new payout updates.`
+              });
+            }
           }
         }
       }

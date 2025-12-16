@@ -8,7 +8,7 @@ import {
   ianaToUtcOffsetString,
 } from './_lib/larkHelper.js';
 import { getDb } from './_lib/firebaseAdminHelper.js';
-import { SHARED_USER_ID } from '../constants.js';
+import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 import { Record as MailRecord } from './_lib/types.js';
 

@@ -2,9 +2,9 @@ import { Buffer } from 'buffer';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getDb } from './_lib/firebaseAdminHelper.js';
 import { getAccessTokenFromRefreshToken } from './_lib/googleAuthHelper.js';
-import { parseMessage, RULES } from '../services/rules.js';
+import { parseMessage, RULES } from '../src/services/rules.js';
 import { getHtmlFromGmailPayload, getPlainTextFromGmailPayload } from './_lib/gmailHelper.js';
-import { SHARED_USER_ID } from '../constants.js';
+import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -45,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const accountDoc = accountSnapshot.docs[0];
     const accountData = accountDoc.data();
-    
+
     // --- LẤY TÊN SHOP ---
     const shopName = accountData.label || userEmail;
     // --------------------
@@ -155,9 +155,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.log(`[Webhook] Processed ${saveCount} records.`);
       }
     } else {
-        await batch.commit();
+      await batch.commit();
     }
-    
+
     // Cập nhật history ID
     await accountDoc.ref.update({ lastKnownHistoryId: newHistoryId });
 
