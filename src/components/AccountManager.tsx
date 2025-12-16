@@ -8,7 +8,7 @@ import { useNotification } from '../contexts/NotificationContext';
 
 import UserManager from './UserManager';
 import ManualCostManager from './ManualCostManager';
-import NotificationSettings from './NotificationSettings'; // <-- Import
+import NotificationSettings from './NotificationSettings';
 import { updateAccountsInFirebase, getAllRecordsForAccount } from '../services/firebaseService';
 import { parseMessage, RULES } from '../services/rules';
 import { reprocessRecord } from '../services/emailService';
@@ -372,12 +372,18 @@ const AccountManager: React.FC = () => {
   const { role } = useDashboard();
   const { setIsAccountManagerOpen } = useUI();
   const [activeTab, setActiveTab] = useState<'mail' | 'users' | 'costs' | 'notifications'>('mail');
-
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Chỉ đóng nếu click trực tiếp vào backdrop (không phải con của nó)
+    if (e.target === e.currentTarget) {
+      setIsAccountManagerOpen(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[100] p-2 md:p-4 animate-modal-backdrop">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl border border-gray-200 dark:border-gray-700 flex flex-col h-[90vh] md:h-[720px] md:max-h-[90vh] animate-slide-in-right">
-
+    <div onClick={handleBackdropClick}
+      className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[100] p-2 md:p-4 animate-modal-backdrop" >
+      <div onClick={(e) => e.stopPropagation()}
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl border border-gray-200 dark:border-gray-700 flex flex-col h-[90vh] md:h-[720px] md:max-h-[90vh] animate-slide-in-right" >
         {/* Header */}
         <div className="flex justify-between items-center p-3 md:p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <h2 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white">Settings</h2>
