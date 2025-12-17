@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getOptimizedImageUrl } from '../../utils/imageUtils';
 
 // Global cache for loaded images to prevent flickering on virtualized list scroll
 const imageCache = new Set<string>();
@@ -7,7 +8,10 @@ interface CachedImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
     src: string;
 }
 
-const CachedImage: React.FC<CachedImageProps> = ({ src, className, ...props }) => {
+const CachedImage: React.FC<CachedImageProps> = ({ src: rawSrc, className, ...props }) => {
+    // Optimize URL immediately. Default to 400px width which is good for tables/grids
+    const src = getOptimizedImageUrl(rawSrc, 400);
+
     const [isLoaded, setIsLoaded] = useState(src ? imageCache.has(src) : false);
     const [isInView, setIsInView] = useState(false);
     const imgRef = useRef<HTMLDivElement>(null);

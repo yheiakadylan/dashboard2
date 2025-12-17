@@ -12,14 +12,18 @@ import {
     listenForNewRecords,
     getRecordsForDateRange,
     getAccountsFromFirebase,
-    getManualCosts
+    getManualCosts,
+    db
 } from '../services/firebaseService';
+import { splitDateRange } from '../utils/dateChunking';
+import { collection, query, where, getDocs } from "firebase/firestore";
 import { fetchCostsForRecords } from '../services/fulfillmentService';
 import { User } from 'firebase/auth';
 
 interface UseDataSyncProps {
     user: User | null;
     teamId: string;
+    role: 'owner' | 'user';
     filterDateRange: { from: string; to: string };
     timeZone: string;
     addNotification: (message: string, type: 'success' | 'error' | 'info') => void;
@@ -28,6 +32,7 @@ interface UseDataSyncProps {
 export const useDataSync = ({
     user,
     teamId,
+    role,
     filterDateRange,
     timeZone,
     addNotification
@@ -256,11 +261,13 @@ export const useDataSync = ({
                 setIsLoading(false);
                 setSyncState(null);
 
-                fbAccounts.forEach(acc => {
-                    if (acc.provider === 'gmail') {
-                        setupGmailWatch(teamId, acc).catch(err => console.error(`Failed to initialize webhook for ${acc.email}:`, err));
-                    }
-                });
+                if (role === 'owner') {
+                    fbAccounts.forEach(acc => {
+                        if (acc.provider === 'gmail') {
+                            setupGmailWatch(teamId, acc).catch(err => console.error(`Failed to initialize webhook for ${acc.email}:`, err));
+                        }
+                    });
+                }
 
                 if (fbAccounts.length > 0 && !signal.aborted) {
                     setSyncState('Auto-syncing...');
@@ -332,9 +339,58 @@ export const useDataSync = ({
                 const prevFromDate = new Date(prevToDate); prevFromDate.setUTCDate(prevFromDate.getUTCDate() - (diffDays - 1));
                 previousRange = { from: prevFromDate.toISOString().split('T')[0], to: prevToDate.toISOString().split('T')[0] };
             }
+
             try {
-                const currentRecordsPromise = getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
-                const previousRecordsPromise = shouldFetchPrevious && previousRange ? getRecordsForDateRange(teamId, previousRange.from, previousRange.to, timeZone) : Promise.resolve(null);
+                // Determine exact Date objects for the range, identical to getRecordsForDateRange logic
+                const getTimezoneOffsetString = (tz: string, dateStr: string): string => {
+                    try {
+                        const d = new Date(dateStr + "T12:00:00Z");
+                        const formatter = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longOffset' });
+                        const parts = formatter.formatToParts(d);
+                        const gmtPart = parts.find(p => p.type === 'timeZoneName');
+                        return gmtPart ? gmtPart.value.replace('GMT', '') : '+00:00';
+                    } catch { return '+00:00'; }
+                };
+
+                const fetchParallel = async (startStr: string, endStr: string, tz: string): Promise<Record[]> => {
+                    const sOffset = getTimezoneOffsetString(tz, startStr);
+                    const eOffset = getTimezoneOffsetString(tz, endStr);
+
+                    const startDate = new Date(`${startStr}T00:00:00.000${sOffset}`);
+                    const endDate = new Date(`${endStr}T23:59:59.999${eOffset}`);
+
+                    const chunks = splitDateRange(startDate, endDate);
+
+                    // Parallel Requests
+                    const chunkPromises = chunks.map(async (chunk) => {
+                        const q = query(
+                            collection(db, 'user', teamId, 'records'),
+                            where('dt_local', '>=', chunk.start.toISOString()),
+                            where('dt_local', '<', chunk.end.toISOString())
+                        );
+                        const snapshot = await getDocs(q);
+                        return snapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as Record));
+                    });
+
+                    const results = await Promise.all(chunkPromises);
+
+                    // Merge
+                    const merged = results.flat();
+
+                    // Sort (Descending)
+                    return merged.sort((a, b) => {
+                        // Lexicographical comparison for ISO strings works and is faster than new Date()
+                        if (b.dt_local < a.dt_local) return -1;
+                        if (b.dt_local > a.dt_local) return 1;
+                        return 0;
+                    });
+                };
+
+                const currentRecordsPromise = fetchParallel(filterDateRange.from, filterDateRange.to, timeZone);
+                const previousRecordsPromise = shouldFetchPrevious && previousRange
+                    ? fetchParallel(previousRange.from, previousRange.to, timeZone)
+                    : Promise.resolve(null);
+
                 const [fbRecords, prevRecords] = await Promise.all([currentRecordsPromise, previousRecordsPromise]);
 
                 // Check if this effect was cancelled before setting state

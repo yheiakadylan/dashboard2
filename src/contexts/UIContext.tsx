@@ -4,7 +4,7 @@ import { Tab } from '../types';
 import { useNotification } from './NotificationContext';
 
 // Constants moved here or imported? For now, defining strict types/constants.
-const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Case', 'Help', 'Fulfill'];
+const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Support', 'Fulfill'];
 
 interface UIContextType {
     // Layout
@@ -46,6 +46,8 @@ interface UIContextType {
     setDayFilter: React.Dispatch<React.SetStateAction<string | null>>;
     sourceFilter: 'All' | 'Ebay_Sales' | 'Etsy_Sales';
     setSourceFilter: React.Dispatch<React.SetStateAction<'All' | 'Ebay_Sales' | 'Etsy_Sales'>>;
+    supportFilter: 'All' | 'Case' | 'Help';
+    setSupportFilter: React.Dispatch<React.SetStateAction<'All' | 'Case' | 'Help'>>;
 
     // Helpers
     handleViewDayDetails: (date: string) => void;
@@ -70,7 +72,11 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
         { tabOrder: DEFAULT_TABS, hiddenTabs: [] }
     );
 
-    const [tabOrder, setLocalTabOrder] = useState<Tab[]>(tabPreferences.tabOrder);
+    const [tabOrder, setLocalTabOrder] = useState<Tab[]>(() => {
+        // Filter out any tabs that are no longer in DEFAULT_TABS (handles stale local storage)
+        const validTabs = new Set(DEFAULT_TABS);
+        return tabPreferences.tabOrder.filter(tab => validTabs.has(tab));
+    });
     // Convert array back to Set for internal logic
     const [hiddenTabs, setHiddenTabs] = useState<Set<Tab>>(new Set(tabPreferences.hiddenTabs));
 
@@ -131,6 +137,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const [dayFilter, setDayFilter] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [sourceFilter, setSourceFilter] = useState<'All' | 'Ebay_Sales' | 'Etsy_Sales'>('All');
+    const [supportFilter, setSupportFilter] = useState<'All' | 'Case' | 'Help'>('All');
     const [isAccountManagerOpen, setIsAccountManagerOpen] = useState<boolean>(false);
     const [isTabSettingsOpen, setIsTabSettingsOpen] = useState<boolean>(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
@@ -192,6 +199,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
             filterDateRange, setFilterDateRange,
             dayFilter, setDayFilter,
             sourceFilter, setSourceFilter,
+            supportFilter, setSupportFilter,
             handleViewDayDetails
         }}>
             {children}

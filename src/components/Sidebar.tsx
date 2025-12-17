@@ -36,14 +36,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
         switch (tab) {
             case 'Overview': return <HomeIcon className={className} />;
             case 'Order List': return <DocumentTextIcon className={className} />;
-            case 'eBay': return (
-                <span className="font-bold text-xs border border-current rounded px-1">EB</span>
-            );
-            case 'Etsy': return (
-                <span className="font-bold text-xs border border-current rounded px-1">ET</span>
-            );
-            case 'Case': return <QuestionMarkCircleIcon className={className} />;
-            case 'Help': return <QuestionMarkCircleIcon className={className} />;
+
+            case 'Support': return <QuestionMarkCircleIcon className={className} />;
             case 'Fulfill': return <TruckIcon className={className} />;
 
             case 'Products': return <TagIcon className={className} />;
@@ -88,7 +82,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
                         if (!permittedTabs.includes(tab)) return false;
 
                         // 2. Hardcoded exclusions (Legacy tabs already removed from types, but double check)
-                        if (tab === 'eBay' || tab === 'Etsy') return false;
+                        // Removed distinct check for eBay/Etsy as they are no longer in Tab type
 
                         // 3. Check user preference
                         if (hiddenTabs.has(tab)) return false;

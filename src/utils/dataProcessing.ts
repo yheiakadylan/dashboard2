@@ -464,7 +464,8 @@ const getSupportRecords = (records: Record[], kind: 'case' | 'help', accountLabe
         kind === 'case' ? decodeHTMLEntities(r.case_msg || 'N/A') : decodeHTMLEntities(r.help_kind || 'N/A'),
         r.source,
         accountLabelMap.get(r.account) || r.account,
-        formatDateTime(r.dt_local, timeZone)
+        formatDateTime(r.dt_local, timeZone),
+        r.dt_local // Hidden column for sorting
     ]);
 
     return { headers, rows };

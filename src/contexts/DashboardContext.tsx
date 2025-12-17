@@ -105,6 +105,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   } = useDataSync({
     user,
     teamId,
+    role,
     filterDateRange,
     timeZone,
     addNotification

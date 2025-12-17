@@ -12,7 +12,7 @@ import DataTable from './DataTable';
 import ProductsTab from './tabs/ProductsTab';
 import OrderListTab from './tabs/OrderListTab';
 import FulfillTab from './tabs/FulfillTab';
-// const DataTable = React.lazy(() => import('./DataTable'));
+import SupportTab from './tabs/SupportTab';
 
 // Helper for lazy data tables
 const LazyTable = ({ headers, data }: { headers: string[], data: any[] }) => (
@@ -91,11 +91,10 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
                 />
             );
 
-        case 'Case':
-            return <LazyTable headers={processedData.cases.headers} data={processedData.cases.rows} />;
-
-        case 'Help':
-            return <LazyTable headers={processedData.help.headers} data={processedData.help.rows} />;
+        case 'Support':
+            return (
+                <SupportTab processedData={processedData} />
+            );
 
         case 'Fulfill':
             return (

@@ -175,7 +175,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     <div
                         key={cellIndex}
                         className={`${cellClass} text-gray-800 dark:text-gray-200`}
-                        title={header === 'Product Name' && typeof cell === 'string' ? cell : undefined}
+                        title={(header === 'Product Name' || header === 'Message' || header === 'Message / Type') && typeof cell === 'string' ? cell : undefined}
                         style={customStyle}
                     >
                         <span className="truncate w-full">

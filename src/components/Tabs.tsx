@@ -30,10 +30,8 @@ const Tabs: React.FC = () => {
       switch (tab) {
         case 'Overview':
         case 'Order List':
-        case 'eBay':
-        case 'Etsy':
-        case 'Case':
-        case 'Help':
+        case 'Products':
+        case 'Support':
           return permissions.viewSales;
 
         case 'Fulfill':

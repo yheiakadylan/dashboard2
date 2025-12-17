@@ -37,6 +37,8 @@ const Header: React.FC = () => {
     activeTab,
     sourceFilter,
     setSourceFilter,
+    supportFilter,
+    setSupportFilter,
     isSidebarCollapsed,
     isMobileMenuOpen,
     setIsMobileMenuOpen,
@@ -207,6 +209,24 @@ const Header: React.FC = () => {
                     }`}
                 >
                   {src === 'All' ? 'All' : src === 'Ebay_Sales' ? 'eBay' : 'Etsy'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Support Filter - Only for Support Tab */}
+          {activeTab === 'Support' && (
+            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-md p-0.5">
+              {(['All', 'Case', 'Help'] as const).map(filter => (
+                <button
+                  key={filter}
+                  onClick={() => setSupportFilter(filter)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-sm transition-all duration-200 ${supportFilter === filter
+                    ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                    }`}
+                >
+                  {filter}
                 </button>
               ))}
             </div>

@@ -1,42 +1,82 @@
-// utils/imageUtils.ts
-// Utility functions for converting product images to high resolution
+export const getOptimizedImageUrl = (url: string, targetWidth: number = 400): string => {
+    if (!url) return '';
+    if (!url.includes('ebayimg.com') && !url.includes('svcs.ebay.com')) return url;
 
-/**
- * Convert eBay image URLs to higher resolution (800px)
- */
-export const convertEbayImageToHighRes = (url: string): string => {
-    if (!url || !url.includes('ebay')) return url;
+    try {
+        // Handle "svcs.ebay.com" pattern (Image Service)
+        // Optimization: Extract the underlying 'imageUrl' to bypass the heavy proxy
+        if (url.includes('svcs.ebay.com')) {
+            try {
+                // Simple regex to extract imageUrl param (handles encoded URLs too)
+                const match = url.match(/[?&]imageUrl=([^&]+)/);
+                if (match && match[1]) {
+                    const nestedUrl = decodeURIComponent(match[1]);
+                    // Recursively optimize the extracted Ebay URL (e.g., i.ebayimg.com...)
+                    return getOptimizedImageUrl(nestedUrl, targetWidth);
+                }
+            } catch (e) {
+                // Ignore parsing errors, fall through to fallback
+            }
 
-    // Check if it's an eBay render service URL
-    if (url.includes('imageser/v1/image/render')) {
-        // Replace imgWidth, imgHeight, and length parameters from 276 to 800
-        return url
-            .replace(/(imgWidth=)\d+/g, '$1800')
-            .replace(/(imgHeight=)\d+/g, '$1800')
-            .replace(/(length=)\d+/g, '$1800');
+            // Fallback: Check if already has query params and append if missing
+            const separator = url.includes('?') ? '&' : '?';
+            const extraParams = `width=${targetWidth}&fmt=jpg`;
+            if (!url.includes('width=') && !url.includes('fmt=')) {
+                return `${url}${separator}${extraParams}`;
+            }
+            return url;
+        }
+
+        // Handle "s-l{size}" pattern (Modern)
+        // Regex looks for "s-l" followed by digits, and optionally an extension
+        const modernPattern = /(s-l)(\d+)(\.[a-zA-Z]+)?/i;
+        if (modernPattern.test(url)) {
+            // Replace s-l{oldSize}.{ext} with s-l{targetWidth}.jpg
+            // We force .jpg extension to avoid heavy PNGs
+            return url.replace(modernPattern, `$1${targetWidth}.jpg`);
+        }
+
+        // Handle "$_{id}.JPG" pattern (Legacy)
+        // $_57.JPG is standard. $_12.JPG is 500px. $_35.JPG is 300px.
+        // If specific width < 400, use $_35 (300px), else $_12 (500px).
+        // This is less flexible but covers old/different formats.
+        const legacyPattern = /\$_\d+(\.[a-zA-Z]+)?$/;
+        if (legacyPattern.test(url)) {
+            // 12 is ~500px, 35 is ~300px. 57 is ~1600px/Full
+            const sizeCode = targetWidth <= 300 ? '35' : '12';
+            return url.replace(legacyPattern, `$_${sizeCode}.JPG`);
+        }
+
+        return url;
+    } catch (e) {
+        console.warn('Failed to optimize Ebay URL:', e);
+        return url;
     }
-
-    return url;
 };
 
 /**
- * Convert product image to high resolution based on platform
- * @param image - Original image URL
- * @returns High resolution image URL
+ * Attempts to get the highest resolution version of an Ebay image URL.
+ * Used for zoom/preview features.
  */
-export const getHighResImageUrl = (image: string | null | undefined): string | null => {
-    if (!image) return null;
+export const getHighResImageUrl = (url: string | undefined): string | undefined => {
+    if (!url) return undefined;
+    if (!url.includes('ebayimg.com')) return url;
 
-    // Etsy: Replace common small sizes (il_XXxXX) with fullxfull
-    if (image.includes('il_') && image.includes('x')) {
-        return image.replace(/il_\d+x\w+/, 'il_fullxfull');
+    try {
+        // Handle "s-l{size}" pattern - replace with s-l1600
+        const modernPattern = /(s-l)(\d+)(\.[a-zA-Z]+)?/i;
+        if (modernPattern.test(url)) {
+            return url.replace(modernPattern, '$11600$3');
+        }
+
+        // Handle legacy "$_{id}.JPG" pattern - replace with $_57.JPG
+        const legacyPattern = /(\$_\d+)(\.[a-zA-Z]+)?$/;
+        if (legacyPattern.test(url)) {
+            return url.replace(legacyPattern, '$_57.JPG');
+        }
+
+        return url;
+    } catch (e) {
+        return url;
     }
-
-    // eBay: Convert to 800px
-    if (image.includes('ebay')) {
-        return convertEbayImageToHighRes(image);
-    }
-
-    // Return original if not Etsy or eBay
-    return image;
 };
