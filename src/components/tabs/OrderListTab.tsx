@@ -22,14 +22,22 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     handleViewOrderDetails,
     handleResyncOrder
 }) => {
-    const orderListHeaders = processedData.orders.headers;
+    // Identify Variants and Source column indices dynamically
+    const variantsIndex = processedData.orders.headers.findIndex(h => h === 'Variants');
+    const sourceIndex = processedData.orders.headers.findIndex(h => h === 'Source');
+
+    // Filter out Variants and Source from headers for UI display
+    const displayHeaders = useMemo(() => {
+        return processedData.orders.headers.filter((_, i) => i !== variantsIndex && i !== sourceIndex);
+    }, [processedData.orders.headers, variantsIndex, sourceIndex]);
 
     // Optimizing Filtering Logic:
     // Moved filtering inside useMemo to avoid re-calculation on every render 
     // if dependencies haven't changed.
-    const filteredRows = useMemo(() => {
+    const displayRows = useMemo(() => {
         let rows = processedData.orders.rows;
 
+        // 1. Filter Rows based on criteria (using Source Indices)
         if (dayFilter) {
             rows = rows.filter(row => {
                 const dtLocal = row[ORDER_LIST_INDICES.DT_LOCAL_RAW] as string;
@@ -44,16 +52,22 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
                 return source === sourceFilter;
             });
         }
+
+        // 2. Filter Column (Remove Variants and Source) for UI Display
+        if (variantsIndex !== -1 || sourceIndex !== -1) {
+            rows = rows.map(row => row.filter((_, i) => i !== variantsIndex && i !== sourceIndex));
+        }
+
         return rows;
-    }, [processedData.orders.rows, dayFilter, sourceFilter, timeZone]);
+    }, [processedData.orders.rows, dayFilter, sourceFilter, timeZone, variantsIndex, sourceIndex]);
 
     return (
         <div className="h-full flex flex-col">
             <div className="flex-grow px-2 md:px-6 pb-2 md:pb-6 overflow-hidden">
                 <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
                     <DataTable
-                        headers={orderListHeaders}
-                        data={filteredRows}
+                        headers={displayHeaders}
+                        data={displayRows}
                         onViewOrderDetails={handleViewOrderDetails}
                         onResyncOrder={handleResyncOrder}
                         mobileRowHeight={340} // Increased height to accommodate larger image and content

@@ -5,6 +5,7 @@ import {
   deleteRecordsForAccounts,
   getRecordsForDateRange
 } from '../services/firebaseService';
+import { exportDashboardToExcel, ExportProgress } from '../utils/excelExport';
 import { setupGmailWatch } from '../services/emailService';
 import { useNotification } from './NotificationContext';
 import { User } from 'firebase/auth';
@@ -37,6 +38,10 @@ interface DashboardContextType {
   syncState: string | null;
   isProcessing: boolean;
   isSavingAccounts: boolean;
+  exportProgress: ExportProgress | null;
+  isExporting: boolean;
+  showExportOptions: boolean;
+  setShowExportOptions: React.Dispatch<React.SetStateAction<boolean>>;
 
 
 
@@ -47,7 +52,8 @@ interface DashboardContextType {
   handleResyncAccount: (account: Account) => Promise<void>;
   handleQuickSync: (account: Account) => Promise<void>;
   handleLogout: () => Promise<void>;
-  handleExportCSV: () => void;
+  handleExport: () => void;
+  handleExportWithOptions: (includeImages: boolean) => void;
 
 
 
@@ -162,6 +168,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   const [processedData, setProcessedData] = useState<ProcessedData>(initialProcessedData);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isSavingAccounts, setIsSavingAccounts] = useState<boolean>(false);
+  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [showExportOptions, setShowExportOptions] = useState<boolean>(false);
 
   // DON'T reset processedData - we'll show loading overlay instead (optimistic UI)
 
@@ -315,10 +324,64 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
 
 
-  // Placeholder for Export (can be moved deeper if needed)
-  const handleExportCSV = () => {
-    // Implementation can be added here or in a separate util/hook
-    console.log("Export CSV triggered");
+  // Export to Excel - Show options modal
+  const handleExport = () => {
+    if (!processedData) {
+      addNotification('No data to export', 'info');
+      return;
+    }
+    setShowExportOptions(true);
+  };
+
+  // Export to Excel with options
+  const handleExportWithOptions = (includeImages: boolean) => {
+    if (!processedData) {
+      addNotification('No data to export', 'info');
+      return;
+    }
+
+    setIsExporting(true);
+    setExportProgress({ stage: 'collecting', stageLabel: 'Preparing export...', current: 0, total: 100, percentage: 0 });
+
+    // Get timezone offset for filename
+    const date = new Date();
+    const dateStr = date.toISOString().slice(0, 10);
+
+    // Get timezone offset
+    let timezoneOffset = 'UTC';
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        timeZoneName: 'shortOffset'
+      });
+      const parts = formatter.formatToParts(date);
+      const offsetPart = parts.find(p => p.type === 'timeZoneName');
+      if (offsetPart && offsetPart.value) {
+        // Format like UTC+07 or UTC-05
+        timezoneOffset = offsetPart.value.replace('GMT', 'UTC').replace(':', '');
+      }
+    } catch (e) {
+      console.error('Error getting timezone offset:', e);
+    }
+
+    const filename = `Dashboard_Export_${dateStr}_${timezoneOffset}.xlsx`;
+
+    addNotification(`Generating Excel file${includeImages ? ' with images' : ''}...`, 'info');
+
+    exportDashboardToExcel(processedData, filename, includeImages, (progress) => {
+      setExportProgress(progress);
+    })
+      .then(() => {
+        addNotification('Export completed', 'success');
+      })
+      .catch((err) => {
+        console.error(err);
+        addNotification('Export failed', 'error');
+      })
+      .finally(() => {
+        setIsExporting(false);
+        setExportProgress(null);
+      });
   };
 
 
@@ -329,12 +392,15 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       records, setRecords,
       manualCosts, setManualCosts,
       isLoading, isSyncing, isFetchingNewRange, syncState, isProcessing, isSavingAccounts,
+      exportProgress, isExporting,
+      showExportOptions, setShowExportOptions,
       handleSaveAccounts,
       handleSyncClick,
       handleResyncAccount,
       handleQuickSync,
       handleLogout: onLogout,
-      handleExportCSV,
+      handleExport,
+      handleExportWithOptions,
       processedData
 
 

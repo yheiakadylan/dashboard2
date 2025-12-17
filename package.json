@@ -20,6 +20,7 @@
     "@vercel/node": "^5.5.3",
     "buffer": "^6.0.3",
     "crypto": "^1.0.1",
+    "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",
     "firebase": "^12.5.0",
     "firebase-admin": "^13.5.0",

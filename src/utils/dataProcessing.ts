@@ -1,5 +1,6 @@
 import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../types';
 import { getHighResImageUrl } from './imageUtils';
+import { decodeHTMLEntities } from './htmlDecode';
 
 const formatCurrency = (value: number): string => {
     // Per user request to simplify KPI card display, always use a '$' symbol
@@ -139,7 +140,7 @@ export const processData = (
                         const totalListValue = r.details.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
                         r.details.items.forEach(item => {
-                            const name = item.name.trim(); // Ensure no leading/trailing spaces
+                            const name = decodeHTMLEntities(item.name.trim()); // Decode HTML entities and ensure no leading/trailing spaces
                             const key = `${name}_${shopName}`;
 
                             // Calculate weight ensuring no division by zero
@@ -299,8 +300,8 @@ const calculateOverview = (
                 ...revenueValues,
                 ...fundsValues,
                 ...costValues,
-                data.orders.size > 0 ? 'Click for detail' : ''
-            ];
+                { type: 'button' as const, label: 'Click for details', id: date } // Details button - id is the date
+            ] as any; // Type assertion to resolve complex type inference
         })
         .sort((a, b) => new Date(b[0] as string).getTime() - new Date(a[0] as string).getTime());
 
@@ -328,7 +329,7 @@ const calculateOverview = (
 }
 
 const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = ["Image", "Product Name", "Order ID", "Revenue", "Currency", "Cost", "FF Code", "Case", "Help", "Account", "DateTime", "Actions"];
+    const headers = ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Currency", "Cost", "FF Code", "Case", "Help", "Account", "DateTime", "Source", "Actions"];
     const orders = records.filter(r => r.kind === 'order');
     const cases = records.filter(r => r.kind === 'case');
     const helps = records.filter(r => r.kind === 'help');
@@ -349,14 +350,21 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
 
         // --- New logic to get product name and image ---
         let productName = o.product_name || 'N/A';
+        let variants = '-';
         let productImage = null;
         let fullProductImage = null;
 
         if (o.details && o.details.items && o.details.items.length > 0) {
-            const itemNames = o.details.items.map(i => i.name).join(', ');
+            const itemNames = o.details.items.map(i => decodeHTMLEntities(i.name)).join(', ');
             if (itemNames) {
                 productName = itemNames;
             }
+            // Join variants
+            const itemVariants = o.details.items.map(i => decodeHTMLEntities(i.variant)).filter(v => v).join('; ');
+            if (itemVariants) {
+                variants = itemVariants;
+            }
+
             // Get image of the first item
             productImage = o.details.items[0].image || null;
 
@@ -365,9 +373,15 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
         }
         // --- End of new logic ---
 
+        // Map Source
+        let displaySource = o.source;
+        if (o.source === 'Etsy_Sales') displaySource = 'Etsy';
+        else if (o.source === 'Ebay_Sales') displaySource = 'eBay';
+
         return [
             { type: 'image', src: productImage, fullSrc: fullProductImage, alt: productName }, // New cell for image
             productName, // New cell for product name
+            variants, // New cell for variants
             o.order_id || 'N/A',
             o.amount,
             o.currency || 'USD',
@@ -377,6 +391,7 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
             o.order_id && helpMap.has(o.order_id) ? helpMap.get(o.order_id) : 'No',
             accountLabelMap.get(o.account) || o.account,
             formatDateTime(o.dt_local, timeZone),
+            displaySource,
             { type: 'action_group', actions } as any,
             o.dt_local, // Add raw ISO string for filtering, will not be displayed
             o.source, // Add source string for filtering, will not be displayed
@@ -410,7 +425,7 @@ const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sale
         let fullProductImage = null;
 
         if (r.details && r.details.items && r.details.items.length > 0) {
-            const itemNames = r.details.items.map(i => i.name).join(', ');
+            const itemNames = r.details.items.map(i => decodeHTMLEntities(i.name)).join(', ');
             if (itemNames) {
                 productName = itemNames;
             }
@@ -446,7 +461,7 @@ const getSupportRecords = (records: Record[], kind: 'case' | 'help', accountLabe
 
     const rows = sortedRecords.map(r => [
         r.order_id || 'N/A',
-        kind === 'case' ? (r.case_msg || 'N/A') : (r.help_kind || 'N/A'),
+        kind === 'case' ? decodeHTMLEntities(r.case_msg || 'N/A') : decodeHTMLEntities(r.help_kind || 'N/A'),
         r.source,
         accountLabelMap.get(r.account) || r.account,
         formatDateTime(r.dt_local, timeZone)
@@ -711,7 +726,7 @@ const calculateSummary = (
             // Priority 1: Use parsed item details
             if (r.details && r.details.items && r.details.items.length > 0) {
                 r.details.items.forEach(item => {
-                    const name = item.name.trim();
+                    const name = decodeHTMLEntities(item.name.trim());
                     const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
 
                     // --- High Res Image Logic --- -> Refactored

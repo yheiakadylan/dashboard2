@@ -19,10 +19,10 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(verifier);
   const digest = await window.crypto.subtle.digest('SHA-256', data);
-  
+
   // Chuyển ArrayBuffer sang string
   const base64 = window.btoa(String.fromCharCode(...new Uint8Array(digest)));
-  
+
   // Chuyển từ Base64 sang Base64URL
   return base64
     .replace(/\+/g, '-')
@@ -40,7 +40,7 @@ export const signInWithMicrosoft = (): Promise<Account> => {
     const storageKey = 'ms_pkce_verifier';
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = await generateCodeChallenge(codeVerifier);
-    
+
     // 1. Lưu verifier vào localStorage
     localStorage.setItem(storageKey, codeVerifier);
     // === END: THAY ĐỔI PKCE ===
@@ -51,8 +51,8 @@ export const signInWithMicrosoft = (): Promise<Account> => {
       response_type: 'code',
       redirect_uri: redirectUri,
       scope: MSAL_SCOPES.join(' '),
-      state: 'microsoft', 
-      
+      state: 'microsoft',
+
       // === START: THAY ĐỔI PKCE ===
       // 2. Gửi challenge và method trong URL
       code_challenge: codeChallenge,
@@ -75,23 +75,24 @@ export const signInWithMicrosoft = (): Promise<Account> => {
         // 3. Lấy lại verifier từ localStorage
         const codeVerifier = localStorage.getItem(storageKey);
         localStorage.removeItem(storageKey); // Xóa ngay
-        
+
         if (!codeVerifier) {
-            reject(new Error('Microsoft PKCE verifier not found. Authentication failed.'));
-            return;
+          reject(new Error('Microsoft PKCE verifier not found. Authentication failed.'));
+          return;
         }
         // === END: THAY ĐỔI PKCE ===
 
         try {
-          const response = await fetch('/api/microsoft-auth-callback', {
+          const response = await fetch('/api/oauth-callback', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              code: event.data.code, 
+            body: JSON.stringify({
+              provider: 'microsoft',
+              code: event.data.code,
               redirectUri: redirectUri,
               // === START: THAY ĐỔI PKCE ===
               // 4. Gửi verifier lên server
-              codeVerifier: codeVerifier 
+              codeVerifier: codeVerifier
               // === END: THAY ĐỔI PKCE ===
             }),
           });
@@ -108,7 +109,7 @@ export const signInWithMicrosoft = (): Promise<Account> => {
         }
       }
     };
-    
+
     window.addEventListener('message', handleMessage);
   });
 };
@@ -120,10 +121,10 @@ export const getMicrosoftToken = async (account: Account): Promise<string> => {
 
   // Fetch a new token from our backend using the refresh token
   try {
-    const response = await fetch('/api/microsoft-get-token', {
+    const response = await fetch('/api/oauth-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: account.token }),
+      body: JSON.stringify({ provider: 'microsoft', refreshToken: account.token }),
     });
 
     if (!response.ok) {
@@ -172,10 +173,10 @@ export const signInWithGoogle = (): Promise<Account> => {
 
         try {
           // Exchange the code for tokens via our backend
-          const response = await fetch('/api/google-auth-callback', {
+          const response = await fetch('/api/oauth-callback', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: event.data.code, redirectUri: redirectUri }),
+            body: JSON.stringify({ provider: 'google', code: event.data.code, redirectUri: redirectUri }),
           });
 
           if (!response.ok) {
@@ -190,7 +191,7 @@ export const signInWithGoogle = (): Promise<Account> => {
         }
       }
     };
-    
+
     window.addEventListener('message', handleMessage);
   });
 };
@@ -217,10 +218,10 @@ export const getGoogleAccessToken = async (account: Account, options: { forceRef
 
   // Fetch a new token from our backend using the refresh token
   try {
-    const response = await fetch('/api/google-get-token', {
+    const response = await fetch('/api/oauth-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: account.token }),
+      body: JSON.stringify({ provider: 'google', refreshToken: account.token }),
     });
 
     if (!response.ok) {
@@ -230,7 +231,7 @@ export const getGoogleAccessToken = async (account: Account, options: { forceRef
     }
 
     const { accessToken, expiresIn } = await response.json();
-    
+
     // Cache the new token. expiresIn is in seconds.
     const expiresAt = Date.now() + (expiresIn - 60) * 1000; // Subtract 60s buffer
     googleAccessTokenCache.set(cacheKey, { token: accessToken, expiresAt });

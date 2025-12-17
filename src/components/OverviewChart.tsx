@@ -27,7 +27,7 @@ const OverviewChart: React.FC<OverviewChartProps> = ({ data }) => {
     .filter(key => key.startsWith('revenue'));
 
   return (
-    <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 animate-fade-in-up" style={{ height: '450px' }}>
+    <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 animate-fade-in-up h-[250px] md:h-[450px]">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={data}

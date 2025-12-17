@@ -126,7 +126,7 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hi
   const handleNext = () => setPage(p => Math.min(totalPages - 1, p + 1));
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-2 md:p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 h-[450px] flex flex-col animate-fade-in-up">
+    <div className="bg-white dark:bg-gray-800 p-2 md:p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 h-[300px] md:h-[450px] flex flex-col animate-fade-in-up">
       {!hideTitle && (
         <h3 className="text-base md:text-lg font-semibold mb-2 md:mb-4 text-gray-900 dark:text-white">Shop Performance</h3>
       )}
@@ -192,8 +192,8 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hi
             onClick={handlePrev}
             disabled={page === 0}
             className={`p - 1.5 rounded - full transition - colors flex items - center justify - center ${page === 0
-                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed hidden'
-                : 'text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-gray-700 dark:text-blue-400'
+              ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed hidden'
+              : 'text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-gray-700 dark:text-blue-400'
               } `}
             aria-label="Previous Page"
           >
@@ -208,8 +208,8 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hi
             onClick={handleNext}
             disabled={page >= totalPages - 1}
             className={`p - 1.5 rounded - full transition - colors flex items - center justify - center ${page >= totalPages - 1
-                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed hidden'
-                : 'text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-gray-700 dark:text-blue-400'
+              ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed hidden'
+              : 'text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-gray-700 dark:text-blue-400'
               } `}
             aria-label="Next Page"
           >

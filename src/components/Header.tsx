@@ -7,6 +7,7 @@ import ThemeToggle from './ThemeToggle';
 import DateRangePicker from './DateRangePicker';
 import TimezoneSelect from './TimezoneSelect';
 import Spinner from './Spinner';
+import ExportOptionsModal from './ExportOptionsModal';
 
 const Header: React.FC = () => {
   const {
@@ -17,7 +18,12 @@ const Header: React.FC = () => {
     role,
     permissions,
     syncState,
-    handleExportCSV,
+    handleExport,
+    exportProgress,
+    isExporting,
+    showExportOptions,
+    setShowExportOptions,
+    handleExportWithOptions,
   } = useDashboard();
 
   const {
@@ -126,6 +132,15 @@ const Header: React.FC = () => {
               <span className="truncate">{formatSyncState(syncState)}</span>
             </div>
           )}
+
+          {/* Export Progress Indicator (Desktop/Tablet) */}
+          {isExporting && exportProgress && (
+            <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-blue-500 to-green-500 text-white rounded-full text-xs font-semibold shadow-lg animate-pulse transition-all max-w-[250px]">
+              <Spinner size="xs" color="text-white" />
+              <span className="truncate">{exportProgress.stageLabel}</span>
+              <span className="ml-1 font-bold">{exportProgress.percentage}%</span>
+            </div>
+          )}
         </div>
 
         {/* Right: Desktop Controls */}
@@ -137,7 +152,7 @@ const Header: React.FC = () => {
               <button
                 onClick={handleSearchExpand}
                 className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
-                title="Search (Ctrl+H)"
+                title="Search (Ctrl+F)"
               >
                 <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -218,17 +233,20 @@ const Header: React.FC = () => {
           <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
 
           {/* Export Button */}
-          <button
-            onClick={handleExportCSV}
-            className={`text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors flex items-center justify-center ${isSidebarCollapsed ? 'px-3 py-1.5' : 'p-2'
-              }`}
-            title="Export CSV"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-            </svg>
-            <span className={`${isSidebarCollapsed ? 'block' : 'hidden'} ml-2 text-sm font-medium`}>Export</span>
-          </button>
+          <div className="relative">
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              className={`text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors flex items-center justify-center ${isSidebarCollapsed ? 'px-3 py-1.5' : 'p-2'
+                } ${isExporting ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title={isExporting ? 'Exporting...' : 'Export Excel'}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+              <span className={`${isSidebarCollapsed ? 'block' : 'hidden'} ml-2 text-sm font-medium`}>Export</span>
+            </button>
+          </div>
 
           {/* ThemeToggle moved to TabSettings */}
 
@@ -340,6 +358,13 @@ const Header: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Export Options Modal */}
+      <ExportOptionsModal
+        isOpen={showExportOptions}
+        onClose={() => setShowExportOptions(false)}
+        onExport={handleExportWithOptions}
+      />
     </header >
   );
 };

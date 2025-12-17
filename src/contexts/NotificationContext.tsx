@@ -53,7 +53,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
       {children}
 
       {/* Toast Container */}
-      <div className="fixed top-5 right-5 z-[9999] flex flex-col gap-2 pointer-events-none">
+      <div className="fixed top-20 right-5 z-[9999] flex flex-col gap-2 pointer-events-none">
         {notifications.map((n) => (
           <div key={n.id} className="pointer-events-auto">
             <Toast

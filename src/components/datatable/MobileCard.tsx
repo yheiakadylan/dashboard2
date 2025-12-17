@@ -61,8 +61,9 @@ const renderActionCell = (cell: any, _cellIndex: number, loadingItems: Set<strin
     if (cell && typeof cell === 'object' && 'type' in cell && cell.type === 'button') {
         return (
             <button
-                onClick={() => onViewOrderDetails && onViewOrderDetails(cell.id)}
+                onClick={() => onViewDayDetails && onViewDayDetails(cell.id)}
                 className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 font-medium hover:underline focus:outline-none truncate"
+                title={`View details for ${cell.id}`}
             >
                 {cell.label}
             </button>
