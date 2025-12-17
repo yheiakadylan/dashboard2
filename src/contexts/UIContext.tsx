@@ -93,9 +93,9 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     }, [tabOrder, hiddenTabs, setTabPreferences]);
 
     // Date Range
-    const getTodayInTimezone = (): string => {
+    const getTodayInTimezone = (tz: string = timeZone): string => {
         try {
-            const formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+            const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
             return formatter.format(new Date());
         } catch (e) { return new Date().toISOString().split('T')[0]; }
     };
@@ -104,6 +104,27 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
         from: getTodayInTimezone(),
         to: getTodayInTimezone()
     });
+
+    // Effect: Update "Today" when timezone changes
+    const prevTimeZone = useRef(timeZone);
+    useEffect(() => {
+        if (prevTimeZone.current !== timeZone) {
+            const oldToday = getTodayInTimezone(prevTimeZone.current);
+            const newToday = getTodayInTimezone(timeZone);
+
+            // If the user had "Today" selected in the old timezone, update it to "Today" in the new timezone
+            if (filterDateRange.from === oldToday && filterDateRange.to === oldToday) {
+                console.log(`[UIContext] Timezone changed: updating "Today" from ${oldToday} to ${newToday}`);
+                setFilterDateRange({ from: newToday, to: newToday });
+
+                // Also update if they had "Yesterday" selected?
+                // Heuristic: Check if from==to==yesterday(oldTimeout). 
+                // For now, only implementing Today as requested.
+            }
+
+            prevTimeZone.current = timeZone;
+        }
+    }, [timeZone, filterDateRange, setFilterDateRange]);
 
     // --- 2. Transient State ---
     const [selectedAccountId, setSelectedAccountId] = useState<string>('all');

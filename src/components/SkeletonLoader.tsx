@@ -25,7 +25,7 @@ const SkeletonLoader: React.FC<SkeletonLoaderProps> = ({
         {skeletons.map((index) => (
           <div
             key={index}
-            className={`flex items-center gap-4 p-4 border-b border-gray-200 dark:border-gray-700 ${className}`}
+            className={`flex items-center gap-4 p-4 border-b border-gray-200 dark:border-gray-700 h-24 ${className}`}
             style={{ animationDelay: `${index * 0.1}s` }}
           >
             {/* Image placeholder */}
@@ -54,7 +54,7 @@ const SkeletonLoader: React.FC<SkeletonLoaderProps> = ({
         {skeletons.map((index) => (
           <div
             key={index}
-            className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4 ${className}`}
+            className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4 min-h-[250px] ${className}`}
             style={{ animationDelay: `${index * 0.1}s` }}
           >
             {/* Card header with image and title */}
@@ -89,7 +89,7 @@ const SkeletonLoader: React.FC<SkeletonLoaderProps> = ({
 
   if (variant === 'chart') {
     return (
-      <div className={`bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-6 ${className}`}>
+      <div className={`bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-6 h-80 ${className}`}>
         {/* Chart title */}
         <div className={`${baseClasses} h-6 w-48 mb-6`} />
 
@@ -116,7 +116,7 @@ const SkeletonLoader: React.FC<SkeletonLoaderProps> = ({
         {skeletons.map((index) => (
           <div
             key={index}
-            className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 ${className}`}
+            className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 h-32 ${className}`}
             style={{ animationDelay: `${index * 0.05}s` }}
           >
             <div className={`${baseClasses} h-4 w-32 mb-4`} />

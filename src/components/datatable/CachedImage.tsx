@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 // Global cache for loaded images to prevent flickering on virtualized list scroll
 const imageCache = new Set<string>();
@@ -9,31 +9,62 @@ interface CachedImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
 
 const CachedImage: React.FC<CachedImageProps> = ({ src, className, ...props }) => {
     const [isLoaded, setIsLoaded] = useState(src ? imageCache.has(src) : false);
+    const [isInView, setIsInView] = useState(false);
+    const imgRef = useRef<HTMLDivElement>(null);
 
+    // Intersection Observer for lazy loading
     useEffect(() => {
-        if (src && imageCache.has(src)) {
+        if (!imgRef.current || !src) return;
+
+        // If already in cache, load immediately
+        if (imageCache.has(src)) {
+            setIsInView(true);
             setIsLoaded(true);
+            return;
         }
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        setIsInView(true);
+                        observer.disconnect(); // Stop observing once visible
+                    }
+                });
+            },
+            {
+                rootMargin: '50px', // Load 50px before entering viewport
+                threshold: 0.01
+            }
+        );
+
+        observer.observe(imgRef.current);
+
+        return () => {
+            observer.disconnect();
+        };
     }, [src]);
 
     return (
-        <div className={`relative overflow-hidden ${className}`} style={{ width: props.width, height: props.height }}>
+        <div ref={imgRef} className={`relative overflow-hidden ${className}`} style={{ width: props.width, height: props.height }}>
             {!isLoaded && (
-                <div className="absolute inset-0 bg-gray-200 dark:bg-gray-700 animate-pulse" />
+                <div className="absolute inset-0 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700 animate-pulse" />
             )}
-            <img
-                src={src}
-                className={`${className} ${isLoaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}
-                onLoad={() => {
-                    if (src) imageCache.add(src);
-                    setIsLoaded(true);
-                }}
-                loading="eager"
-                decoding="async"
-                {...props}
-            />
+            {isInView && (
+                <img
+                    src={src}
+                    className={`${className} ${isLoaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}
+                    onLoad={() => {
+                        if (src) imageCache.add(src);
+                        setIsLoaded(true);
+                    }}
+                    loading="lazy"
+                    decoding="async"
+                    {...props}
+                />
+            )}
         </div>
     );
 };
 
-export default CachedImage;
+export default React.memo(CachedImage);

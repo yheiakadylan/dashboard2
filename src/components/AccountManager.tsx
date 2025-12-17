@@ -373,4 +373,5 @@ const AccountManager: React.FC = () => {
   );
 };
 
-export default AccountManager;
+// Memoize to prevent unnecessary re-renders
+export default React.memo(AccountManager);

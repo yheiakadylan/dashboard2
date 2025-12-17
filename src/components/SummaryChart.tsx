@@ -8,7 +8,6 @@ interface SummaryChartProps {
   hideFunds?: boolean;
 }
 
-// Predefined colors for the chart bars
 // Predefined colors for the chart bars - Thematic
 const REVENUE_COLORS = ['#EAB308', '#F59E0B', '#F97316', '#10B981', '#14B8A6']; // Yellow, Orange, Green, Teal
 const FUNDS_COLORS = ['#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#06B6D4'];   // Blue, Indigo, Violet, Pink, Cyan
@@ -221,4 +220,5 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hi
   );
 };
 
-export default SummaryChart;
+// Memoize expensive chart component
+export default React.memo(SummaryChart);

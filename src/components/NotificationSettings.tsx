@@ -222,4 +222,5 @@ const NotificationSettings: React.FC = () => {
   );
 };
 
-export default NotificationSettings;
+// Memoize to prevent unnecessary re-renders
+export default React.memo(NotificationSettings);

@@ -115,4 +115,5 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value }) => {
   );
 };
 
-export default KpiCard;
+// Memoize to prevent re-renders when parent updates
+export default React.memo(KpiCard);

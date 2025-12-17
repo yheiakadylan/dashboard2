@@ -65,4 +65,5 @@ const FulfillChart: React.FC<FulfillChartProps> = ({ data, title }) => {
   );
 };
 
-export default FulfillChart;
+// Memoize to prevent unnecessary re-renders
+export default React.memo(FulfillChart);

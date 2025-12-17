@@ -23,15 +23,24 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
     const canViewCost = isOwner || permissions.viewFulfill;
     const hiddenValue: KpiValue = { value: '---', direction: 'neutral' };
 
+    // Memoize KPI values to prevent recalculation
+    const kpiValues = React.useMemo(() => ({
+        orders: processedData.summary.kpis['Total Orders'] || { value: '---' },
+        shops: processedData.summary.kpis['Shops'] || { value: '---' },
+        revenue: processedData.summary.kpis['Revenue'] || { value: '---' },
+        funds: canViewFunds ? (processedData.summary.kpis['Funds'] || { value: '---' }) : hiddenValue,
+        cost: canViewCost ? (processedData.summary.kpis['Cost'] || { value: '---' }) : hiddenValue
+    }), [processedData.summary.kpis, canViewFunds, canViewCost, hiddenValue]);
+
     return (
         <div className="p-2 md:p-6">
             {/* 1. KPIs Section (Merged from Summary) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6 mb-6">
-                <KpiCard title="Total Orders" value={processedData.summary.kpis['Total Orders'] || { value: '---' }} />
-                <KpiCard title="Shops" value={processedData.summary.kpis['Shops'] || { value: '---' }} />
-                <KpiCard title="Revenue" value={processedData.summary.kpis['Revenue'] || { value: '---' }} />
-                <KpiCard title="Funds" value={canViewFunds ? (processedData.summary.kpis['Funds'] || { value: '---' }) : hiddenValue} />
-                <KpiCard title="Cost" value={canViewCost ? (processedData.summary.kpis['Cost'] || { value: '---' }) : hiddenValue} />
+                <KpiCard title="Total Orders" value={kpiValues.orders} />
+                <KpiCard title="Shops" value={kpiValues.shops} />
+                <KpiCard title="Revenue" value={kpiValues.revenue} />
+                <KpiCard title="Funds" value={kpiValues.funds} />
+                <KpiCard title="Cost" value={kpiValues.cost} />
             </div>
 
             {/* 2. Charts Section */}

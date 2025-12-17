@@ -120,4 +120,5 @@ const OverviewChart: React.FC<OverviewChartProps> = ({ data }) => {
   );
 };
 
-export default OverviewChart;
+// Memoize expensive chart component
+export default React.memo(OverviewChart);

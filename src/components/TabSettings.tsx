@@ -209,4 +209,5 @@ const TabSettings: React.FC = () => {
     );
 };
 
-export default TabSettings;
+// Memoize to prevent unnecessary re-renders
+export default React.memo(TabSettings);

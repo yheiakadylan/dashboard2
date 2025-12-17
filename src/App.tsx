@@ -37,6 +37,7 @@ const DashboardLayout: React.FC = () => {
         accounts,
         role,
         permissions,
+        isProcessing,
     } = useDashboard();
 
     const {
@@ -159,13 +160,13 @@ const DashboardLayout: React.FC = () => {
                             </div>
                         )}
 
-                        {/* Loading Overlay when fetching new date range */}
-                        {isFetchingNewRange && (
+                        {/* Loading Overlay when fetching new date range OR processing data */}
+                        {(isFetchingNewRange || isProcessing) && (
                             <div className="absolute inset-0 bg-white/60 dark:bg-gray-900/60 backdrop-blur-sm z-30 flex items-center justify-center">
                                 <div className="flex flex-col items-center gap-3">
                                     <Spinner size="lg" />
                                     <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                        Loading new data...
+                                        {isProcessing ? 'Processing data...' : 'Loading new data...'}
                                     </p>
                                 </div>
                             </div>

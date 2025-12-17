@@ -541,4 +541,5 @@ const UserManager: React.FC = () => {
   );
 };
 
-export default UserManager;
+// Memoize to prevent unnecessary re-renders
+export default React.memo(UserManager);

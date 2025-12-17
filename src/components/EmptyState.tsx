@@ -122,4 +122,5 @@ const EmptyState: React.FC<EmptyStateProps> = ({
     );
 };
 
-export default EmptyState;
+// Memoize presentational component
+export default React.memo(EmptyState);

@@ -220,4 +220,5 @@ const ManualCostManager: React.FC = () => {
   );
 };
 
-export default ManualCostManager;
+// Memoize to prevent unnecessary re-renders
+export default React.memo(ManualCostManager);

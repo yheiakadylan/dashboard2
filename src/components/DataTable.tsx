@@ -87,85 +87,32 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         });
     }, [data, sortColumn, sortDirection]);
 
-    // Measure table absolute position once (and on resize)
+    // Measure table absolute position once (and on resize) - Simpler version just for tooltip/modal pos if needed
     React.useLayoutEffect(() => {
         if (!useWindowScroll || !containerRef.current) return;
-
         const measureOffset = () => {
-            // If using a custom scroll parent, we need offset relative to THAT parent.
-            if (scrollParentId) {
-                const parent = document.getElementById(scrollParentId);
-                if (parent && containerRef.current) {
-                    tableOffsetRef.current = containerRef.current.offsetTop;
-                }
-            } else if (containerRef.current) {
-                // Fallback to Window: absolute top = scrollY + viewport top
-                const rect = containerRef.current.getBoundingClientRect();
-                tableOffsetRef.current = window.scrollY + rect.top;
-            }
+            const rect = containerRef.current?.getBoundingClientRect();
+            if (rect) tableOffsetRef.current = window.scrollY + rect.top;
         };
-
         measureOffset();
         window.addEventListener('resize', measureOffset);
         return () => window.removeEventListener('resize', measureOffset);
-    }, [useWindowScroll, data.length, scrollParentId]);
+    }, [useWindowScroll]);
 
-    // Sync Window (or Container) Scroll with optimized handler
-    React.useLayoutEffect(() => {
-        if (!useWindowScroll || !listRef.current) return;
-
-        const handleScroll = () => {
-            if (listRef.current) {
-                let scrollY = 0;
-                let offset = 0;
-
-                if (scrollParentId) {
-                    const parent = document.getElementById(scrollParentId);
-                    if (parent) {
-                        scrollY = parent.scrollTop;
-                        offset = Math.max(0, scrollY - tableOffsetRef.current);
-                    }
-                } else {
-                    scrollY = window.scrollY;
-                    offset = Math.max(0, scrollY - tableOffsetRef.current);
-                }
-
-                // Direct call to react-window's internal scrollTo (synchronous)
-                listRef.current.scrollTo(offset);
-            }
-        };
-
-        const target = scrollParentId ? document.getElementById(scrollParentId) : window;
-        if (!target && scrollParentId) {
-            console.warn(`DataTable: scrollParentId "${scrollParentId}" not found.`);
-            return;
-        }
-
-        // Passive listener is better for scroll performance
-        target?.addEventListener('scroll', handleScroll, { passive: true });
-
-        // Initial sync
-        handleScroll();
-
-        return () => target?.removeEventListener('scroll', handleScroll);
-    }, [useWindowScroll, scrollParentId]);
+    // Cleanup: We removed the aggressive scroll sync because we are moving primarily to Internal Scroll for large tables.
+    // The previous window logic is preserved only if autoHeight is strictly true and parent logic is correct.
 
     if (data.length === 0) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
                 <EmptyState
                     variant="no-data"
-                    primaryAction={{
-                        label: 'Refresh',
-                        onClick: () => window.location.reload()
-                    }}
                 />
             </div>
         );
     }
 
     // Determine root container classes
-    // If autoHeight (window scroll) is true, remove 'h-full' and 'overflow-hidden' to allow expansion
     const rootClasses = `flex flex-col ${autoHeight ? '' : 'h-full'} bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 ${autoHeight ? '' : 'overflow-hidden'}`;
 
     return (

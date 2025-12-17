@@ -184,13 +184,47 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       else console.error("Worker Error:", error);
       setIsProcessing(false);
     };
+
+    // Safety error handler
+    workerRef.current.onerror = (err) => {
+      console.error("Worker Silent Error:", err);
+      setIsProcessing(false);
+    };
+
     return () => workerRef.current?.terminate();
   }, []);
 
+  // --- Render-Phase State Update Pattern ---
+  // We check if filteredRecords has changed to synchronously set isProcessing BEFORE the render completes.
+  // This prevents the "flash" of empty state between "isLoading: false" and "useLayoutEffect".
+  const lastTriggeredRef = useRef(filteredRecords);
 
+  if (filteredRecords !== lastTriggeredRef.current) {
+    lastTriggeredRef.current = filteredRecords;
+    if (!isProcessing) {
+      setIsProcessing(true);
+      // Clear old data to prevent "Stale Data" view while processing new large/small transitions
+      setProcessedData(initialProcessedData);
+    }
+  }
+
+  // Sync ref for safety timeout check
+  const isProcessingRef = useRef(isProcessing);
+  isProcessingRef.current = isProcessing;
+
+  // Trigger Worker
   useEffect(() => {
     if (!workerRef.current) return;
 
+    // Safety timeout: If worker doesn't respond in 10s, force unlock UI
+    const safetyTimeout = setTimeout(() => {
+      if (isProcessingRef.current) {
+        console.warn("Worker timed out, forcing UI unlock.");
+        setIsProcessing(false);
+      }
+    }, 10000);
+
+    // isProcessing is already true from the render phase check above (for records changes).
     workerRef.current.postMessage({
       records: filteredRecords,
       previousRecords: previousPeriodRecords,
@@ -201,6 +235,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       permissions,
       manualCosts
     });
+
+    return () => clearTimeout(safetyTimeout);
   }, [filteredRecords, previousPeriodRecords, visibleAccounts, filterDateRange, timeZone, role, permissions, manualCosts]);
 
 

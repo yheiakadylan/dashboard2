@@ -287,4 +287,5 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
   );
 };
 
-export default TopProductsChart;
+// Memoize to prevent unnecessary re-renders
+export default React.memo(TopProductsChart);

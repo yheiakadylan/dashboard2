@@ -271,4 +271,5 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
   );
 };
 
-export default OrderDetailModal;
+// Memoize to prevent unnecessary re-renders
+export default React.memo(OrderDetailModal);
