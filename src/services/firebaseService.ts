@@ -19,22 +19,31 @@ import {
 import { getAuth } from "firebase/auth";
 import { getMessaging, isSupported } from "firebase/messaging";
 import { Account, Record } from '../types';
+
+// Firebase configuration - uses VITE_ prefix for client-side access
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY || "AIzaSyCf9A3apdFE24uU4M3E4j1cnBvmjiB9Z7E",
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN || "dashboard-13ec8.firebaseapp.com",
-  projectId: process.env.FIREBASE_PROJECT_ID || "dashboard-13ec8",
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "dashboard-13ec8.firebasestorage.app",
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "604763790543",
-  appId: process.env.FIREBASE_APP_ID || "1:604763790543:web:26905ec5742624300e6bba",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
-/*const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID,
-};*/
+
+// Validate all required Firebase config values
+const requiredFields: (keyof typeof firebaseConfig)[] = [
+  'apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'
+];
+
+for (const field of requiredFields) {
+  if (!firebaseConfig[field]) {
+    throw new Error(
+      `Firebase configuration error: ${field} is missing. ` +
+      `Please set VITE_${field.replace(/([A-Z])/g, '_$1').toUpperCase()} in your environment variables.`
+    );
+  }
+}
+
 // Initialize Firebase and Firestore.
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);

@@ -315,10 +315,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // =====================================================================
   // 🟢 HIJACK 1: LẤY CHI TIẾT ĐƠN HÀNG CHO TAMPERMONKEY
-  // Gọi bằng: /api/lark-events?action=get-order-detail&secret=test1234&orderId=...
+  // Gọi bằng: /api/lark-events?action=get-order-detail&secret=<CRON_SECRET2>&orderId=...
   // =====================================================================
   if (action === 'get-order-detail') {
-    if (secret !== 'test1234') {
+    const CRON_SECRET2 = process.env.CRON_SECRET2;
+    if (!CRON_SECRET2) {
+      console.error('[lark-events] CRON_SECRET2 not configured');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    if (!secret || secret !== CRON_SECRET2) {
+      console.warn('[lark-events] Unauthorized get-order-detail attempt');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -375,12 +382,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
+
   // =====================================================================
   // 🟢 HIJACK 2: TEST NOTIFICATION HANDLER
-  // Gọi bằng: /api/lark-events?action=test-push&secret=test1234&type=order|funds|summary|login
+  // Gọi bằng: /api/lark-events?action=test-push&secret=<CRON_SECRET2>&type=order|funds|summary|login
   // =====================================================================
   if (action === 'test-push') {
-    if (secret !== 'test1234') {
+    const CRON_SECRET2 = process.env.CRON_SECRET2;
+    if (!CRON_SECRET2) {
+      console.error('[lark-events] CRON_SECRET2 not configured');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    if (!secret || secret !== CRON_SECRET2) {
+      console.warn('[lark-events] Unauthorized test-push attempt');
       return res.status(401).json({ error: 'Unauthorized Test' });
     }
 

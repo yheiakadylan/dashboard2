@@ -1,4 +1,4 @@
-import React, { useState, useCallback, Suspense, lazy } from 'react';
+import React, { useState, useCallback, Suspense, lazy, useEffect } from 'react';
 // import { User } from 'firebase/auth';
 import Header from './components/Header';
 import { useDashboard } from './contexts/DashboardContext';
@@ -12,6 +12,7 @@ import { getPermittedTabs } from './utils/permissions';
 import { UIProvider, useUI } from './contexts/UIContext';
 import SidebarSkeleton from './components/SidebarSkeleton';
 import Spinner from './components/Spinner';
+import { registerPWAUpdate } from './services/pwaUpdateService';
 
 // Lazy load heavy components
 import Sidebar from './components/Sidebar';
@@ -230,6 +231,20 @@ const ModalLoadingFallback = () => (
 const App: React.FC = () => {
     // --- USE NEW AUTH HOOK ---
     const { user, userProfile, authLoading, authError, logout } = useAuthLogic();
+
+    // --- PWA AUTO-UPDATE ---
+    useEffect(() => {
+        const cleanup = registerPWAUpdate({
+            onUpdateFound: () => {
+                console.log('[App] New version found!');
+            },
+            onUpdateReady: () => {
+                console.log('[App] New version ready, will reload soon...');
+            },
+        });
+
+        return cleanup;
+    }, []);
 
     if (authLoading) {
         return (
