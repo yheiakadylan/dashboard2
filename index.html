@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" content="Advanced Sales Dashboard for real-time analytics and reporting." />
-  
+
   <link rel="icon" type="image/svg+xml"
     href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z" fill="%234299e1"/><path d="M4 15L9 9L14 13L20 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -46,30 +46,211 @@
   </script>
 
   <style>
-    :root { --bg: #ffffff; --loader: #3b82f6; }
-    @media (prefers-color-scheme: dark) { :root { --bg: #111827; } }
-    body { margin: 0; background-color: var(--bg); font-family: system-ui, -apple-system, sans-serif; }
+    :root {
+      --bg: #ffffff;
+      --primary: #3b82f6;
+      --text: #111827;
+      --text-light: #6b7280;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111827;
+        --primary: #60a5fa;
+        --text: #f9fafb;
+        --text-light: #9ca3af;
+      }
+    }
+
+    body {
+      margin: 0;
+      background-color: var(--bg);
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
     #initial-loading {
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      height: 100vh; width: 100vw; position: fixed; top: 0; left: 0; z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      width: 100vw;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 9999;
+      background: var(--bg);
     }
-    .spinner {
-      width: 40px; height: 40px; border: 3px solid #e5e7eb; border-top-color: var(--loader);
-      border-radius: 50%; animation: spin 0.8s linear infinite;
+
+    /* Logo Animation */
+    .dashboard-logo {
+      width: 96px;
+      height: 96px;
+      margin-bottom: 24px;
+      animation: fadeInScale 0.8s ease-out;
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .loading-text { margin-top: 16px; color: #6b7280; font-size: 14px; letter-spacing: 0.05em; }
+
+    .dashboard-logo svg {
+      width: 100%;
+      height: 100%;
+      filter: drop-shadow(0 8px 24px rgba(59, 130, 246, 0.25));
+    }
+
+    /* Brand Title */
+    .brand-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+      animation: fadeInUp 0.8s ease-out 0.2s both;
+    }
+
+    /* Tagline */
+    .brand-tagline {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-light);
+      margin-bottom: 32px;
+      letter-spacing: 0.02em;
+      animation: fadeInUp 0.8s ease-out 0.3s both;
+    }
+
+    /* Progress Container */
+    .progress-container {
+      width: 320px;
+      height: 5px;
+      background: rgba(59, 130, 246, 0.12);
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+      animation: fadeInUp 0.8s ease-out 0.4s both;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .progress-container {
+        background: rgba(96, 165, 250, 0.12);
+      }
+    }
+
+    /* Animated Progress Bar */
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary) 0%, #8b5cf6 50%, var(--primary) 100%);
+      background-size: 200% 100%;
+      border-radius: 999px;
+      width: 0%;
+      animation: loadProgress 2.5s ease-in-out infinite, shimmer 2s linear infinite;
+      box-shadow: 0 0 16px rgba(59, 130, 246, 0.5);
+    }
+
+    /* Loading Text */
+    .loading-text {
+      margin-top: 20px;
+      color: var(--text-light);
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      font-weight: 500;
+      text-transform: uppercase;
+      animation: pulse 2s ease-in-out infinite, fadeInUp 0.8s ease-out 0.5s both;
+    }
+
+    /* Animations */
+    @keyframes fadeInScale {
+      from {
+        opacity: 0;
+        transform: scale(0.7);
+      }
+
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes loadProgress {
+      0% {
+        width: 0%;
+      }
+
+      50% {
+        width: 75%;
+      }
+
+      100% {
+        width: 100%;
+        opacity: 0.9;
+      }
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: 200% 0;
+      }
+
+      100% {
+        background-position: -200% 0;
+      }
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 0.5;
+      }
+
+      50% {
+        opacity: 1;
+      }
+    }
   </style>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 
 <body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
-  
+
   <div id="root">
     <div id="initial-loading">
-      <div class="spinner"></div>
-      <div class="loading-text">INITIALIZING DASHBOARD...</div>
+      <!-- Dashboard Logo -->
+      <div class="dashboard-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <!-- Bar Chart Background -->
+          <path d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z" fill="#3b82f6" opacity="0.2" />
+          <!-- Growth Line -->
+          <path d="M4 15L9 9L14 13L20 8" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round" />
+          <!-- Growth Arrow -->
+          <path d="M16 8H20V12" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </div>
+
+      <!-- Brand Title -->
+      <div class="brand-title">Sales Dashboard</div>
+
+      <!-- Tagline -->
+      <div class="brand-tagline">Real-time Analytics & Insights</div>
+
+      <!-- Progress Bar -->
+      <div class="progress-container">
+        <div class="progress-bar"></div>
+      </div>
+
+      <!-- Loading Text -->
+      <div class="loading-text">Loading</div>
     </div>
   </div>
 
