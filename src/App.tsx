@@ -176,7 +176,7 @@ const DashboardLayout: React.FC = () => {
                         {/* Single scroll container - SIMPLE! */}
                         <div
                             id="active-tab-container"
-                            className="h-full w-full overflow-y-auto"
+                            className="h-full w-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
                             onScroll={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
                             onClick={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
                             onWheel={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}

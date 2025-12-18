@@ -1,6 +1,7 @@
 /**
  * PWA Auto-Update Service
- * Handles automatic updates for the Progressive Web App
+ * Uses vite-plugin-pwa's auto-generated service worker
+ * This service monitors for updates and handles refresh logic
  */
 
 export interface UpdateCallback {
@@ -11,7 +12,9 @@ export interface UpdateCallback {
 }
 
 /**
- * Register service worker with auto-update behavior
+ * Initialize PWA update monitoring
+ * The service worker is registered automatically by vite-plugin-pwa
+ * This function only sets up update detection and refresh behavior
  * @param callbacks - Optional callbacks for update lifecycle events
  * @returns Cleanup function
  */
@@ -25,24 +28,29 @@ export const registerPWAUpdate = (callbacks?: UpdateCallback) => {
     let refreshing = false;
 
     // Listen for controlling service worker change (new version activated)
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
+    const handleControllerChange = () => {
         if (refreshing) return;
         refreshing = true;
         console.log('[PWA] New version activated, reloading page...');
         window.location.reload();
-    });
+    };
 
-    // Register service worker
-    const registerWorker = async () => {
+    navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+
+    // Monitor existing service worker registration (created by vite-plugin-pwa)
+    const setupUpdateMonitoring = async () => {
         try {
-            const registration = await navigator.serviceWorker.register('/sw.js', {
-                updateViaCache: 'none', // Always check for updates
-            });
+            const registration = await navigator.serviceWorker.getRegistration();
 
-            console.log('[PWA] Service worker registered successfully');
+            if (!registration) {
+                console.log('[PWA] No service worker registration found (expected in development)');
+                return;
+            }
+
+            console.log('[PWA] Service worker monitoring initialized');
 
             // Check for updates every 60 seconds
-            setInterval(() => {
+            const updateInterval = setInterval(() => {
                 console.log('[PWA] Checking for updates...');
                 registration.update();
             }, 60000);
@@ -88,17 +96,23 @@ export const registerPWAUpdate = (callbacks?: UpdateCallback) => {
             // Explicitly check for updates on page load
             registration.update();
 
+            // Store interval ID for cleanup
+            return updateInterval;
+
         } catch (error) {
-            console.error('[PWA] Service worker registration failed:', error);
+            console.error('[PWA] Service worker monitoring failed:', error);
             callbacks?.onUpdateError?.(error as Error);
         }
     };
 
-    // Register when page loads
+    // Set up monitoring when page loads
+    let updateInterval: NodeJS.Timeout | undefined;
     if (document.readyState === 'complete') {
-        registerWorker();
+        setupUpdateMonitoring().then(interval => { updateInterval = interval; });
     } else {
-        window.addEventListener('load', registerWorker);
+        window.addEventListener('load', () => {
+            setupUpdateMonitoring().then(interval => { updateInterval = interval; });
+        });
     }
 
     // Check for updates when page becomes visible (tab switching)
@@ -117,6 +131,10 @@ export const registerPWAUpdate = (callbacks?: UpdateCallback) => {
 
     // Cleanup function
     return () => {
+        if (updateInterval) {
+            clearInterval(updateInterval);
+        }
+        navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
 };

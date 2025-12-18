@@ -15,6 +15,9 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
+        devOptions: {
+          enabled: false, // Disable in development to prevent MIME type errors
+        },
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
         manifest: {
           name: 'Sales Dashboard',

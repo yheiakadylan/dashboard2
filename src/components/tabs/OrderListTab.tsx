@@ -62,17 +62,20 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     }, [processedData.orders.rows, dayFilter, sourceFilter, timeZone, variantsIndex, sourceIndex]);
 
     return (
-        <div className="h-full flex flex-col">
-            <div className="flex-grow px-2 md:px-6 pb-2 md:pb-6 overflow-hidden">
-                <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
-                    <DataTable
-                        headers={displayHeaders}
-                        data={displayRows}
-                        onViewOrderDetails={handleViewOrderDetails}
-                        onResyncOrder={handleResyncOrder}
-                        mobileRowHeight={340} // Increased height to accommodate larger image and content
-                    />
-                </Suspense>
+        <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
+            <div className="p-2 md:p-6">
+                <div style={{ height: 'calc(100vh - 120px)' }}>
+                    <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
+                        <DataTable
+                            headers={displayHeaders}
+                            data={displayRows}
+                            onViewOrderDetails={handleViewOrderDetails}
+                            onResyncOrder={handleResyncOrder}
+                            mobileRowHeight={340}
+                            autoHeight={false}
+                        />
+                    </Suspense>
+                </div>
             </div>
         </div>
     );

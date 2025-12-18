@@ -366,10 +366,11 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
             }
 
             // Get image of the first item
-            productImage = o.details.items[0].image || null;
+            const rawImage = o.details.items[0].image || null;
 
-            // Convert to high-res based on platform -> Refactored
-            fullProductImage = getHighResImageUrl(productImage);
+            // Convert to high-res for BOTH thumbnail and preview -> instant loading
+            productImage = getHighResImageUrl(rawImage);
+            fullProductImage = productImage;
         }
         // --- End of new logic ---
 
@@ -429,10 +430,11 @@ const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sale
             if (itemNames) {
                 productName = itemNames;
             }
-            productImage = r.details.items[0].image || null;
+            const rawImage = r.details.items[0].image || null;
 
-            // Convert to high-res based on platform -> Refactored
-            fullProductImage = getHighResImageUrl(productImage);
+            // Convert to high-res for BOTH thumbnail and preview -> instant loading
+            productImage = getHighResImageUrl(rawImage);
+            fullProductImage = productImage;
         }
         // --- End of logic ---
 

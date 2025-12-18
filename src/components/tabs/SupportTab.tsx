@@ -56,15 +56,18 @@ const SupportTab: React.FC<SupportTabProps> = ({ processedData }) => {
     }, [processedData.cases.rows, processedData.help.rows, supportFilter]);
 
     return (
-        <div className="h-full flex flex-col">
-            <div className="flex-grow px-2 md:px-6 pb-2 md:pb-6 overflow-hidden">
-                <Suspense fallback={<LoadingSpinner variant="table-row" count={10} />}>
-                    <DataTable
-                        headers={displayData.headers}
-                        data={displayData.rows}
-                        mobileRowHeight={120}
-                    />
-                </Suspense>
+        <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
+            <div className="p-2 md:p-6">
+                <div style={{ height: 'calc(100vh - 120px)' }}>
+                    <Suspense fallback={<LoadingSpinner variant="table-row" count={10} />}>
+                        <DataTable
+                            headers={displayData.headers}
+                            data={displayData.rows}
+                            mobileRowHeight={120}
+                            autoHeight={false}
+                        />
+                    </Suspense>
+                </div>
             </div>
         </div>
     );

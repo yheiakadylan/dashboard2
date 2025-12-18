@@ -55,12 +55,39 @@ export const getOptimizedImageUrl = (url: string, targetWidth: number = 400): st
 };
 
 /**
- * Attempts to get the highest resolution version of an Ebay image URL.
+ * Attempts to get the highest resolution version of an image URL.
+ * - Ebay: Converts to highest resolution (s-l1600 or $_57)
+ * - Etsy: Returns unchanged (Etsy URLs are already optimized)
  * Used for zoom/preview features.
  */
 export const getHighResImageUrl = (url: string | undefined): string | undefined => {
     if (!url) return undefined;
-    if (!url.includes('ebayimg.com')) return url;
+
+    // Etsy images: Return as-is
+    // Etsy URLs like "il_fullxfull.xxx_9x95.jpg" are already optimized
+    // DO NOT modify them as it will break the image
+    if (url.includes('etsystatic.com')) {
+        return url;
+    }
+
+    // eBay svcs.ebay.com image service: Update size parameters to 800px
+    if (url.includes('svcs.ebay.com')) {
+        try {
+            // Replace imgWidth, imgHeight, and length parameters with 800
+            let highResUrl = url
+                .replace(/imgWidth=\d+/g, 'imgWidth=800')
+                .replace(/imgHeight=\d+/g, 'imgHeight=800')
+                .replace(/length=\d+/g, 'length=800');
+            return highResUrl;
+        } catch (e) {
+            return url;
+        }
+    }
+
+    // eBay images only (i.ebayimg.com)
+    if (!url.includes('ebayimg.com')) {
+        return url;
+    }
 
     try {
         // Handle "s-l{size}" pattern - replace with s-l1600
