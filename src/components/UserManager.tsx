@@ -365,7 +365,7 @@ const UserManager: React.FC = () => {
     'viewSales', 'viewFunds', 'viewFulfill', 'canManageSettings',
   ];
   const permissionLabels: { [key: string]: string } = {
-    viewSales: 'Sales', viewFunds: 'Funds', viewFulfill: 'Cost', canManageSettings: 'Mail Account',
+    viewSales: 'Sales', viewFunds: 'Funds', viewFulfill: 'Cost', canManageSettings: 'Mail Edit',
   };
 
   return (
@@ -399,7 +399,7 @@ const UserManager: React.FC = () => {
                 <div className="space-y-3">
                   <div>
                     <h4 className="text-sm font-medium mb-2 text-gray-600 dark:text-gray-300">Permissions</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-4 gap-2">
                       {permissionKeys.map(key => (
                         <label key={key} className="flex items-center space-x-2 text-sm">
                           <input type="checkbox" checked={user.permissions[key] || false} onChange={e => handlePermissionChange(user.id, key, e.target.checked)} className="rounded" />
