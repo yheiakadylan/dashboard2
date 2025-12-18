@@ -12,6 +12,46 @@ export interface ExportProgress {
 
 // Helper to resize and compress image for Excel export
 const resizeAndCompressImage = async (blob: Blob, maxSize: number = 75): Promise<Blob> => {
+    // Try using OffscreenCanvas and createImageBitmap (Modern browsers)
+    if (typeof createImageBitmap !== 'undefined' && typeof OffscreenCanvas !== 'undefined') {
+        try {
+            const bitmap = await createImageBitmap(blob);
+
+            // Calculate dimensions
+            let width = bitmap.width;
+            let height = bitmap.height;
+
+            if (width > height) {
+                if (width > maxSize) {
+                    height = (height * maxSize) / width;
+                    width = maxSize;
+                }
+            } else {
+                if (height > maxSize) {
+                    width = (width * maxSize) / height;
+                    height = maxSize;
+                }
+            }
+
+            const canvas = new OffscreenCanvas(width, height);
+            const ctx = canvas.getContext('2d');
+
+            if (ctx) {
+                ctx.drawImage(bitmap, 0, 0, width, height);
+                // Clean up bitmap
+                bitmap.close();
+
+                return await canvas.convertToBlob({
+                    type: 'image/jpeg',
+                    quality: 0.8
+                });
+            }
+        } catch (e) {
+            console.warn('OffscreenCanvas optimization failed, falling back to standard canvas', e);
+        }
+    }
+
+    // Fallback to standard Image/Canvas
     return new Promise((resolve) => {
         const img = new Image();
         const url = URL.createObjectURL(blob);
@@ -19,7 +59,6 @@ const resizeAndCompressImage = async (blob: Blob, maxSize: number = 75): Promise
         img.onload = () => {
             URL.revokeObjectURL(url);
 
-            // Calculate new dimensions maintaining aspect ratio
             let width = img.width;
             let height = img.height;
 
@@ -35,7 +74,6 @@ const resizeAndCompressImage = async (blob: Blob, maxSize: number = 75): Promise
                 }
             }
 
-            // Create canvas and resize
             const canvas = document.createElement('canvas');
             canvas.width = width;
             canvas.height = height;
@@ -43,14 +81,12 @@ const resizeAndCompressImage = async (blob: Blob, maxSize: number = 75): Promise
 
             if (ctx) {
                 ctx.drawImage(img, 0, 0, width, height);
-
-                // Convert to blob with compression
                 canvas.toBlob(
                     (compressedBlob) => {
                         resolve(compressedBlob || blob);
                     },
                     'image/jpeg',
-                    0.9 // 70% quality
+                    0.8 // 80% quality
                 );
             } else {
                 resolve(blob);
@@ -66,24 +102,27 @@ const resizeAndCompressImage = async (blob: Blob, maxSize: number = 75): Promise
     });
 };
 
-// Helper to fetch image as buffer (using proxy to avoid CORS)
+// Cache for image buffers to avoid redundant fetches/processing
+const imageBufferCache = new Map<string, ArrayBuffer>();
+
+// Helper to fetch image as buffer (using cache)
 const fetchImage = async (url: string): Promise<ArrayBuffer | null> => {
+    if (imageBufferCache.has(url)) return imageBufferCache.get(url)!;
+
     try {
-        // Use proxy for all external images to avoid CORS issues
         const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(url)}`;
         const response = await fetch(proxyUrl);
         if (!response.ok) return null;
 
-        // Get as blob first
         const blob = await response.blob();
-
-        // Resize and compress the image
+        // Resize to 150px for Excel optimization
         const optimizedBlob = await resizeAndCompressImage(blob, 150);
+        const buffer = await optimizedBlob.arrayBuffer();
 
-        // Convert to ArrayBuffer
-        return await optimizedBlob.arrayBuffer();
+        imageBufferCache.set(url, buffer);
+        return buffer;
     } catch (error) {
-        console.error('Error fetching image for export:', error);
+        // Silent fail for export to continue
         return null;
     }
 };
@@ -169,7 +208,6 @@ const remapTableDataForOrders = (originalData: TableData): TableData => {
     };
 };
 
-
 // --- Common Style Helper ---
 const styleHeaderRow = (row: ExcelJS.Row) => {
     row.eachCell((cell) => {
@@ -207,71 +245,87 @@ const setColumnWidths = (sheet: ExcelJS.Worksheet, headers: string[], imageColIn
     });
 };
 
-
 const addTableToSheet = async (
     sheet: ExcelJS.Worksheet,
     startRow: number,
     tableData: TableData,
     includeImages: boolean,
     onProgress?: (current: number, total: number) => void
-): Promise<{ nextRow: number, imagePromises: Promise<void>[] }> => {
+): Promise<{ nextRow: number }> => {
     // Headers
     const headerRow = sheet.getRow(startRow);
     headerRow.values = tableData.headers;
     styleHeaderRow(headerRow);
 
-    // Rows
-    const imagePromises: Promise<void>[] = [];
-    const imageColIndex = tableData.headers.findIndex(h => h.toLowerCase().includes('image') || h.toLowerCase() === 'img' || h === 'Image Link');
+    const imageColIndex = tableData.headers.findIndex(h =>
+        h.toLowerCase().includes('image') || h.toLowerCase() === 'img' || h === 'Image Link'
+    );
 
+    // 1. Fill Text Data First (Fast synchronous op)
     tableData.rows.forEach((row, rIndex) => {
-        const cleanRow = row.map(cell => cleanCellData(cell));
         const currentRow = sheet.getRow(startRow + 1 + rIndex);
+        const cleanRow = row.map(cell => cleanCellData(cell));
         currentRow.values = cleanRow;
         currentRow.height = (includeImages && imageColIndex !== -1) ? 75 : 25;
         currentRow.alignment = { vertical: 'middle', horizontal: 'left' };
-
-        // Images
-        if (includeImages && imageColIndex !== -1) {
-            const cellData = row[imageColIndex];
-            // Support both object {type:'image', src:...} and string URL
-            let imageUrl: string | null = null;
-            if (cellData && typeof cellData === 'object' && 'type' in cellData && cellData.type === 'image' && cellData.src) {
-                imageUrl = cellData.src.startsWith('http') ? cellData.src : null;
-            } else if (typeof cellData === 'string' && cellData.startsWith('http')) {
-                imageUrl = cellData;
-            }
-
-            if (imageUrl) {
-                const imageIndex = imagePromises.length;
-                const promise = fetchImage(imageUrl).then(buffer => {
-                    if (buffer) {
-                        const imageId = sheet.workbook.addImage({
-                            buffer: buffer,
-                            extension: 'png',
-                        });
-                        sheet.addImage(imageId, {
-                            tl: { col: imageColIndex, row: startRow + rIndex } as any,
-                            br: { col: imageColIndex + 1, row: startRow + rIndex + 1 } as any,
-                            editAs: 'oneCell'
-                        });
-                    }
-                    // Report progress after each image
-                    if (onProgress) {
-                        onProgress(imageIndex + 1, -1); // -1 means total will be set later
-                    }
-                });
-                imagePromises.push(promise);
-            }
-        }
     });
 
-    // Auto widths (apply to the columns of this table)
+    // 2. Process Images in Batches (Parallel Fetch -> Sequential Add)
+    if (includeImages && imageColIndex !== -1) {
+        // Extract all URLs first
+        const imageUrls = tableData.rows.map(row => {
+            const cellData = row[imageColIndex];
+            if (cellData && typeof cellData === 'object' && 'type' in cellData && cellData.type === 'image' && cellData.src) {
+                return cellData.src.startsWith('http') ? cellData.src : null;
+            } else if (typeof cellData === 'string' && cellData.startsWith('http')) {
+                return cellData;
+            }
+            return null;
+        });
+
+        const CHUNK_SIZE = 20; // Concurrency limit
+
+        for (let i = 0; i < imageUrls.length; i += CHUNK_SIZE) {
+            const chunk = imageUrls.slice(i, i + CHUNK_SIZE);
+            const chunkStartIndex = i;
+
+            // FETCH PHASE (Parallel)
+            // We fetch the buffers but don't add to sheet yet
+            const buffers = await Promise.all(
+                chunk.map(url => url ? fetchImage(url) : Promise.resolve(null))
+            );
+
+            // ADD PHASE (Sequential)
+            // ExcelJS is safer when adding images sequentially
+            buffers.forEach((buffer, idxInChunk) => {
+                const globalIdx = chunkStartIndex + idxInChunk;
+
+                if (buffer) {
+                    const imageId = sheet.workbook.addImage({
+                        buffer: buffer,
+                        extension: 'png',
+                    });
+
+                    sheet.addImage(imageId, {
+                        tl: { col: imageColIndex, row: startRow + globalIdx } as any,
+                        br: { col: imageColIndex + 1, row: startRow + globalIdx + 1 } as any,
+                        editAs: 'oneCell'
+                    });
+                }
+
+                // Progress update
+                if (onProgress) {
+                    onProgress(1, -1);
+                }
+            });
+        }
+    }
+
+    // Auto widths
     setColumnWidths(sheet, tableData.headers, imageColIndex, includeImages);
 
     return {
-        nextRow: startRow + 1 + tableData.rows.length,
-        imagePromises
+        nextRow: startRow + 1 + tableData.rows.length
     };
 };
 
@@ -589,14 +643,14 @@ const addOverviewSheet = async (workbook: ExcelJS.Workbook, processedData: Proce
 
 const addStandardSheet = async (workbook: ExcelJS.Workbook, sheetName: string, tableData: TableData, includeImages: boolean, onProgress?: (current: number, total: number) => void) => {
     const sheet = workbook.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: 1 }] });
-    const { imagePromises } = await addTableToSheet(sheet, 1, tableData, includeImages, onProgress);
-    if (imagePromises.length > 0) {
-        await Promise.allSettled(imagePromises);
-    }
+    // This will now wait for image processing inside
+    await addTableToSheet(sheet, 1, tableData, includeImages, onProgress);
 };
 
 export const exportDashboardToExcel = async (processedData: ProcessedData, filename: string, includeImages: boolean = true, onProgress?: (progress: ExportProgress) => void) => {
     const workbook = new ExcelJS.Workbook();
+    // Clear cache at start of new export to avoid memory leaks
+    imageBufferCache.clear();
     let totalImages = 0;
     let downloadedImages = 0;
 
@@ -629,13 +683,16 @@ export const exportDashboardToExcel = async (processedData: ProcessedData, filen
     }
 
     // Progress callback for image downloads
-    const imageProgressCallback = (current: number, total: number) => {
-        downloadedImages = current;
+    // Note: Since we run in parallel, we need to handle concurrency for valid update
+    // But basic increments are fine.
+
+    const imageProgressCallback = (increment: number, total: number) => {
+        downloadedImages += increment;
         if (onProgress && totalImages > 0) {
             const percentage = Math.round((downloadedImages / totalImages) * 100);
             onProgress({
                 stage: 'downloading',
-                stageLabel: `Downloading images (${downloadedImages}/${totalImages})...`,
+                stageLabel: 'Downloading...',
                 current: downloadedImages,
                 total: totalImages,
                 percentage
@@ -645,37 +702,43 @@ export const exportDashboardToExcel = async (processedData: ProcessedData, filen
 
     // Stage 2: Start downloading (skip if not including images)
     if (onProgress && includeImages && totalImages > 0) {
-        onProgress({ stage: 'downloading', stageLabel: `Downloading images (0/${totalImages})...`, current: 0, total: totalImages, percentage: 0 });
+        onProgress({ stage: 'downloading', stageLabel: 'Downloading...', current: 0, total: totalImages, percentage: 0 });
     }
 
     // 1. Overview (KPI, Daily, Shop Summary)
     await addOverviewSheet(workbook, processedData);
 
+    // Prepare sheet promises for parallel execution
+    const sheetPromises: Promise<void>[] = [];
+
     // 2. OrderList (Specific Columns)
     if (processedData.orders) {
         const remappedOrders = remapTableDataForOrders(processedData.orders);
-        await addStandardSheet(workbook, 'OrderList', remappedOrders, includeImages, includeImages ? imageProgressCallback : undefined);
+        sheetPromises.push(addStandardSheet(workbook, 'OrderList', remappedOrders, includeImages, includeImages ? imageProgressCallback : undefined));
     }
 
     // 3. Product
     if (processedData.products) {
-        await addStandardSheet(workbook, 'Product', processedData.products, includeImages, includeImages ? imageProgressCallback : undefined);
+        sheetPromises.push(addStandardSheet(workbook, 'Product', processedData.products, includeImages, includeImages ? imageProgressCallback : undefined));
     }
 
     // 4. Case
     if (processedData.cases) {
-        await addStandardSheet(workbook, 'Case', processedData.cases, false);
+        sheetPromises.push(addStandardSheet(workbook, 'Case', processedData.cases, false));
     }
 
     // 5. Help
     if (processedData.help) {
-        await addStandardSheet(workbook, 'Help', processedData.help, false);
+        sheetPromises.push(addStandardSheet(workbook, 'Help', processedData.help, false));
     }
 
     // 6. Fulfill
     if (processedData.fulfill?.table) {
-        await addStandardSheet(workbook, 'Fulfill', processedData.fulfill.table, false);
+        sheetPromises.push(addStandardSheet(workbook, 'Fulfill', processedData.fulfill.table, false));
     }
+
+    // Run sheet generation in parallel
+    await Promise.all(sheetPromises);
 
     // Stage 3: Generating workbook
     if (onProgress) {

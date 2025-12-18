@@ -8,6 +8,7 @@ import DateRangePicker from './DateRangePicker';
 import TimezoneSelect from './TimezoneSelect';
 import Spinner from './Spinner';
 import ExportOptionsModal from './ExportOptionsModal';
+import ExportProgressBar from './ExportProgressBar';
 
 const Header: React.FC = () => {
   const {
@@ -44,8 +45,6 @@ const Header: React.FC = () => {
     setIsMobileMenuOpen,
     toggleMobileMenu,
   } = useUI();
-
-
 
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -137,10 +136,8 @@ const Header: React.FC = () => {
 
           {/* Export Progress Indicator (Desktop/Tablet) */}
           {isExporting && exportProgress && (
-            <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-blue-500 to-green-500 text-white rounded-full text-xs font-semibold shadow-lg animate-pulse transition-all max-w-[250px]">
-              <Spinner size="xs" color="text-white" />
-              <span className="truncate">{exportProgress.stageLabel}</span>
-              <span className="ml-1 font-bold">{exportProgress.percentage}%</span>
+            <div className="hidden md:block mr-4 w-60">
+              <ExportProgressBar progress={exportProgress} />
             </div>
           )}
         </div>
@@ -194,8 +191,6 @@ const Header: React.FC = () => {
             )}
           </div>
 
-
-
           {/* Source Filter - Only for Order List */}
           {activeTab === 'Order List' && (
             <div className="flex bg-gray-100 dark:bg-gray-700 rounded-md p-0.5">
@@ -232,9 +227,6 @@ const Header: React.FC = () => {
             </div>
           )}
 
-          {/* Export Button */}
-
-
           <DateRangePicker />
 
           <select
@@ -267,8 +259,6 @@ const Header: React.FC = () => {
               <span className={`${isSidebarCollapsed ? 'block' : 'hidden'} ml-2 text-sm font-medium`}>Export</span>
             </button>
           </div>
-
-          {/* ThemeToggle moved to TabSettings */}
 
         </div>
 

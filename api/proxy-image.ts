@@ -19,6 +19,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         res.setHeader('Content-Type', response.headers.get('content-type') || 'image/jpeg');
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.setHeader('Access-Control-Allow-Origin', '*');
         res.send(buffer);
     } catch (error) {
         console.error('Proxy Image Error:', error);
