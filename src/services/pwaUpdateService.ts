@@ -27,10 +27,31 @@ export const registerPWAUpdate = (callbacks?: UpdateCallback) => {
 
     let refreshing = false;
 
+    // GUARD: Prevent reload loop - track last reload time
+    const RELOAD_COOLDOWN = 10000; // 10 seconds cooldown between reloads
+    const getLastReloadTime = (): number => {
+        const stored = sessionStorage.getItem('pwa_last_reload');
+        return stored ? parseInt(stored, 10) : 0;
+    };
+    const setLastReloadTime = () => {
+        sessionStorage.setItem('pwa_last_reload', Date.now().toString());
+    };
+
     // Listen for controlling service worker change (new version activated)
     const handleControllerChange = () => {
         if (refreshing) return;
+
+        // GUARD: Check if we just reloaded recently
+        const lastReload = getLastReloadTime();
+        const timeSinceLastReload = Date.now() - lastReload;
+
+        if (timeSinceLastReload < RELOAD_COOLDOWN) {
+            console.warn(`[PWA] Preventing reload loop - last reload was ${timeSinceLastReload}ms ago`);
+            return;
+        }
+
         refreshing = true;
+        setLastReloadTime();
         console.log('[PWA] New version activated, reloading page...');
         window.location.reload();
     };
@@ -49,11 +70,11 @@ export const registerPWAUpdate = (callbacks?: UpdateCallback) => {
 
             console.log('[PWA] Service worker monitoring initialized');
 
-            // Check for updates every 60 seconds
+            // Check for updates every 5 minutes (reduced from 60s to prevent excessive checks)
             const updateInterval = setInterval(() => {
                 console.log('[PWA] Checking for updates...');
                 registration.update();
-            }, 60000);
+            }, 300000); // 5 minutes instead of 60 seconds
 
             // Listen for service worker state changes
             registration.addEventListener('updatefound', () => {
@@ -73,12 +94,14 @@ export const registerPWAUpdate = (callbacks?: UpdateCallback) => {
 
                         case 'installed':
                             if (navigator.serviceWorker.controller) {
-                                // New version installed, ready to activate
-                                console.log('[PWA] New version installed, activating...');
+                                // New version installed and ready
+                                // With skipWaiting: false, the new SW won't activate until all tabs are closed
+                                // This prevents the reload loop issue
+                                console.log('[PWA] New version ready (will activate when all tabs are closed)');
                                 callbacks?.onUpdateReady?.();
 
-                                // Tell the new service worker to skip waiting and activate immediately
-                                newWorker.postMessage({ type: 'SKIP_WAITING' });
+                                // DO NOT send SKIP_WAITING - let user close tabs naturally
+                                // This prevents the infinite reload loop
                             }
                             break;
 

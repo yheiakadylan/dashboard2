@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       VitePWA({
-        registerType: 'autoUpdate',
+        registerType: 'prompt', // Changed from autoUpdate to prevent reload loop
         devOptions: {
           enabled: false, // Disable in development to prevent MIME type errors
         },
@@ -48,8 +48,10 @@ export default defineConfig(({ mode }) => {
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
           maximumFileSizeToCacheInBytes: 4000000,
-          // Enable instant updates
-          skipWaiting: true,
+          // IMPORTANT: Disable skipWaiting to prevent reload loop!
+          // With skipWaiting:true + autoUpdate, new SW immediately takes over
+          // and triggers reload, creating an infinite loop in production
+          skipWaiting: false, // Changed from true to prevent reload loop
           clientsClaim: true,
           runtimeCaching: [
             {
