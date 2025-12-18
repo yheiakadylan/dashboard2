@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useUI } from '../contexts/UIContext';
 import SkeletonLoader from './SkeletonLoader';
@@ -41,15 +41,21 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
         handleViewDayDetails
     } = useUI();
 
-    // Show skeleton if:
-    // 1. We are fetching raw records (isLoading) AND have no records
-    // 2. OR we are processing data (isProcessing) AND have no records (or effectively no processed data yet)
-    //    Actually, simple check: if we are loading OR processing, and don't have a stable view, show skeleton.
-    //    Ideally, if records > 0 but isProcessing, we currently show empty tabs because processedData is initial.
-    //    So we should block until processing is done if processedData is empty.
+    // Smart loading: Only show overlay if processing takes > 150ms (prevents micro-flashes)
+    const [showOverlay, setShowOverlay] = useState(false);
+    const hasData = processedData.orders.rows.length > 0 || processedData.overview.chartData.length > 0;
+
+    useEffect(() => {
+        if (isProcessing && hasData) {
+            // Delay showing overlay to avoid flashes on fast networks
+            const timer = setTimeout(() => setShowOverlay(true), 150);
+            return () => clearTimeout(timer);
+        } else {
+            setShowOverlay(false);
+        }
+    }, [isProcessing, hasData]);
 
     // Show skeleton if we have no data at all (initial load)
-    const hasData = processedData.orders.rows.length > 0 || processedData.overview.chartData.length > 0;
 
     if ((isLoading || isProcessing) && !hasData) {
         return (
@@ -112,8 +118,15 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
             {renderContent()}
 
             {/* Skeleton overlay when processing with existing data */}
-            {isProcessing && hasData && (
-                <div className="absolute inset-0 bg-white/60 dark:bg-gray-900/60 backdrop-blur-[2px] rounded-lg overflow-hidden pointer-events-none">
+            {showOverlay && hasData && (
+                <div className="absolute inset-0 bg-white/60 dark:bg-gray-900/60 backdrop-blur-[2px] rounded-lg overflow-hidden pointer-events-none
+                    transition-opacity duration-300 ease-in-out">
+
+                    {/* Animated progress bar */}
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 
+                        animate-pulse shadow-lg shadow-purple-500/50" />
+
+                    {/* Skeleton content */}
                     <div className="p-4">
                         <SkeletonLoader variant="table-row" count={8} />
                     </div>
