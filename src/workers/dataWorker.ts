@@ -2,6 +2,7 @@ import { processData } from '../utils/dataProcessing';
 import { Record, Account, ManualCost } from '../types';
 
 interface WorkerMessage {
+    requestId: number;
     records: Record[];
     previousRecords: Record[] | null;
     accounts: Account[];
@@ -14,6 +15,7 @@ interface WorkerMessage {
 
 self.onmessage = (e: MessageEvent<WorkerMessage>) => {
     const {
+        requestId,
         records,
         previousRecords,
         accounts,
@@ -35,8 +37,9 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
             permissions,
             manualCosts
         );
-        self.postMessage({ success: true, data: processed });
+        self.postMessage({ success: true, data: processed, requestId });
     } catch (error: any) {
-        self.postMessage({ success: false, error: error.message });
+        console.error(`[Worker] Error processing request #${requestId}:`, error);
+        self.postMessage({ success: false, error: error.message, requestId });
     }
 };

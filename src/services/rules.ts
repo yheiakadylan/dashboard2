@@ -6,6 +6,7 @@ export interface Rule {
   name: string;
   query: string;
   kind?: 'order' | 'Funds' | 'case' | 'help';
+  platform?: 'etsy' | 'ebay';
   amountOrderRe?: RegExp;
   currencyDefaultIfMissing?: string;
   currencyTag?: string;
@@ -23,6 +24,7 @@ export const RULES: Rule[] = [
   // ==================== SALES ====================
   {
     name: "Etsy_Sales",
+    platform: "etsy",
     query: 'subject:"You made a sale on Etsy"',
     // Kiểm tra body chứa "Order total" để validate là sales email thực
     amountOrderRe: new RegExp(
@@ -35,6 +37,7 @@ export const RULES: Rule[] = [
 
   {
     name: "Ebay_Sales",
+    platform: "ebay",
     // Tighten query: match chính xác subject pattern + item name
     query: 'from:ebay@ebay.com subject:"You made the sale for"',
 
@@ -53,6 +56,7 @@ export const RULES: Rule[] = [
   {
     name: "Funds_On_The_Way",
     kind: "Funds",
+    platform: "etsy",
     query: 'subject:"Your funds of"',
     amountOrderRe: new RegExp(
       // Handles: $123.45 USD, £123.45 GBP, 123.45 CAD
@@ -66,6 +70,7 @@ export const RULES: Rule[] = [
   {
     name: "Ebay_Funds",
     kind: "Funds",
+    platform: "ebay",
     query: 'from:ebay@ebay.com subject:"We sent your payout"',
     amountOrderRe: new RegExp(
       `\\$?\\s*(${AMOUNT_BIG})\\s*was\\s+sent\\s+to\\s+your\\s+bank\\s+account`,
@@ -79,6 +84,7 @@ export const RULES: Rule[] = [
   {
     name: "Etsy_Case",
     kind: "case",
+    platform: "etsy",
     query: 'subject:"opened a case for Order "', // để Gmail tìm được
     // Debbie opened a case for Order #3791747494
     amountOrderRe: new RegExp(
@@ -96,6 +102,7 @@ export const RULES: Rule[] = [
   {
     name: "Etsy_Help",
     kind: "help",
+    platform: "etsy",
     query: 'subject:"needs help with an order they placed"',
     // "Help Request: Order #123456789"
     bodyOidRe: new RegExp(`\\bHelp\\s*Request\\s*:\\s*Order\\s*#\\s*(?<oid>\\d+)\\b`, "i"),

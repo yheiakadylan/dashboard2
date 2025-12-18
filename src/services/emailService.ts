@@ -167,7 +167,19 @@ const createGmailFetcher = (account: Account) => {
     return authorizedFetch;
 }
 
-async function fetchGmailMessages(account: Account, rule: Rule, dateRange: { from: string, to: string }): Promise<Partial<Record>[]> {
+/**
+ * Helper to check if email ID exists in known IDs
+ */
+const isKnownEmail = (id: string, knownIds?: Set<string>): boolean => {
+    return knownIds ? knownIds.has(id) : false;
+};
+
+async function fetchGmailMessages(
+    account: Account,
+    rule: Rule,
+    dateRange: { from: string, to: string },
+    knownEmailIds?: Set<string>
+): Promise<Partial<Record>[]> {
     const authorizedFetch = createGmailFetcher(account);
 
     const records: Partial<Record>[] = [];
@@ -178,9 +190,9 @@ async function fetchGmailMessages(account: Account, rule: Rule, dateRange: { fro
     const query = `${rule.query} after:${fromTimestamp} before:${toTimestamp}`;
 
     let fetchedCount = 0;
-    // --- GIỚI HẠN ĐỘNG ---
-    // Nếu là help/case thì giới hạn 100 tin, còn lại 2000
-    const LIMIT = (rule.kind === 'help' || rule.kind === 'case') ? 100 : 2000;
+    // --- LIMIT ---
+    // User requested to fetch all ("lấy hết"), setting a high safety limit
+    const LIMIT = 10000;
 
     do {
         // Kiểm tra giới hạn trước khi gọi API list
@@ -205,59 +217,75 @@ async function fetchGmailMessages(account: Account, rule: Rule, dateRange: { fro
         const messages = listData.messages || [];
         if (messages.length === 0) break;
 
-        for (const messageHeader of messages) {
-            // Kiểm tra giới hạn trong vòng lặp
+        // Filter out known emails first to avoid processing them
+        const unknownMessages = messages.filter((m: any) => !isKnownEmail(m.id, knownEmailIds));
+
+        // Process in batches to control concurrency
+        const CONCURRENCY_LIMIT = 10;
+        for (let i = 0; i < unknownMessages.length; i += CONCURRENCY_LIMIT) {
             if (fetchedCount >= LIMIT) break;
 
-            try {
-                const msgUrl =
-                    `https://www.googleapis.com/gmail/v1/users/me/messages/${messageHeader.id}` +
-                    `?format=full&fields=id,internalDate,snippet,payload(headers,mimeType,parts(mimeType,body(data),parts(*)),body(data))`;
+            const batch = unknownMessages.slice(i, i + CONCURRENCY_LIMIT);
 
-                const msgResponse = await authorizedFetch(msgUrl);
-                if (!msgResponse.ok) {
-                    console.warn(`Skipping Gmail message ${messageHeader.id} due to API error: ${msgResponse.status}`);
-                    continue;
+            await Promise.all(batch.map(async (messageHeader: any) => {
+                if (fetchedCount >= LIMIT) return;
+
+                try {
+                    const msgUrl =
+                        `https://www.googleapis.com/gmail/v1/users/me/messages/${messageHeader.id}` +
+                        `?format=full&fields=id,internalDate,snippet,payload(headers,mimeType,parts(mimeType,body(data),parts(*)),body(data))`;
+
+                    const msgResponse = await authorizedFetch(msgUrl);
+                    if (!msgResponse.ok) {
+                        console.warn(`Skipping Gmail message ${messageHeader.id} due to API error: ${msgResponse.status}`);
+                        return;
+                    }
+                    const msgData = await msgResponse.json();
+
+                    // Increment count for successful fetches of meaningful data
+                    fetchedCount++;
+
+                    const subject =
+                        msgData.payload?.headers?.find((h: any) => h.name.toLowerCase() === 'subject')?.value || '';
+
+                    const htmlBody = getHtmlFromGmailPayload(msgData.payload);
+                    const plainBody = getPlainTextFromGmailPayload(msgData.payload);
+                    const bodyForParsing = htmlBody || plainBody || '';
+
+                    const parsedData = parseMessage(
+                        rule,
+                        subject,
+                        msgData.snippet || '',
+                        bodyForParsing
+                    );
+
+                    if (parsedData) {
+                        records.push({
+                            ...parsedData,
+                            email_id: msgData.id,
+                            dt_local: new Date(parseInt(msgData.internalDate)).toISOString(),
+                        });
+                    }
+                } catch (e: any) {
+                    if (e.message?.includes("Authentication failed")) throw e;
+                    console.error(`Failed to process Gmail message ${messageHeader.id}:`, e);
                 }
-                const msgData = await msgResponse.json();
-
-                // --- QUAN TRỌNG: Tăng biến đếm ngay sau khi lấy được tin nhắn ---
-                fetchedCount++;
-
-                const subject =
-                    msgData.payload?.headers?.find((h: any) => h.name.toLowerCase() === 'subject')?.value || '';
-
-                const htmlBody = getHtmlFromGmailPayload(msgData.payload);
-                const plainBody = getPlainTextFromGmailPayload(msgData.payload);
-                const bodyForParsing = htmlBody || plainBody || '';
-
-                const parsedData = parseMessage(
-                    rule,
-                    subject,
-                    msgData.snippet || '',
-                    bodyForParsing
-                );
-
-                if (parsedData) {
-                    records.push({
-                        ...parsedData,
-                        email_id: msgData.id,
-                        dt_local: new Date(parseInt(msgData.internalDate)).toISOString(),
-                    });
-                    // KHÔNG tăng fetchedCount ở đây nữa
-                }
-            } catch (e: any) {
-                if (e.message?.includes("Authentication failed")) throw e;
-                console.error(`Failed to process Gmail message ${messageHeader.id}:`, e);
-            }
+            }));
         }
+
         pageToken = listData.nextPageToken;
     } while (pageToken);
 
     return records;
 }
 
-async function fetchOutlookMessages(account: Account, rule: Rule, dateRange: { from: string, to: string }): Promise<Partial<Record>[]> {
+// Update fetchOutlookMessages to accept knownEmailIds
+async function fetchOutlookMessages(
+    account: Account,
+    rule: Rule,
+    dateRange: { from: string, to: string },
+    knownEmailIds?: Set<string>
+): Promise<Partial<Record>[]> {
     let accessToken: string;
     try {
         accessToken = await getMicrosoftToken(account);
@@ -282,11 +310,11 @@ async function fetchOutlookMessages(account: Account, rule: Rule, dateRange: { f
     const filter = filterParts.join(' and ');
 
     let url: string | undefined =
-        `https://graph.microsoft.com/v1.0/me/messages?$filter=${encodeURIComponent(filter)}&$select=id,receivedDateTime,subject,bodyPreview,body,from&$orderby=receivedDateTime desc&$top=100`;
+        `https://graph.microsoft.com/v1.0/me/messages?$filter=${encodeURIComponent(filter)}&$select=id,receivedDateTime,subject,bodyPreview,body,from&$orderby=receivedDateTime desc&$top=500`;
 
     let fetchedCount = 0;
-    // --- GIỚI HẠN ĐỘNG ---
-    const LIMIT = (rule.kind === 'help' || rule.kind === 'case') ? 100 : 2000;
+    // --- LIMIT ---
+    const LIMIT = 10000;
 
     while (url) {
         // Kiểm tra giới hạn trước khi gọi API list
@@ -305,6 +333,11 @@ async function fetchOutlookMessages(account: Account, rule: Rule, dateRange: { f
         for (const message of messages) {
             // Kiểm tra giới hạn trong vòng lặp
             if (fetchedCount >= LIMIT) break;
+
+            // --- OPTIMIZATION: SKIP KNOWN EMAILS ---
+            if (isKnownEmail(message.id, knownEmailIds)) {
+                continue;
+            }
 
             // --- QUAN TRỌNG: Tăng biến đếm ngay lập tức ---
             fetchedCount++;
@@ -421,7 +454,8 @@ export const setupGmailWatch = async (teamId: string, account: Account): Promise
 export const fetchAllRecords = async (
     accounts: Account[],
     setStatus: (status: string) => void,
-    overrideDateRange?: { from: string, to: string }
+    overrideDateRange?: { from: string, to: string },
+    existingEmailIds?: Set<string>
 ): Promise<Record[]> => {
     setStatus(`Starting sync for ${accounts.length} account(s)...`);
 
@@ -444,14 +478,24 @@ export const fetchAllRecords = async (
         const accountDateRange = { from: syncFromDate, to: syncRunToDate };
 
         try {
-            const rulePromises = RULES.map(async (rule) => {
+            // Filter rules based on account platforms
+            // If account.platforms is empty/undefined, run all rules (default behavior)
+            // Otherwise, only run rules that match the platform or have no specific platform
+            const activeRules = RULES.filter(r =>
+                !r.platform ||
+                !account.platforms ||
+                account.platforms.length === 0 ||
+                account.platforms.includes(r.platform)
+            );
+
+            const rulePromises = activeRules.map(async (rule) => {
                 let fetchedRecords: Partial<Record>[] = [];
                 if (account.provider === 'gmail') {
-                    fetchedRecords = await fetchGmailMessages(account, rule, accountDateRange);
+                    fetchedRecords = await fetchGmailMessages(account, rule, accountDateRange, existingEmailIds);
                 } else if (account.provider === 'outlook') {
-                    fetchedRecords = await fetchOutlookMessages(account, rule, accountDateRange);
+                    fetchedRecords = await fetchOutlookMessages(account, rule, accountDateRange, existingEmailIds);
                 }
-                
+
                 // Map records and add source right away
                 return fetchedRecords.map(r => ({
                     ...(r as Partial<Record>),
@@ -479,7 +523,7 @@ export const fetchAllRecords = async (
 
     const allRecordsArrays = await Promise.all(accountPromises);
     const allRecords = allRecordsArrays.flat();
-    
+
     const totalFetched = allRecords.length;
 
     allRecords.sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());

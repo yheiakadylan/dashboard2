@@ -115,6 +115,7 @@ const MailManager: React.FC = () => {
       const newAccountWithFlag: Account = {
         ...newAccount,
         historical_sync_complete: false,
+        platforms: ['etsy', 'ebay'], // Default to both
       };
 
       if (!localAccounts.find(acc => acc.id === newAccountWithFlag.id)) {
@@ -178,6 +179,38 @@ const MailManager: React.FC = () => {
     handleQuickSync(account);
   };
 
+  const handlePlatformToggle = async (accountId: string, platform: string, isChecked: boolean) => {
+    const updatedAccounts = localAccounts.map(acc => {
+      if (acc.id !== accountId) return acc;
+
+      // Current effective platforms (if undefined/empty -> all assumed)
+      const currentApiPlatforms = acc.platforms && acc.platforms.length > 0 ? acc.platforms : ['etsy', 'ebay'];
+
+      let newPlatforms: string[];
+      if (isChecked) {
+        if (!currentApiPlatforms.includes(platform)) newPlatforms = [...currentApiPlatforms, platform];
+        else newPlatforms = [...currentApiPlatforms];
+      } else {
+        newPlatforms = currentApiPlatforms.filter(p => p !== platform);
+      }
+
+      return { ...acc, platforms: newPlatforms };
+    });
+
+    setLocalAccounts(updatedAccounts);
+
+    // Save immediately
+    try {
+      const ordered = updatedAccounts.map((acc, i) => ({ ...acc, order: i }));
+      await handleSaveAccounts(ordered);
+      const accEmail = updatedAccounts.find(a => a.id === accountId)?.email;
+      addNotification(`Saved platform settings for ${accEmail}`, "success");
+    } catch (error) {
+      console.error("Failed to save platform settings:", error);
+      addNotification("Failed to save settings.", "error");
+    }
+  };
+
   const handleDrop = () => {
     if (dragItem.current === null || dragOverItem.current === null || dragItem.current === dragOverItem.current) {
       dragItem.current = null;
@@ -229,6 +262,28 @@ const MailManager: React.FC = () => {
                       placeholder="Enter Shop Name"
                     />
                     <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 px-1 truncate">{acc.email}</p>
+
+                    {/* Platform Toggles */}
+                    <div className="flex items-center gap-3 px-1 mt-1">
+                      <label className="flex items-center gap-1 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 border-gray-300 dark:border-gray-500"
+                          checked={!acc.platforms || acc.platforms.length === 0 || acc.platforms.includes('etsy')}
+                          onChange={(e) => handlePlatformToggle(acc.id, 'etsy', e.target.checked)}
+                        />
+                        <span className="text-xs text-gray-600 dark:text-gray-300">Etsy</span>
+                      </label>
+                      <label className="flex items-center gap-1 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 border-gray-300 dark:border-gray-500"
+                          checked={!acc.platforms || acc.platforms.length === 0 || acc.platforms.includes('ebay')}
+                          onChange={(e) => handlePlatformToggle(acc.id, 'ebay', e.target.checked)}
+                        />
+                        <span className="text-xs text-gray-600 dark:text-gray-300">eBay</span>
+                      </label>
+                    </div>
 
                     <div className={`flex items-center gap-1.5 px-1 text-xs font-medium ${syncStatus.color}`} title={syncStatus.title}>
                       {syncStatus.icon}

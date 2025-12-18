@@ -106,7 +106,8 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
         } catch (e) { return new Date().toISOString().split('T')[0]; }
     };
 
-    const [filterDateRange, setFilterDateRange] = useLocalStorage<{ from: string, to: string }>('filterDateRange', {
+    // Always reset to Today on app launch (no localStorage persistence)
+    const [filterDateRange, setFilterDateRange] = useState<{ from: string, to: string }>({
         from: getTodayInTimezone(),
         to: getTodayInTimezone()
     });

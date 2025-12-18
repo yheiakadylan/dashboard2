@@ -20,7 +20,6 @@ async function fetchAndCacheMerchizeCatalog(): Promise<Map<string, string>> {
         return skuToNameMap;
     }
 
-    console.log("--- Fetching Merchize Product Catalog (Cache expired) ---");
     const newMap = new Map<string, string>();
     let page = 1;
     const limit = 50;
@@ -74,7 +73,6 @@ async function fetchAndCacheMerchizeCatalog(): Promise<Map<string, string>> {
         return skuToNameMap || newMap; 
     }
 
-    console.log(`--- Merchize Catalog Fetched. Mapped ${newMap.size} SKUs ---`);
     skuToNameMap = newMap;
     lastCatalogFetch = now;
     return skuToNameMap;
@@ -114,8 +112,6 @@ async function fetchMerchizeCosts(orderIds: string[]): Promise<CostData[]> {
             
             const apiUrl = `${merchizeConfig.base_url}/order/external/orders/list-orders-detail`;
             
-            console.log("--- Sending Request to Merchize ---");
-            console.log("URL:", apiUrl);
             
             const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -127,8 +123,6 @@ async function fetchMerchizeCosts(orderIds: string[]): Promise<CostData[]> {
             });
 
             const responseText = await response.text();
-            console.log("\n--- Received Response from Merchize ---");
-            console.log("Status:", response.status, response.statusText);
             
             if (!response.ok) {
                 console.error("Raw Response Body on Error:", responseText);

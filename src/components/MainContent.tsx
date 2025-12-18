@@ -48,7 +48,7 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
     //    Ideally, if records > 0 but isProcessing, we currently show empty tabs because processedData is initial.
     //    So we should block until processing is done if processedData is empty.
 
-    // Check if we have valid processed data for the current view
+    // Show skeleton if we have no data at all (initial load)
     const hasData = processedData.orders.rows.length > 0 || processedData.overview.chartData.length > 0;
 
     if ((isLoading || isProcessing) && !hasData) {
@@ -59,51 +59,68 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
         );
     }
 
+    // Render content with optional processing overlay
+    const renderContent = () => {
+        switch (activeTab) {
+            case 'Overview':
+                const isSingleDay = filterDateRange.from === filterDateRange.to;
+                return (
+                    <ErrorBoundary>
+                        <OverviewTab
+                            processedData={processedData}
+                            isSingleDay={isSingleDay}
+                            handleViewDayDetails={handleViewDayDetails}
+                        />
+                    </ErrorBoundary>
+                );
 
+            case 'Products':
+                return (
+                    <ProductsTab processedData={processedData} />
+                );
 
-    switch (activeTab) {
-        case 'Overview':
-            const isSingleDay = filterDateRange.from === filterDateRange.to;
-            return (
-                <ErrorBoundary>
-                    <OverviewTab
+            case 'Order List':
+                return (
+                    <OrderListTab
                         processedData={processedData}
-                        isSingleDay={isSingleDay}
-                        handleViewDayDetails={handleViewDayDetails}
+                        dayFilter={dayFilter}
+                        sourceFilter={sourceFilter}
+                        timeZone={timeZone}
+                        handleViewOrderDetails={onViewOrderDetails}
+                        handleResyncOrder={onResyncOrder}
                     />
-                </ErrorBoundary>
-            );
+                );
 
-        case 'Products':
-            return (
-                <ProductsTab processedData={processedData} />
-            );
+            case 'Support':
+                return (
+                    <SupportTab processedData={processedData} />
+                );
 
-        case 'Order List':
-            return (
-                <OrderListTab
-                    processedData={processedData}
-                    dayFilter={dayFilter}
-                    sourceFilter={sourceFilter}
-                    timeZone={timeZone}
-                    handleViewOrderDetails={onViewOrderDetails}
-                    handleResyncOrder={onResyncOrder}
-                />
-            );
+            case 'Fulfill':
+                return (
+                    <FulfillTab processedData={processedData} />
+                );
 
-        case 'Support':
-            return (
-                <SupportTab processedData={processedData} />
-            );
+            default:
+                return <div className="p-8 text-center text-gray-500">Selected tab content not available.</div>;
+        }
+    };
 
-        case 'Fulfill':
-            return (
-                <FulfillTab processedData={processedData} />
-            );
+    return (
+        <div className="relative">
+            {/* Main content - always visible */}
+            {renderContent()}
 
-        default:
-            return <div className="p-8 text-center text-gray-500">Selected tab content not available.</div>;
-    }
+            {/* Skeleton overlay when processing with existing data */}
+            {isProcessing && hasData && (
+                <div className="absolute inset-0 bg-white/60 dark:bg-gray-900/60 backdrop-blur-[2px] rounded-lg overflow-hidden pointer-events-none">
+                    <div className="p-4">
+                        <SkeletonLoader variant="table-row" count={8} />
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 };
 
 export default MainContent;

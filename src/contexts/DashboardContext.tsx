@@ -176,13 +176,20 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   // DON'T reset processedData - we'll show loading overlay instead (optimistic UI)
 
   const workerRef = useRef<Worker | null>(null);
+  const workerRequestIdRef = useRef<number>(0);
 
   useEffect(() => {
     workerRef.current = new Worker(new URL('../workers/dataWorker.ts', import.meta.url), { type: 'module' });
     workerRef.current.onmessage = (e) => {
-      const { success, data, error } = e.data;
+      const { success, data, error, requestId } = e.data;
+
+      // Check if this response is from the latest request
+      if (requestId !== workerRequestIdRef.current) {
+        return;
+      }
+
       if (success) setProcessedData(data);
-      else console.error("Worker Error:", error);
+      else console.error("[Worker] Error:", error);
       setIsProcessing(false);
     };
 
@@ -195,19 +202,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     return () => workerRef.current?.terminate();
   }, []);
 
-  // --- Render-Phase State Update Pattern ---
-  // We check if filteredRecords has changed to synchronously set isProcessing BEFORE the render completes.
-  // This prevents the "flash" of empty state between "isLoading: false" and "useLayoutEffect".
+  // Track the last records sent to worker
   const lastTriggeredRef = useRef(filteredRecords);
-
-  if (filteredRecords !== lastTriggeredRef.current) {
-    lastTriggeredRef.current = filteredRecords;
-    if (!isProcessing) {
-      setIsProcessing(true);
-      // Clear old data to prevent "Stale Data" view while processing new large/small transitions
-      setProcessedData(initialProcessedData);
-    }
-  }
 
   // Sync ref for safety timeout check
   const isProcessingRef = useRef(isProcessing);
@@ -217,6 +213,17 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   useEffect(() => {
     if (!workerRef.current) return;
 
+    // Check if records actually changed
+    if (filteredRecords === lastTriggeredRef.current) {
+      return;
+    }
+
+    lastTriggeredRef.current = filteredRecords;
+
+    // Set processing state
+    setIsProcessing(true);
+    // DON'T reset processedData - keep old data visible for optimistic UI
+
     // Safety timeout: If worker doesn't respond in 10s, force unlock UI
     const safetyTimeout = setTimeout(() => {
       if (isProcessingRef.current) {
@@ -225,8 +232,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       }
     }, 10000);
 
-    // isProcessing is already true from the render phase check above (for records changes).
+    // Increment request ID
+    workerRequestIdRef.current += 1;
+    const currentRequestId = workerRequestIdRef.current;
     workerRef.current.postMessage({
+      requestId: currentRequestId,
       records: filteredRecords,
       previousRecords: previousPeriodRecords,
       accounts: visibleAccounts,

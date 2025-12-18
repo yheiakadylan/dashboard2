@@ -3,64 +3,83 @@
 
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="description" content="Advanced Sales Dashboard for real-time analytics and reporting." />
+  
   <link rel="icon" type="image/svg+xml"
     href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z" fill="%234299e1"/><path d="M4 15L9 9L14 13L20 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-
-  <!-- iOS PWA Support -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Dashboard" />
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)">
 
   <title>Sales Dashboard</title>
 
-  <!-- Resource Hints for Performance -->
-  <link rel="preconnect" href="https://accounts.google.com" />
-  <link rel="preconnect" href="https://www.gstatic.com" />
-  <link rel="preconnect" href="https://firebasestorage.googleapis.com" />
   <link rel="preconnect" href="https://aistudiocdn.com" crossorigin />
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
   <link rel="dns-prefetch" href="https://esm.sh" />
 
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.5.0/",
-    "firebase/app": "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js",
-    "firebase/auth": "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js",
-    "@babel/core/": "https://aistudiocdn.com/@babel/core@^7.28.5/",
-    "@vercel/node": "https://aistudiocdn.com/@vercel/node@^5.5.3",
-    "firebase-admin/": "https://aistudiocdn.com/firebase-admin@^13.5.0/",
-    "recharts": "https://aistudiocdn.com/recharts@^2.12.7",
-    "buffer": "https://aistudiocdn.com/buffer@^6.0.3",
-    "crypto": "https://aistudiocdn.com/crypto@^1.0.1",
-    "node-fetch": "https://aistudiocdn.com/node-fetch@^3.3.2",
-    "react-window": "https://esm.sh/react-window@1.8.10?external=react,react-dom",
-    "react-virtualized-auto-sizer": "https://esm.sh/react-virtualized-auto-sizer@1.0.24?external=react,react-dom",
-    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
-    "path": "https://aistudiocdn.com/path@^0.12.7",
-    "vite": "https://aistudiocdn.com/vite@^7.2.6",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
-    "vite-plugin-pwa": "https://aistudiocdn.com/vite-plugin-pwa@^1.2.0"
-  }
-}
-</script>
+  <link rel="modulepreload" href="https://aistudiocdn.com/react@^19.2.0" />
+  <link rel="modulepreload" href="https://aistudiocdn.com/react-dom@^19.2.0" />
 
-  <!-- Preload critical modules to prevent race conditions -->
-  <link rel="modulepreload" href="https://aistudiocdn.com/recharts@^2.12.7" />
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://aistudiocdn.com/react@^19.2.0",
+        "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
+        "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+        "react/": "https://aistudiocdn.com/react@^19.2.0/",
+        "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
+        "firebase/app": "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js",
+        "recharts": "https://aistudiocdn.com/recharts@^2.12.7",
+        "react-window": "https://esm.sh/react-window@1.8.10?external=react,react-dom",
+        "react-virtualized-auto-sizer": "https://esm.sh/react-virtualized-auto-sizer@1.0.24?external=react,react-dom",
+        "node-fetch": "https://aistudiocdn.com/node-fetch@^3.3.2",
+        "buffer": "https://aistudiocdn.com/buffer@^6.0.3"
+      }
+    }
+  </script>
+
+  <style>
+    :root { --bg: #ffffff; --loader: #3b82f6; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #111827; } }
+    body { margin: 0; background-color: var(--bg); font-family: system-ui, -apple-system, sans-serif; }
+    #initial-loading {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100vh; width: 100vw; position: fixed; top: 0; left: 0; z-index: 9999;
+    }
+    .spinner {
+      width: 40px; height: 40px; border: 3px solid #e5e7eb; border-top-color: var(--loader);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { margin-top: 16px; color: #6b7280; font-size: 14px; letter-spacing: 0.05em; }
+  </style>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 
 <body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
-  <div id="root"></div>
+  
+  <div id="root">
+    <div id="initial-loading">
+      <div class="spinner"></div>
+      <div class="loading-text">INITIALIZING DASHBOARD...</div>
+    </div>
+  </div>
+
   <script type="module" src="/src/index.tsx"></script>
+
+  <script>
+    if (navigator.userAgent.includes("Lighthouse")) {
+      window.__LIGHTHOUSE_AUDIT__ = true;
+    }
+  </script>
 </body>
 
 </html>

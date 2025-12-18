@@ -12,6 +12,7 @@ export interface Account {
   historical_sync_complete?: boolean; // Đánh dấu là true khi quá trình quét lịch sử đã hoàn tất
   scan_start_date?: string; // Ngày bắt đầu của lịch sử email, được tìm thấy bởi giai đoạn dò tìm
   lastKnownHistoryId?: string; // ID cuối cùng mà webhook đã xử lý
+  platforms?: string[]; // 'etsy', 'ebay'
 }
 
 export interface OrderItem {
