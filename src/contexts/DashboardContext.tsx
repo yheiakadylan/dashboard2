@@ -22,6 +22,7 @@ interface DashboardContextType {
   teamId: string;
   role: 'owner' | 'user';
   permissions: { [key: string]: boolean };
+  allowedAccounts?: string[]; // For shop-level access control
 
   // Data State (from useDataSync)
   accounts: Account[];
@@ -434,7 +435,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   return (
     <DashboardContext.Provider value={{
-      user, teamId, role, permissions,
+      user, teamId, role, permissions, allowedAccounts,
       accounts: visibleAccounts, setAccounts: setAllAccounts,
       records, setRecords,
       manualCosts, setManualCosts,

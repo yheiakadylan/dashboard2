@@ -27,6 +27,7 @@ const Header: React.FC = () => {
     setShowExportOptions,
     handleExportWithOptions,
     teamId, // For NotificationCenter Firestore sync
+    allowedAccounts, // For notification filtering by shop
   } = useDashboard();
 
   const {
@@ -48,6 +49,14 @@ const Header: React.FC = () => {
     toggleMobileMenu,
     setIsNotificationDetailOpen,
   } = useUI();
+
+  // Create userProfile for notification filtering
+  const userProfile = teamId ? {
+    teamId,
+    role,
+    permissions,
+    allowedAccounts
+  } : null;
 
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -260,7 +269,7 @@ const Header: React.FC = () => {
           <TimezoneSelect value={timeZone} onChange={setTimeZone} options={timezones} />
 
           {/* Notification Center */}
-          <NotificationCenter teamId={teamId} onDetailModalChange={setIsNotificationDetailOpen} />
+          <NotificationCenter teamId={teamId} onDetailModalChange={setIsNotificationDetailOpen} userProfile={userProfile} />
 
           <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
 
@@ -320,7 +329,7 @@ const Header: React.FC = () => {
           )}
 
           {/* Notification Center - Mobile */}
-          <NotificationCenter teamId={teamId} onDetailModalChange={setIsNotificationDetailOpen} />
+          <NotificationCenter teamId={teamId} onDetailModalChange={setIsNotificationDetailOpen} userProfile={userProfile} />
 
           <button
             onClick={handleMobileMenuToggle}

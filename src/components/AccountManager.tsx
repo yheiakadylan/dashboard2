@@ -359,9 +359,14 @@ const MailManager: React.FC = () => {
 
 // --- MAIN ACCOUNT MANAGER MODAL ---
 const AccountManager: React.FC = () => {
-  const { role } = useDashboard();
+  const { role, permissions } = useDashboard();
   const { setIsAccountManagerOpen } = useUI();
-  const [activeTab, setActiveTab] = useState<'mail' | 'users' | 'costs' | 'notifications'>('mail');
+
+  // User thường (không có quyền mail) chỉ thấy notifications tab
+  const canManageMail = role === 'owner' || permissions.canManageSettings;
+  const defaultTab = canManageMail ? 'mail' : 'notifications';
+
+  const [activeTab, setActiveTab] = useState<'mail' | 'users' | 'costs' | 'notifications'>(defaultTab);
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // Chỉ đóng nếu click trực tiếp vào backdrop (không phải con của nó)
     if (e.target === e.currentTarget) {
@@ -386,12 +391,17 @@ const AccountManager: React.FC = () => {
 
         {/* Tabs */}
         <div className="flex border-b border-gray-200 dark:border-gray-700 flex-shrink-0 overflow-x-auto scrollbar-hide">
-          <button
-            onClick={() => setActiveTab('mail')}
-            className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'mail' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-          >
-            Mail Accounts
-          </button>
+          {/* Mail Accounts - Only for owner or users with canManageSettings */}
+          {canManageMail && (
+            <button
+              onClick={() => setActiveTab('mail')}
+              className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'mail' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            >
+              Mail Accounts
+            </button>
+          )}
+
+          {/* Notifications - Available for ALL users */}
           <button
             onClick={() => setActiveTab('notifications')}
             className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'notifications' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}

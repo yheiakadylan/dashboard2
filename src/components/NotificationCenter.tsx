@@ -10,14 +10,16 @@ import NotificationItem from './NotificationItem';
 import NotificationDetailModal from './NotificationDetailModal';
 import { executeNotificationAction, NotificationActionHandlers } from '../utils/notificationActions';
 import { Notification } from '../types/notification';
+import { UserProfile } from '../hooks/useAuthLogic';
 
 interface Props {
     actionHandlers?: NotificationActionHandlers;
     teamId?: string; // For Firestore sync
     onDetailModalChange?: (isOpen: boolean) => void; // Callback when detail modal opens/closes
+    userProfile?: UserProfile | null; // For permission-based filtering
 }
 
-const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDetailModalChange }) => {
+const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDetailModalChange, userProfile }) => {
     const {
         notifications,
         unreadCount,
@@ -28,7 +30,7 @@ const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDe
         deleteNotification,
         toggleOpen,
         closePanel,
-    } = useNotificationCenter({ teamId, enableFirestoreSync: true });
+    } = useNotificationCenter({ teamId, enableFirestoreSync: true, userProfile });
 
     const [detailModal, setDetailModal] = useState<Notification | null>(null);
     const [showClearConfirm, setShowClearConfirm] = useState(false);

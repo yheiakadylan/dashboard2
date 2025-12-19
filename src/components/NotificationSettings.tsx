@@ -18,7 +18,7 @@ interface NotificationPrefs {
 }
 
 const NotificationSettings: React.FC = () => {
-  const { user } = useDashboard();
+  const { user, role, permissions } = useDashboard();
   const { addNotification } = useNotification();
   const [permission, setPermission] = useState<NotificationPermission>(Notification.permission);
   const [prefs, setPrefs] = useState<NotificationPrefs>({
@@ -153,94 +153,118 @@ const NotificationSettings: React.FC = () => {
           Notification Preferences
         </h3>
 
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-gray-800 dark:text-gray-200">New Orders</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Get notified when a new sales email is parsed.</p>
-          </div>
-          <button
-            onClick={() => handleToggle('order')}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.order ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.order ? 'translate-x-6' : 'translate-x-1'
+        {/* New Orders - Requires viewSales */}
+        {(role === 'owner' || permissions.viewSales) && (
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-gray-800 dark:text-gray-200">New Orders</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Get notified when a new sales email is parsed.</p>
+            </div>
+            <button
+              onClick={() => handleToggle('order')}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.order ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
                 }`}
-            />
-          </button>
-        </div>
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.order ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+              />
+            </button>
+          </div>
+        )}
 
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-gray-800 dark:text-gray-200">Funds Received</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Get notified when payout/funds emails arrive.</p>
-          </div>
-          <button
-            onClick={() => handleToggle('funds')}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.funds ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.funds ? 'translate-x-6' : 'translate-x-1'
+        {/* Funds Received - Requires viewFunds */}
+        {(role === 'owner' || permissions.viewFunds) && (
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-gray-800 dark:text-gray-200">Funds Received</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Get notified when payout/funds emails arrive.</p>
+            </div>
+            <button
+              onClick={() => handleToggle('funds')}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.funds ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
                 }`}
-            />
-          </button>
-        </div>
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.funds ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+              />
+            </button>
+          </div>
+        )}
 
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-gray-800 dark:text-gray-200">Daily Summary</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Receive a daily report at 00:30 UTC-7.</p>
-          </div>
-          <button
-            onClick={() => handleToggle('summary')}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.summary ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.summary ? 'translate-x-6' : 'translate-x-1'
-                }`}
-            />
-          </button>
-        </div>
 
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-gray-800 dark:text-gray-200">User Login</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Get notified when team members log into dashboard.</p>
-          </div>
-          <button
-            onClick={() => handleToggle('login')}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.login ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.login ? 'translate-x-6' : 'translate-x-1'
+        {/* Daily Summary - Requires viewSales */}
+        {(role === 'owner' || permissions.viewSales) && (
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-gray-800 dark:text-gray-200">Daily Summary</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Receive a daily report at 00:30 UTC-7.
+                {!permissions.viewFunds && role !== 'owner' && (
+                  <span className="block mt-0.5 text-amber-600 dark:text-amber-400">Note: Funds data excluded (no viewFunds permission)</span>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={() => handleToggle('summary')}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.summary ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
                 }`}
-            />
-          </button>
-        </div>
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.summary ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+              />
+            </button>
+          </div>
+        )}
 
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-gray-800 dark:text-gray-200">Support Cases</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Get notified about customer support cases and help requests.</p>
-          </div>
-          <button
-            onClick={() => handleToggle('support')}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.support ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.support ? 'translate-x-6' : 'translate-x-1'
+
+        {/* User Login - Owner only */}
+        {role === 'owner' && (
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-gray-800 dark:text-gray-200">User Login</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Get notified when team members log into dashboard.</p>
+            </div>
+            <button
+              onClick={() => handleToggle('login')}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.login ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
                 }`}
-            />
-          </button>
-        </div>
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.login ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+              />
+            </button>
+          </div>
+        )}
+
+
+        {/* Support Cases - Requires viewSales */}
+        {(role === 'owner' || permissions.viewSales) && (
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-gray-800 dark:text-gray-200">Support Cases</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Get notified about customer support cases and help requests.</p>
+            </div>
+            <button
+              onClick={() => handleToggle('support')}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.support ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
+                }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.support ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+              />
+            </button>
+          </div>
+        )}
       </div>
-    </div>
+    </div >
   );
 };
 
 // Memoize to prevent unnecessary re-renders
 export default React.memo(NotificationSettings);
+

@@ -13,6 +13,7 @@ import { UIProvider, useUI } from './contexts/UIContext';
 import SidebarSkeleton from './components/SidebarSkeleton';
 import Spinner from './components/Spinner';
 import { registerPWAUpdate } from './services/pwaUpdateService';
+import { DeepLinkHandler } from './components/DeepLinkHandler';
 
 // Lazy load heavy components
 import Sidebar from './components/Sidebar';
@@ -139,6 +140,25 @@ const DashboardLayout: React.FC = () => {
     }, [records, accounts, teamId, setRecords, addNotification]);
 
     const closeOrderDetail = useCallback(() => setSelectedOrder(null), []);
+
+    // Deep link handlers
+    const handleOpenNotificationById = useCallback((notificationId: string) => {
+        console.log('[Deep Link] Opening notification:', notificationId);
+        // TODO: Implement opening notification detail modal by ID
+        // This would require accessing notification center's state
+        addNotification('Deep link to notification: ' + notificationId, 'info');
+    }, [addNotification]);
+
+    const handleOpenOrderById = useCallback((orderId: string) => {
+        console.log('[Deep Link] Opening order:', orderId);
+        // Find record by order_id (not by record.id)
+        const record = records.find(r => r.order_id === orderId);
+        if (record) {
+            handleViewOrderDetails(record.id);
+        } else {
+            addNotification(`Order #${orderId} not found in current date range`, 'error');
+        }
+    }, [records, handleViewOrderDetails, addNotification]);
 
     // Listen for foreground FCM messages
     useEffect(() => {
@@ -273,6 +293,12 @@ const DashboardLayout: React.FC = () => {
             )}
             <BottomNav tabs={visibleTabs} />
             <InstallPrompt />
+
+            {/* Deep Link Handler */}
+            <DeepLinkHandler
+                onOpenNotification={handleOpenNotificationById}
+                onOpenOrder={handleOpenOrderById}
+            />
         </div>
     );
 };

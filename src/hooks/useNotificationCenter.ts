@@ -4,11 +4,13 @@
  * Supports both localStorage (offline) and Firestore (realtime sync)
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Notification } from '../types/notification';
 import { cleanupOldNotifications } from '../utils/notificationCleanup';
 import { collection, query, onSnapshot, orderBy, limit, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../services/firebaseService';
+import { UserProfile } from './useAuthLogic';
+import { filterNotificationsByPermissions } from '../utils/notificationPermissions';
 
 const STORAGE_KEY = 'dashboard_notifications';
 const AUTO_CLEANUP_DAYS = 3;
@@ -17,10 +19,11 @@ const MAX_NOTIFICATIONS = 50; // Limit to prevent memory issues
 interface UseNotificationCenterOptions {
     teamId?: string; // If provided, sync with Firestore
     enableFirestoreSync?: boolean; // Enable/disable Firestore sync
+    userProfile?: UserProfile | null; // For permission-based filtering
 }
 
 export function useNotificationCenter(options: UseNotificationCenterOptions = {}) {
-    const { teamId, enableFirestoreSync = true } = options;
+    const { teamId, enableFirestoreSync = true, userProfile } = options;
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isOpen, setIsOpen] = useState(false);
     const [processedFirestoreIds, setProcessedFirestoreIds] = useState<Set<string>>(new Set());
@@ -188,8 +191,8 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
     );
 
     /**
-   * Mark all notifications as read
-   */
+    * Mark all notifications as read
+    */
     const markAllAsRead = useCallback(() => {
         setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     }, []);
@@ -250,10 +253,15 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
         [teamId, enableFirestoreSync]
     );
 
+    // Apply permission-based filtering
+    const filteredNotifications = useMemo(() => {
+        return filterNotificationsByPermissions(notifications, userProfile);
+    }, [notifications, userProfile]);
+
     /**
-     * Get unread count
+     * Get unread count (from filtered notifications)
      */
-    const unreadCount = notifications.filter((n) => !n.isRead).length;
+    const unreadCount = filteredNotifications.filter((n) => !n.isRead).length;
 
     /**
      * Toggle notification center
@@ -267,7 +275,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
     }, []);
 
     return {
-        notifications,
+        notifications: filteredNotifications, // Return filtered notifications
         unreadCount,
         isOpen,
         addNotification,
