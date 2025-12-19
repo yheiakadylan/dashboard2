@@ -5,29 +5,96 @@
 
 import React from 'react';
 import { Notification } from '../types/notification';
+import { UserProfile } from '../hooks/useAuthLogic';
+import { Account } from '../types';
 import { X, BarChart3, LogIn, TrendingUp, ShoppingBag, DollarSign, Calendar, MapPin, Monitor, HelpCircle, FileText } from 'lucide-react';
 
 interface Props {
     notification: Notification;
     onClose: () => void;
+    userProfile?: UserProfile | null; // Full UserProfile with role and permissions
+    accounts?: Account[]; // For mapping allowed emails to shop names
 }
 
-const NotificationDetailModal: React.FC<Props> = ({ notification, onClose }) => {
+const NotificationDetailModal: React.FC<Props> = ({ notification, onClose, userProfile, accounts = [] }) => {
+    // Check if user has permission to view funds
+    const canViewFunds = userProfile?.role === 'owner' || userProfile?.permissions.viewFunds === true;
+
     const renderSummaryContent = () => {
         const data = notification.metadata.summary_data;
         if (!data) return null;
 
+        // Filter shops based on user permissions
+        let filteredShops = data.shops || [];
+        if (userProfile?.allowedAccounts && userProfile.allowedAccounts.length > 0) {
+            // Create a set of allowed identifiers (emails and shop names)
+            const allowedIdentifiers = new Set<string>();
+
+            userProfile.allowedAccounts.forEach(email => {
+                const emailLower = email.toLowerCase();
+                allowedIdentifiers.add(emailLower);
+
+                // Find matching account to get label/shop name
+                const account = accounts.find(acc => acc.email.toLowerCase() === emailLower);
+                if (account?.label) {
+                    allowedIdentifiers.add(account.label.toLowerCase());
+                }
+            });
+
+            filteredShops = filteredShops.filter((shop: any) => {
+                const shopNameLower = shop.name.toLowerCase();
+                // Check against both email and mapped shop name
+                return allowedIdentifiers.has(shopNameLower);
+            });
+        }
+
+        // Calculate totals from filtered shops
+        const filteredTotalOrders = filteredShops.reduce((sum: number, shop: any) => sum + (shop.orders || 0), 0);
+        const filteredTotalRevenue = filteredShops.reduce((sum: number, shop: any) => {
+            // Extract USD value from revenue object {USD: amount}
+            const revenueUSD = typeof shop.revenue === 'object' ? (shop.revenue.USD || 0) : (shop.revenue || 0);
+            return sum + revenueUSD;
+        }, 0);
+
+        // Calculate total funds (payouts)
+        const filteredTotalFunds = filteredShops.reduce((sum: number, shop: any) => {
+            if (!shop.funds) return sum;
+            const fundsUSD = typeof shop.funds === 'object' ? (shop.funds.USD || 0) : (shop.funds || 0);
+            return sum + fundsUSD;
+        }, 0);
+
+        // Extract total revenue (handle both object and number formats)
+        const displayTotalRevenue = typeof data.totalRevenue === 'object'
+            ? (data.totalRevenue.USD || 0)
+            : (data.totalRevenue || 0);
+
+        // Extract total funds from data
+        const displayTotalFunds = data.totalFunds
+            ? (typeof data.totalFunds === 'object' ? (data.totalFunds.USD || 0) : data.totalFunds)
+            : 0;
+
+        // Use filtered values if user has permissions, otherwise use totals
+        const displayOrders = userProfile?.allowedAccounts && userProfile.allowedAccounts.length > 0
+            ? filteredTotalOrders
+            : data.totalOrders;
+        const displayRevenue = userProfile?.allowedAccounts && userProfile.allowedAccounts.length > 0
+            ? filteredTotalRevenue
+            : displayTotalRevenue;
+        const displayFunds = userProfile?.allowedAccounts && userProfile.allowedAccounts.length > 0
+            ? filteredTotalFunds
+            : displayTotalFunds;
+
         return (
             <div className="space-y-6">
                 {/* Header Stats */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className={`grid gap-4 ${canViewFunds ? 'grid-cols-3' : 'grid-cols-2'}`}>
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
                         <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 mb-2">
                             <ShoppingBag className="w-5 h-5" />
                             <span className="text-sm font-medium">Total Orders</span>
                         </div>
                         <p className="text-3xl font-bold text-slate-900 dark:text-slate-100">
-                            {data.totalOrders}
+                            {displayOrders}
                         </p>
                     </div>
 
@@ -37,9 +104,21 @@ const NotificationDetailModal: React.FC<Props> = ({ notification, onClose }) => 
                             <span className="text-sm font-medium">Total Revenue</span>
                         </div>
                         <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
-                            ${data.totalRevenue.toLocaleString()}
+                            ${displayRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
                     </div>
+
+                    {canViewFunds && (
+                        <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+                            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 mb-2">
+                                <TrendingUp className="w-5 h-5" />
+                                <span className="text-sm font-medium">Total Funds</span>
+                            </div>
+                            <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+                                ${displayFunds.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 {/* Date */}
@@ -69,25 +148,47 @@ const NotificationDetailModal: React.FC<Props> = ({ notification, onClose }) => 
                                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                         Revenue
                                     </th>
+                                    {canViewFunds && (
+                                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                            Funds
+                                        </th>
+                                    )}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {data.shops.map((shop, idx) => (
-                                    <tr
-                                        key={idx}
-                                        className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
-                                    >
-                                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">
-                                            {shop.name}
-                                        </td>
-                                        <td className="px-4 py-3 text-sm text-right text-gray-700 dark:text-gray-300">
-                                            {shop.orders}
-                                        </td>
-                                        <td className="px-4 py-3 text-sm text-right font-semibold text-green-600 dark:text-green-400">
-                                            ${shop.revenue.toLocaleString()}
-                                        </td>
-                                    </tr>
-                                ))}
+                                {filteredShops.map((shop: any, idx: number) => {
+                                    // Extract revenue value (handle object format {USD: amount})
+                                    const shopRevenue = typeof shop.revenue === 'object'
+                                        ? (shop.revenue.USD || 0)
+                                        : (shop.revenue || 0);
+
+                                    // Extract funds value
+                                    const shopFunds = shop.funds
+                                        ? (typeof shop.funds === 'object' ? (shop.funds.USD || 0) : shop.funds)
+                                        : 0;
+
+                                    return (
+                                        <tr
+                                            key={idx}
+                                            className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
+                                        >
+                                            <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">
+                                                {shop.name}
+                                            </td>
+                                            <td className="px-4 py-3 text-sm text-right text-gray-700 dark:text-gray-300">
+                                                {shop.orders}
+                                            </td>
+                                            <td className="px-4 py-3 text-sm text-right font-semibold text-green-600 dark:text-green-400">
+                                                ${shopRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                            {canViewFunds && (
+                                                <td className="px-4 py-3 text-sm text-right font-semibold text-blue-600 dark:text-blue-400">
+                                                    ${shopFunds.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                            )}
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

@@ -98,6 +98,12 @@ export const shouldShowNotification = (
     return true;
 };
 
+// Extend UserProfile locally if needed, but ideally it should match the one in useAuthLogic
+// We assume UserProfile passed here has the email field we added
+interface ExtendedUserProfile extends UserProfile {
+    email?: string;
+}
+
 /**
  * Filter an array of notifications based on user permissions
  */
@@ -108,36 +114,23 @@ export const filterNotificationsByPermissions = (
     if (!userProfile) return [];
 
     return notifications
-        .filter(notification => shouldShowNotification(notification, userProfile))
-        .map(notification => {
-            // For SUMMARY notifications, filter shops list
-            if (notification.type === 'SUMMARY' && notification.metadata.summary_data) {
-                const { allowedAccounts } = userProfile;
-
-                if (allowedAccounts && allowedAccounts.length > 0) {
-                    const filteredShops = notification.metadata.summary_data.shops.filter(
-                        shop => allowedAccounts.includes(shop.name)
-                    );
-
-                    // Recalculate totals based on filtered shops
-                    const totalOrders = filteredShops.reduce((sum, shop) => sum + shop.orders, 0);
-                    const totalRevenue = filteredShops.reduce((sum, shop) => sum + shop.revenue, 0);
-
-                    return {
-                        ...notification,
-                        metadata: {
-                            ...notification.metadata,
-                            summary_data: {
-                                ...notification.metadata.summary_data,
-                                shops: filteredShops,
-                                totalOrders,
-                                totalRevenue
-                            }
-                        }
-                    };
+        .filter(notification => {
+            // Check if user has soft-deleted this notification
+            if (notification.deletedBy && userProfile.email) {
+                if (notification.deletedBy.includes(userProfile.email)) {
+                    return false;
                 }
             }
 
+            return shouldShowNotification(notification, userProfile);
+        })
+        .map(notification => {
+            // For SUMMARY notifications, we DON'T filter shops here
+            // because NotificationDetailModal will handle the filtering
+            // Otherwise we'd be filtering twice and losing data!
+
+            // Just return the notification as-is
+            // The modal will filter shops based on userProfile.allowedAccounts
             return notification;
         });
 };

@@ -34,11 +34,13 @@ export interface NotificationMetadata {
     summary_data?: {
         date: string;
         totalOrders: number;
-        totalRevenue: number;
+        totalRevenue: number | { [currency: string]: number }; // Support both formats
+        totalFunds?: { [currency: string]: number }; // Multi-currency funds
         shops: Array<{
             name: string;
             orders: number;
-            revenue: number;
+            revenue: number | { [currency: string]: number }; // Support both formats
+            funds?: { [currency: string]: number }; // Multi-currency funds
         }>;
     };
 
@@ -63,6 +65,7 @@ export interface Notification {
     content: string;
     metadata: NotificationMetadata;
     isRead: boolean;
+    deletedBy?: string[]; // List of user emails who have deleted this notification
     createdAt: string; // ISO string
 }
 

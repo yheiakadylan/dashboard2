@@ -10,6 +10,7 @@ import NotificationItem from './NotificationItem';
 import NotificationDetailModal from './NotificationDetailModal';
 import { executeNotificationAction, NotificationActionHandlers } from '../utils/notificationActions';
 import { Notification } from '../types/notification';
+import { Account } from '../types';
 import { UserProfile } from '../hooks/useAuthLogic';
 import { useUI } from '../contexts/UIContext';
 
@@ -18,9 +19,10 @@ interface Props {
     teamId?: string; // For Firestore sync
     onDetailModalChange?: (isOpen: boolean) => void; // Callback when detail modal opens/closes
     userProfile?: UserProfile | null; // For permission-based filtering
+    accounts?: Account[]; // For mapping allowed emails to shop names
 }
 
-const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDetailModalChange, userProfile }) => {
+const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDetailModalChange, userProfile, accounts = [] }) => {
     const {
         notifications,
         unreadCount,
@@ -200,6 +202,8 @@ const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDe
             {detailModal && (
                 <NotificationDetailModal
                     notification={detailModal}
+                    userProfile={userProfile}
+                    accounts={accounts}
                     onClose={() => {
                         setDetailModal(null);
                         onDetailModalChange?.(false);

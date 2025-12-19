@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Notification } from '../types/notification';
 import { cleanupOldNotifications } from '../utils/notificationCleanup';
-import { collection, query, onSnapshot, orderBy, limit, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, limit, updateDoc, doc, deleteDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '../services/firebaseService';
 import { UserProfile } from './useAuthLogic';
 import { filterNotificationsByPermissions } from '../utils/notificationPermissions';
@@ -94,14 +94,19 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
 
                         console.log('[NotificationCenter] New notification from Firestore:', firestoreNotification);
 
-                        // Add to state
+                        // Add to state and ensuring sorting
                         setNotifications((prev) => {
                             // Check if already exists (by ID)
                             const exists = prev.some((n) => n.id === firestoreId);
                             if (exists) return prev;
 
-                            // Add to front of list
-                            return [firestoreNotification, ...prev].slice(0, MAX_NOTIFICATIONS);
+                            // Add new notification and sort entire list by date desc
+                            const newList = [firestoreNotification, ...prev];
+
+                            // Sort by createdAt desc (newest first)
+                            newList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+                            return newList.slice(0, MAX_NOTIFICATIONS);
                         });
 
                         // Mark as processed
@@ -229,29 +234,34 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
     /**
      * Delete a specific notification (sync to Firestore if applicable)
      */
-    const deleteNotification = useCallback(
-        async (id: string) => {
-            console.log('[NotificationCenter] Deleting notification:', { id, teamId, enableFirestoreSync, isLocalOnly: id.startsWith('notif_') });
+    const deleteNotification = useCallback(async (id: string, hardDelete = false) => {
+        // Optimistic local update
+        setNotifications((prev) => prev.filter((n) => n.id !== id));
 
-            // Update local state immediately
-            setNotifications((prev) => prev.filter((n) => n.id !== id));
+        if (!teamId || !enableFirestoreSync || id.startsWith('notif_')) {
+            return;
+        }
 
-            // Sync to Firestore if it's a Firestore notification
-            if (teamId && enableFirestoreSync && !id.startsWith('notif_')) {
-                try {
-                    console.log('[NotificationCenter] Deleting from Firestore:', `user/${teamId}/notifications/${id}`);
-                    const notifRef = doc(db, 'user', teamId, 'notifications', id);
-                    await deleteDoc(notifRef);
-                    console.log('[NotificationCenter] Successfully deleted from Firestore');
-                } catch (error) {
-                    console.error('[NotificationCenter] Failed to delete from Firestore:', error);
-                }
+        try {
+            const docRef = doc(db, 'user', teamId, 'notifications', id);
+
+            if (hardDelete) {
+                await deleteDoc(docRef);
+                console.log('[NotificationCenter] Hard deleted from Firestore:', id);
+            } else if (userProfile?.email) {
+                // Soft delete: Add user email to deletedBy array
+                await updateDoc(docRef, {
+                    deletedBy: arrayUnion(userProfile.email)
+                });
+                console.log('[NotificationCenter] Soft deleted (hidden) for user:', userProfile.email);
             } else {
-                console.log('[NotificationCenter] Skipping Firestore delete (local-only or sync disabled)');
+                console.warn('[NotificationCenter] No user email found for soft delete, skipping Firestore update');
             }
-        },
-        [teamId, enableFirestoreSync]
-    );
+        } catch (error) {
+            console.error('Failed to delete notification:', error);
+            // Revert local change on error if critical, but for UI responsiveness we typically leave it
+        }
+    }, [teamId, enableFirestoreSync, userProfile]);
 
     // Apply permission-based filtering
     const filteredNotifications = useMemo(() => {

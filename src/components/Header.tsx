@@ -55,7 +55,8 @@ const Header: React.FC = () => {
     teamId,
     role,
     permissions,
-    allowedAccounts
+    allowedAccounts,
+    email: useDashboard().user?.email // Include email for soft delete
   } : null;
 
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
@@ -269,7 +270,7 @@ const Header: React.FC = () => {
           <TimezoneSelect value={timeZone} onChange={setTimeZone} options={timezones} />
 
           {/* Notification Center */}
-          <NotificationCenter teamId={teamId} onDetailModalChange={setIsNotificationDetailOpen} userProfile={userProfile} />
+          <NotificationCenter teamId={teamId} onDetailModalChange={setIsNotificationDetailOpen} userProfile={userProfile} accounts={accounts} />
 
           <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
 
@@ -329,7 +330,7 @@ const Header: React.FC = () => {
           )}
 
           {/* Notification Center - Mobile */}
-          <NotificationCenter teamId={teamId} onDetailModalChange={setIsNotificationDetailOpen} userProfile={userProfile} />
+          <NotificationCenter teamId={teamId} onDetailModalChange={setIsNotificationDetailOpen} userProfile={userProfile} accounts={accounts} />
 
           <button
             onClick={handleMobileMenuToggle}

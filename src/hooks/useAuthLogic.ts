@@ -10,6 +10,7 @@ export interface UserProfile {
     role: 'owner' | 'user';
     permissions: { [key: string]: boolean };
     allowedAccounts?: string[];
+    email?: string;
     [key: string]: any;
 }
 
