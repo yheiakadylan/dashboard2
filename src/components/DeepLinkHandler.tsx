@@ -7,12 +7,11 @@ import React, { useEffect } from 'react';
 import { useUI } from '../contexts/UIContext';
 
 interface Props {
-    onOpenNotification?: (notificationId: string) => void;
     onOpenOrder?: (orderId: string) => void;
 }
 
-export const DeepLinkHandler: React.FC<Props> = ({ onOpenNotification, onOpenOrder }) => {
-    const { setActiveTab } = useUI();
+export const DeepLinkHandler: React.FC<Props> = ({ onOpenOrder }) => {
+    const { setActiveTab, setSelectedNotificationId, setIsNotificationDetailOpen } = useUI();
 
     useEffect(() => {
         // Parse URL parameters
@@ -20,9 +19,10 @@ export const DeepLinkHandler: React.FC<Props> = ({ onOpenNotification, onOpenOrd
 
         // Handle notification deep link
         const notificationId = params.get('notification');
-        if (notificationId && onOpenNotification) {
+        if (notificationId) {
             console.log('[Deep Link] Opening notification:', notificationId);
-            onOpenNotification(notificationId);
+            setSelectedNotificationId(notificationId);
+            setIsNotificationDetailOpen(true);
             // Clear URL parameter
             window.history.replaceState({}, '', window.location.pathname);
             return;
@@ -50,7 +50,7 @@ export const DeepLinkHandler: React.FC<Props> = ({ onOpenNotification, onOpenOrd
             // Clear URL parameter
             window.history.replaceState({}, '', window.location.pathname);
         }
-    }, [setActiveTab, onOpenNotification, onOpenOrder]);
+    }, [setActiveTab, setSelectedNotificationId, setIsNotificationDetailOpen, onOpenOrder]);
 
     return null;
 };

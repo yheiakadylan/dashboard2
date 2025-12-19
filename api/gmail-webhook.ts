@@ -163,12 +163,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 3. Gửi Thông báo
     if (notificationEvents.length > 0) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
+
       if (notificationEvents.length === 1) {
         // Gửi 1 tin duy nhất
         const evt = notificationEvents[0];
+        const deepLink = evt.type === 'order'
+          ? `${appUrl}/?tab=Order+List`
+          : `${appUrl}/?tab=Overview`;
+
         await sendPushNotificationToUsers(effectiveUserId, evt.type, {
           title: evt.type === 'order' ? 'New Order!' : 'Funds Received!',
-          body: evt.text
+          body: evt.text,
+          url: deepLink
         });
       } else {
         // Gửi tổng hợp nếu nhiều tin
@@ -178,13 +185,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (orders.length > 0) {
           await sendPushNotificationToUsers(effectiveUserId, 'order', {
             title: 'New Orders Arrived',
-            body: `You have ${orders.length} new orders.`
+            body: `You have ${orders.length} new orders.`,
+            url: `${appUrl}/?tab=Order+List`
           });
         }
         if (funds.length > 0) {
           await sendPushNotificationToUsers(effectiveUserId, 'funds', {
             title: 'New Funds Received',
-            body: `You have ${funds.length} new payout updates.`
+            body: `You have ${funds.length} new payout updates.`,
+            url: `${appUrl}/?tab=Overview`
           });
         }
       }

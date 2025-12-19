@@ -141,14 +141,6 @@ const DashboardLayout: React.FC = () => {
 
     const closeOrderDetail = useCallback(() => setSelectedOrder(null), []);
 
-    // Deep link handlers
-    const handleOpenNotificationById = useCallback((notificationId: string) => {
-        console.log('[Deep Link] Opening notification:', notificationId);
-        // TODO: Implement opening notification detail modal by ID
-        // This would require accessing notification center's state
-        addNotification('Deep link to notification: ' + notificationId, 'info');
-    }, [addNotification]);
-
     const handleOpenOrderById = useCallback((orderId: string) => {
         console.log('[Deep Link] Opening order:', orderId);
         // Find record by order_id (not by record.id)
@@ -295,10 +287,7 @@ const DashboardLayout: React.FC = () => {
             <InstallPrompt />
 
             {/* Deep Link Handler */}
-            <DeepLinkHandler
-                onOpenNotification={handleOpenNotificationById}
-                onOpenOrder={handleOpenOrderById}
-            />
+            <DeepLinkHandler onOpenOrder={handleOpenOrderById} />
         </div>
     );
 };

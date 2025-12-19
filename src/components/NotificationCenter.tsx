@@ -11,6 +11,7 @@ import NotificationDetailModal from './NotificationDetailModal';
 import { executeNotificationAction, NotificationActionHandlers } from '../utils/notificationActions';
 import { Notification } from '../types/notification';
 import { UserProfile } from '../hooks/useAuthLogic';
+import { useUI } from '../contexts/UIContext';
 
 interface Props {
     actionHandlers?: NotificationActionHandlers;
@@ -32,9 +33,25 @@ const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDe
         closePanel,
     } = useNotificationCenter({ teamId, enableFirestoreSync: true, userProfile });
 
+    const { selectedNotificationId, setSelectedNotificationId } = useUI();
     const [detailModal, setDetailModal] = useState<Notification | null>(null);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const panelRef = useRef<HTMLDivElement>(null);
+
+    // Auto-open notification detail modal from deep link
+    useEffect(() => {
+        if (selectedNotificationId && notifications.length > 0) {
+            // Find notification by ID
+            const notification = notifications.find(n => n.id === selectedNotificationId);
+            if (notification) {
+                console.log('[NotificationCenter] Auto-opening notification:', selectedNotificationId);
+                setDetailModal(notification);
+                markAsRead(selectedNotificationId);
+                // Clear the selected ID
+                setSelectedNotificationId(null);
+            }
+        }
+    }, [selectedNotificationId, notifications, markAs Read, setSelectedNotificationId]);
 
     // Close panel when clicking outside
     useEffect(() => {

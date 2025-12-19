@@ -42,9 +42,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 5. Gửi FCM Push Notification (NEW!)
   try {
     if (teamId) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
+
+      // Create notification document first
+      const { createNotificationDocument } = await import('./_lib/notificationHelper.js');
+      const notificationId = await createNotificationDocument({
+        teamId,
+        type: 'LOGIN',
+        title: 'Team Member Login',
+        content: `${userEmail} logged into the dashboard`,
+        metadata: {
+          login_info: {
+            user_email: userEmail,
+            user_role: role,
+            timestamp: new Date().toISOString(),
+          },
+        },
+      });
+
       await sendPushNotificationToUsers(teamId, 'login', {
         title: '🔔 User Login',
-        body: `${userEmail} đã đăng nhập vào dashboard`
+        body: `${userEmail} đã đăng nhập vào dashboard`,
+        url: `${appUrl}?notification=${notificationId}` // Deep link to notification detail
       });
       console.log('[api/lark-login-notify] FCM notification sent successfully');
     } else {

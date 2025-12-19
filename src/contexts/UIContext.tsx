@@ -23,6 +23,8 @@ interface UIContextType {
     setIsTabSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
     isNotificationDetailOpen: boolean;
     setIsNotificationDetailOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    selectedNotificationId: string | null;
+    setSelectedNotificationId: React.Dispatch<React.SetStateAction<string | null>>;
 
     // Tabs
     activeTab: Tab;
@@ -141,10 +143,14 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [sourceFilter, setSourceFilter] = useState<'All' | 'Ebay_Sales' | 'Etsy_Sales'>('All');
     const [supportFilter, setSupportFilter] = useState<'All' | 'Case' | 'Help'>('All');
-    const [isAccountManagerOpen, setIsAccountManagerOpen] = useState<boolean>(false);
-    const [isTabSettingsOpen, setIsTabSettingsOpen] = useState<boolean>(false);
-    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
-    const [isNotificationDetailOpen, setIsNotificationDetailOpen] = useState<boolean>(false);
+
+    // Modals
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [isAccountManagerOpen, setIsAccountManagerOpen] = useState(false);
+    const [isTabSettingsOpen, setIsTabSettingsOpen] = useState(false);
+    const [isNotificationDetailOpen, setIsNotificationDetailOpen] = useState(false);
+    const [selectedNotificationId, setSelectedNotificationId] = useState<string | null>(null);
+
 
     // --- 3. Logic Functions ---
     const toggleSidebar = useCallback(() => setIsSidebarCollapsed(prev => !prev), [setIsSidebarCollapsed]);
@@ -195,6 +201,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
             isAccountManagerOpen, setIsAccountManagerOpen,
             isTabSettingsOpen, setIsTabSettingsOpen,
             isNotificationDetailOpen, setIsNotificationDetailOpen,
+            selectedNotificationId, setSelectedNotificationId,
             activeTab, setActiveTab,
             tabOrder, setTabOrder: setLocalTabOrder,
             hiddenTabs, reorderTabs, toggleTabVisibility, resetTabPreferences, handleTabClick,

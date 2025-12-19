@@ -400,6 +400,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
       const targetTeam = SHARED_USER_ID;
       console.log(`[Lark-API] Manually triggering push notification test (${type})`);
 
@@ -410,7 +411,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         payload = {
           title: '🔔 New Order (Test)',
           body: 'New Order: #TEST-123 - $50.00 (Test Shop)',
-          url: '/'
+          url: `${appUrl}/?tab=Order+List` // Deep link to Order List
         };
         notificationData = {
           type: 'NEW_ORDER',
@@ -426,7 +427,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         payload = {
           title: '💰 Funds Received (Test)',
           body: 'Funds Received: $1,000.00 USD (Test Shop)',
-          url: '/'
+          url: `${appUrl}/?tab=Overview` // Deep link to Overview
         };
         notificationData = {
           type: 'FUND',
@@ -441,7 +442,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         payload = {
           title: '📊 Daily Summary (Test)',
           body: 'Your daily sales summary is ready!',
-          url: '/'
+          url: `${appUrl}/?tab=Overview` // Deep link to Overview
         };
         notificationData = {
           type: 'SUMMARY',
@@ -464,7 +465,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         payload = {
           title: '🔔 User Login (Test)',
           body: 'testuser@example.com đã đăng nhập vào dashboard',
-          url: '/'
+          url: `${appUrl}/` // Deep link to home
         };
         notificationData = {
           type: 'LOGIN',
@@ -485,7 +486,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         payload = {
           title: '🔔 Test Notification',
           body: `Test push sent at ${new Date().toLocaleTimeString()}.`,
-          url: '/'
+          url: `${appUrl}/`
         };
       }
 

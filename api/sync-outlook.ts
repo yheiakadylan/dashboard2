@@ -229,8 +229,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         await batch.commit();
 
-        // --- GỬI THÔNG BÁO PUSH (SAU KHI LƯU DB THÀNH CÔNG) ---
+        // --- GỮI THÔNG BÁO PUSH (SAU KHI LƯU DB THÀNH CÔNG) ---
         if (notificationEvents.length > 0) {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
           const orders = notificationEvents.filter(e => e.type === 'order');
           const funds = notificationEvents.filter(e => e.type === 'funds');
 
@@ -240,13 +241,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               // Nếu chỉ có 1 đơn, hiện chi tiết
               await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
                 title: 'New Order',
-                body: orders[0].text
+                body: orders[0].text,
+                url: `${appUrl}/?tab=Order+List`
               });
             } else {
               // Nếu có nhiều đơn, hiện tổng quan
               await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
                 title: 'New Orders',
-                body: `You have ${orders.length} new orders from Outlook sync.`
+                body: `You have ${orders.length} new orders.`,
+                url: `${appUrl}/?tab=Order+List`
               });
             }
           }
@@ -256,12 +259,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (funds.length === 1) {
               await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
                 title: 'Funds Received',
-                body: funds[0].text
+                body: funds[0].text,
+                url: `${appUrl}/?tab=Overview`
               });
             } else {
               await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
                 title: 'New Funds',
-                body: `You have ${funds.length} new payout updates.`
+                body: `You have ${funds.length} new payout updates.`,
+                url: `${appUrl}/?tab=Overview`
               });
             }
           }
