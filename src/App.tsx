@@ -28,6 +28,8 @@ import ConnectedDashboardProvider from './components/ConnectedDashboardProvider'
 import Auth from './components/Auth';
 import MainContent from './components/MainContent';
 import ErrorBoundary from './components/ErrorBoundary';
+import { getMessagingInstance } from './services/firebaseService';
+import { onMessage } from 'firebase/messaging';
 
 const DashboardLayout: React.FC = () => {
     const {
@@ -41,6 +43,8 @@ const DashboardLayout: React.FC = () => {
         isProcessing,
     } = useDashboard();
 
+    const { addNotification } = useNotification();
+
     const {
         isTabSettingsOpen,
         isAccountManagerOpen,
@@ -51,9 +55,6 @@ const DashboardLayout: React.FC = () => {
         isMobileMenuOpen,
         setIsMobileMenuOpen
     } = useUI();
-
-    const { addNotification } = useNotification();
-
 
     const [selectedOrder, setSelectedOrder] = useState<Record | null>(null);
 
@@ -138,6 +139,68 @@ const DashboardLayout: React.FC = () => {
     }, [records, accounts, teamId, setRecords, addNotification]);
 
     const closeOrderDetail = useCallback(() => setSelectedOrder(null), []);
+
+    // Listen for foreground FCM messages
+    useEffect(() => {
+        let unsubscribe: (() => void) | undefined;
+
+        const setupFCMListener = async () => {
+            try {
+                const messaging = await getMessagingInstance();
+                if (!messaging) {
+                    console.log('[FCM] Messaging not available');
+                    return;
+                }
+
+                // Listen for messages when app is in foreground
+                unsubscribe = onMessage(messaging, (payload) => {
+                    console.log('[FCM] Foreground message received:', payload);
+
+                    const { notification, data } = payload;
+                    if (!notification) return;
+
+                    // Show browser notification
+                    if ('Notification' in window && Notification.permission === 'granted') {
+                        const notif = new Notification(notification.title || 'New Notification', {
+                            body: notification.body || '',
+                            icon: '/icon-192x192.png',
+                            badge: '/icon-192x192.png',
+                            tag: data?.type || 'notification',
+                            requireInteraction: false,
+                        });
+
+                        // Auto close after 5 seconds
+                        setTimeout(() => notif.close(), 5000);
+
+                        // Optional: Click handler
+                        notif.onclick = () => {
+                            window.focus();
+                            notif.close();
+                            if (data?.url) {
+                                window.location.href = data.url;
+                            }
+                        };
+                    }
+
+                    // Also show in-app notification via NotificationContext
+                    addNotification(notification.body || notification.title || 'New notification', 'info');
+                });
+
+                console.log('[FCM] Foreground listener setup complete');
+            } catch (error) {
+                console.error('[FCM] Error setting up foreground listener:', error);
+            }
+        };
+
+        setupFCMListener();
+
+        return () => {
+            if (unsubscribe) {
+                unsubscribe();
+                console.log('[FCM] Foreground listener cleaned up');
+            }
+        };
+    }, [addNotification]);
 
 
 

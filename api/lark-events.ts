@@ -404,6 +404,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       console.log(`[Lark-API] Manually triggering push notification test (${type})`);
 
       let payload = { title: '', body: '', url: '/' };
+      let notificationData: any = null; // Data for Notification Center
 
       if (type === 'order') {
         payload = {
@@ -411,11 +412,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           body: 'New Order: #TEST-123 - $50.00 (Test Shop)',
           url: '/'
         };
+        notificationData = {
+          type: 'NEW_ORDER',
+          title: 'New Order Received',
+          content: 'Order #TEST-123 for $50.00 has been successfully parsed.',
+          metadata: {
+            order_id: 'TEST-123',
+            order_total: 50.00,
+            currency: 'USD',
+          }
+        };
       } else if (type === 'funds') {
         payload = {
           title: '💰 Funds Received (Test)',
           body: 'Funds Received: $1,000.00 USD (Test Shop)',
           url: '/'
+        };
+        notificationData = {
+          type: 'FUND',
+          title: 'Funds Received',
+          content: 'Payout of $1,000.00 has been deposited to your account.',
+          metadata: {
+            fund_id: 'FUND-TEST-001',
+            fund_amount: 1000.00,
+          }
         };
       } else if (type === 'summary') {
         payload = {
@@ -423,11 +443,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           body: 'Your daily sales summary is ready!',
           url: '/'
         };
+        notificationData = {
+          type: 'SUMMARY',
+          title: 'Daily Sales Summary',
+          content: '25 orders totaling $2,500.00 for ' + new Date().toISOString().split('T')[0],
+          metadata: {
+            summary_data: {
+              date: new Date().toISOString().split('T')[0],
+              totalOrders: 25,
+              totalRevenue: 2500.00,
+              shops: [
+                { name: 'Etsy Store A', orders: 15, revenue: 1500.00 },
+                { name: 'eBay Store B', orders: 7, revenue: 700.00 },
+                { name: 'Amazon Store C', orders: 3, revenue: 300.00 },
+              ]
+            }
+          }
+        };
       } else if (type === 'login') {
         payload = {
           title: '🔔 User Login (Test)',
           body: 'testuser@example.com đã đăng nhập vào dashboard',
           url: '/'
+        };
+        notificationData = {
+          type: 'LOGIN',
+          title: 'Team Member Login',
+          content: 'Test User logged into the dashboard.',
+          metadata: {
+            login_info: {
+              user_name: 'Test User',
+              user_email: 'testuser@example.com',
+              ip_address: '192.168.1.100',
+              device: 'Chrome on Windows',
+              location: 'Ho Chi Minh City, VN',
+              timestamp: new Date().toISOString(),
+            }
+          }
         };
       } else {
         payload = {
@@ -437,12 +489,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         };
       }
 
+      // ✅ Send FCM Push Notification
       await sendPushNotificationToUsers(targetTeam, type as any, payload);
+
+      // ✅ Save to Firestore for Notification Center
+      if (notificationData) {
+        const db = getDb();
+        const notificationsRef = db.collection('user').doc(targetTeam).collection('notifications');
+        await notificationsRef.add({
+          ...notificationData,
+          createdAt: new Date().toISOString(),
+          isRead: false,
+        });
+        console.log('[Lark-API] Notification saved to Firestore for Notification Center');
+      }
 
       return res.status(200).json({
         success: true,
-        message: `Push notification (${type}) command executed.`,
-        target: targetTeam
+        message: `Push notification (${type}) sent and saved to Notification Center.`,
+        target: targetTeam,
+        notificationData: notificationData
       });
     } catch (err: any) {
       console.error('[Lark-API] Test push failed:', err);

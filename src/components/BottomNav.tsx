@@ -14,7 +14,7 @@ interface BottomNavProps {
 }
 
 const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
-    const { activeTab, handleTabClick } = useUI();
+    const { activeTab, handleTabClick, isNotificationDetailOpen } = useUI();
     const bottomTabs = tabs;
 
     // Refs for each tab button to calculate position
@@ -85,7 +85,8 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
 
     return (
         <nav
-            className="md:hidden fixed left-4 right-4 bg-white/40 dark:bg-black/30 backdrop-blur-2xl backdrop-saturate-[1.8] border border-white/30 dark:border-white/10 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 flex justify-between items-center px-4 py-2"
+            className={`md:hidden fixed left-4 right-4 bg-white/40 dark:bg-black/30 backdrop-blur-2xl backdrop-saturate-[1.8] border border-white/30 dark:border-white/10 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 flex justify-between items-center px-4 py-2 transition-opacity duration-200 ${isNotificationDetailOpen ? 'pointer-events-none opacity-30' : ''
+                }`}
             style={{
                 bottom: 'max(16px, env(safe-area-inset-bottom))'
             }}

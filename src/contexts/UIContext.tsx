@@ -21,6 +21,8 @@ interface UIContextType {
     setIsAccountManagerOpen: React.Dispatch<React.SetStateAction<boolean>>;
     isTabSettingsOpen: boolean;
     setIsTabSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    isNotificationDetailOpen: boolean;
+    setIsNotificationDetailOpen: React.Dispatch<React.SetStateAction<boolean>>;
 
     // Tabs
     activeTab: Tab;
@@ -142,6 +144,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const [isAccountManagerOpen, setIsAccountManagerOpen] = useState<boolean>(false);
     const [isTabSettingsOpen, setIsTabSettingsOpen] = useState<boolean>(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+    const [isNotificationDetailOpen, setIsNotificationDetailOpen] = useState<boolean>(false);
 
     // --- 3. Logic Functions ---
     const toggleSidebar = useCallback(() => setIsSidebarCollapsed(prev => !prev), [setIsSidebarCollapsed]);
@@ -191,6 +194,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
             isMobileMenuOpen, setIsMobileMenuOpen, toggleMobileMenu,
             isAccountManagerOpen, setIsAccountManagerOpen,
             isTabSettingsOpen, setIsTabSettingsOpen,
+            isNotificationDetailOpen, setIsNotificationDetailOpen,
             activeTab, setActiveTab,
             tabOrder, setTabOrder: setLocalTabOrder,
             hiddenTabs, reorderTabs, toggleTabVisibility, resetTabPreferences, handleTabClick,

@@ -13,7 +13,8 @@ interface NotificationPrefs {
   order: boolean;
   funds: boolean;
   summary: boolean;
-  login: boolean; // New: login notifications
+  login: boolean;
+  support: boolean; // Support cases (CASE_HELP)
 }
 
 const NotificationSettings: React.FC = () => {
@@ -24,7 +25,8 @@ const NotificationSettings: React.FC = () => {
     order: false,
     funds: false,
     summary: false,
-    login: false // New: default false
+    login: false,
+    support: false // Support cases
   });
   const [loading, setLoading] = useState(false);
 
@@ -83,11 +85,12 @@ const NotificationSettings: React.FC = () => {
             order: true,
             funds: true,
             summary: true,
-            login: true // New: enable by default
+            login: true,
+            support: true // Enable by default
           }
         });
         // Cập nhật UI state local để phản ánh ngay lập tức
-        setPrefs({ order: true, funds: true, summary: true, login: true });
+        setPrefs({ order: true, funds: true, summary: true, login: true, support: true });
 
         addNotification("Notifications enabled successfully!", "success");
       } else {
@@ -213,6 +216,23 @@ const NotificationSettings: React.FC = () => {
           >
             <span
               className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.login ? 'translate-x-6' : 'translate-x-1'
+                }`}
+            />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-gray-800 dark:text-gray-200">Support Cases</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Get notified about customer support cases and help requests.</p>
+          </div>
+          <button
+            onClick={() => handleToggle('support')}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${prefs.support ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
+              }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prefs.support ? 'translate-x-6' : 'translate-x-1'
                 }`}
             />
           </button>
