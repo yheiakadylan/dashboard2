@@ -25,7 +25,9 @@ interface DashboardContextType {
   allowedAccounts?: string[]; // For shop-level access control
 
   // Data State (from useDataSync)
-  accounts: Account[];
+  accounts: Account[]; // Filtered accounts for data display
+  allAccounts: Account[]; // All accounts (for management purposes)
+  managementAccounts: Account[]; // Accounts user can manage (for MailManager)
   setAccounts: React.Dispatch<React.SetStateAction<Account[]>>;
   records: Record[];
   setRecords: React.Dispatch<React.SetStateAction<Record[]>>;
@@ -117,12 +119,23 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
 
 
-  // Computed Visible Accounts
+  // Computed Visible Accounts (for data display)
   const visibleAccounts = useMemo(() => {
     if (role === 'owner') return allAccounts;
     if (!allowedAccounts || allowedAccounts.length === 0) return [];
     return allAccounts.filter(acc => allowedAccounts.includes(acc.email));
   }, [allAccounts, role, allowedAccounts]);
+
+  // Computed Management Accounts (for MailManager - users with canManageSettings see ALL)
+  const managementAccounts = useMemo(() => {
+    // Owner always sees all
+    if (role === 'owner') return allAccounts;
+    // Users with canManageSettings permission see ALL accounts (to prevent accidental deletion)
+    if (permissions.canManageSettings) return allAccounts;
+    // Regular users see only their allowed accounts
+    if (!allowedAccounts || allowedAccounts.length === 0) return [];
+    return allAccounts.filter(acc => allowedAccounts.includes(acc.email));
+  }, [allAccounts, role, permissions.canManageSettings, allowedAccounts]);
 
   // We need these props from UIContext? No, DashboardContext should only care about data.
   // Actually, filtering logs often depends on UI state (filterDateRange).
@@ -325,6 +338,26 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       const deletedAccounts = originalAccounts.filter(acc => !updatedAccounts.some(u => u.id === acc.id));
       const deletedEmails = deletedAccounts.map(a => a.email);
 
+      // CRITICAL SAFETY CHECK: Prevent users from deleting accounts they can't see
+      if (role !== 'owner' && deletedAccounts.length > 0) {
+        // Check if user is trying to delete accounts outside their permission scope
+        const unauthorizedDeletions = deletedAccounts.filter(acc => {
+          // If user has allowedAccounts restriction, they can only delete accounts in that list
+          if (allowedAccounts && allowedAccounts.length > 0) {
+            return !allowedAccounts.includes(acc.email);
+          }
+          return false;
+        });
+
+        if (unauthorizedDeletions.length > 0) {
+          console.error('[Security] User attempted to delete unauthorized accounts:', unauthorizedDeletions.map(a => a.email));
+          addNotification('⚠️ Security Error: You cannot delete accounts outside your permission scope.', 'error');
+          setSyncState(null);
+          setIsSavingAccounts(false);
+          return;
+        }
+      }
+
       let nextRecords = originalRecords;
       if (deletedAccounts.length > 0) {
         setSyncState(`Cleaning up ${deletedAccounts.length} accounts...`);
@@ -436,7 +469,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   return (
     <DashboardContext.Provider value={{
       user, teamId, role, permissions, allowedAccounts,
-      accounts: visibleAccounts, setAccounts: setAllAccounts,
+      accounts: visibleAccounts, // Filtered for data display
+      allAccounts, // All accounts (unfiltered)
+      managementAccounts, // For MailManager - respects canManageSettings
+      setAccounts: setAllAccounts,
       records, setRecords,
       manualCosts, setManualCosts,
       isLoading, isSyncing, isFetchingNewRange, syncState, isProcessing, isSavingAccounts,

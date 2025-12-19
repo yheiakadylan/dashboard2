@@ -17,7 +17,7 @@ import Spinner from './Spinner';
 // --- MAIL MANAGER COMPONENT ---
 const MailManager: React.FC = () => {
   const {
-    accounts,
+    managementAccounts, // Use managementAccounts instead of accounts
     handleSaveAccounts,
     isSavingAccounts,
     syncState,
@@ -35,13 +35,13 @@ const MailManager: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLocalAccounts(JSON.parse(JSON.stringify(accounts)));
-  }, [accounts]);
+    setLocalAccounts(JSON.parse(JSON.stringify(managementAccounts)));
+  }, [managementAccounts]);
 
   // Auto-save with debounce when localAccounts change
   useEffect(() => {
-    // Skip if localAccounts is same as accounts (initial load or after save)
-    if (JSON.stringify(localAccounts) === JSON.stringify(accounts)) {
+    // Skip if localAccounts is same as managementAccounts (initial load or after save)
+    if (JSON.stringify(localAccounts) === JSON.stringify(managementAccounts)) {
       return;
     }
 
@@ -55,7 +55,7 @@ const MailManager: React.FC = () => {
     }, 1500);
 
     return () => clearTimeout(timeoutId);
-  }, [localAccounts, accounts, handleSaveAccounts]);
+  }, [localAccounts, managementAccounts, handleSaveAccounts]);
 
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
