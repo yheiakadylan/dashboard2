@@ -51,7 +51,7 @@ const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDe
                 setSelectedNotificationId(null);
             }
         }
-    }, [selectedNotificationId, notifications, markAs Read, setSelectedNotificationId]);
+    }, [selectedNotificationId, notifications, markAsRead, setSelectedNotificationId]);
 
     // Close panel when clicking outside
     useEffect(() => {
