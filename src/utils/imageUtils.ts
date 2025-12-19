@@ -28,23 +28,20 @@ export const getOptimizedImageUrl = (url: string, targetWidth: number = 400): st
         }
 
         // Handle "s-l{size}" pattern (Modern)
-        // Regex looks for "s-l" followed by digits, and optionally an extension
+        // Use 800px for consistency with preview (perfect cache match)
         const modernPattern = /(s-l)(\d+)(\.[a-zA-Z]+)?/i;
         if (modernPattern.test(url)) {
-            // Replace s-l{oldSize}.{ext} with s-l{targetWidth}.jpg
-            // We force .jpg extension to avoid heavy PNGs
-            return url.replace(modernPattern, `$1${targetWidth}.jpg`);
+            // Always use 800px for cache consistency, force .jpg extension
+            return url.replace(modernPattern, '$1800.jpg');
         }
 
         // Handle "$_{id}.JPG" pattern (Legacy)
-        // $_57.JPG is standard. $_12.JPG is 500px. $_35.JPG is 300px.
-        // If specific width < 400, use $_35 (300px), else $_12 (500px).
-        // This is less flexible but covers old/different formats.
+        // $_12.JPG is ~800px, $_35.JPG is 300px, $_57.JPG is full resolution
+        // Using $_12 for consistent 800px across all sizes
         const legacyPattern = /\$_\d+(\.[a-zA-Z]+)?$/;
         if (legacyPattern.test(url)) {
-            // 12 is ~500px, 35 is ~300px. 57 is ~1600px/Full
-            const sizeCode = targetWidth <= 300 ? '35' : '12';
-            return url.replace(legacyPattern, `$_${sizeCode}.JPG`);
+            // Always use $_12 (~800px) for consistency with preview
+            return url.replace(legacyPattern, '$_12.JPG');
         }
 
         return url;
@@ -56,31 +53,39 @@ export const getOptimizedImageUrl = (url: string, targetWidth: number = 400): st
 
 /**
  * Attempts to get the highest resolution version of an image URL.
- * - Ebay: Converts to highest resolution (s-l1600 or $_57)
- * - Etsy: Returns unchanged (Etsy URLs are already optimized)
+ * - Ebay: Converts to 800px (s-l800 or $_12) for perfect cache match with thumbnails
+ * - Etsy: Converts thumbnail sizes (il_75x75, il_170x135, etc.) to il_fullxfull
  * Used for zoom/preview features.
  */
 export const getHighResImageUrl = (url: string | undefined): string | undefined => {
     if (!url) return undefined;
 
-    // Etsy images: Return as-is
-    // Etsy URLs like "il_fullxfull.xxx_9x95.jpg" are already optimized
-    // DO NOT modify them as it will break the image
+    // Etsy images: Convert thumbnail sizes to full resolution
+    // Etsy URLs pattern: il_{size}.{listing_id}_{hash}.jpg
+    // Sizes: il_75x75, il_170x135, il_340x270, il_fullxfull
     if (url.includes('etsystatic.com')) {
-        return url;
+        // Convert any thumbnail size to fullxfull
+        // Pattern matches: il_75x75, il_170x135, il_340x270, etc.
+        return url.replace(/il_\d+x\d+/g, 'il_fullxfull');
     }
 
-    // eBay svcs.ebay.com image service: Update size parameters to 800px
+    // eBay svcs.ebay.com image service: Extract nested imageUrl for better caching
+    // This matches the behavior in getOptimizedImageUrl to ensure preview uses same URL as table
     if (url.includes('svcs.ebay.com')) {
         try {
-            // Replace imgWidth, imgHeight, and length parameters with 800
-            let highResUrl = url
+            // Extract the nested imageUrl parameter
+            const match = url.match(/[?&]imageUrl=([^&]+)/);
+            if (match && match[1]) {
+                const nestedUrl = decodeURIComponent(match[1]);
+                // Recursively process the extracted eBay image URL
+                return getHighResImageUrl(nestedUrl);
+            }
+        } catch (e) {
+            // Fallback: Update parameters if extraction fails
+            return url
                 .replace(/imgWidth=\d+/g, 'imgWidth=800')
                 .replace(/imgHeight=\d+/g, 'imgHeight=800')
                 .replace(/length=\d+/g, 'length=800');
-            return highResUrl;
-        } catch (e) {
-            return url;
         }
     }
 
@@ -90,16 +95,16 @@ export const getHighResImageUrl = (url: string | undefined): string | undefined 
     }
 
     try {
-        // Handle "s-l{size}" pattern - replace with s-l1600
+        // Handle "s-l{size}" pattern - replace with s-l800 (matches table cache)
         const modernPattern = /(s-l)(\d+)(\.[a-zA-Z]+)?/i;
         if (modernPattern.test(url)) {
-            return url.replace(modernPattern, '$11600$3');
+            return url.replace(modernPattern, '$1800$3');
         }
 
-        // Handle legacy "$_{id}.JPG" pattern - replace with $_57.JPG
+        // Handle legacy "$_{id}.JPG" pattern - replace with $_12.JPG (~800px, matches table cache)
         const legacyPattern = /(\$_\d+)(\.[a-zA-Z]+)?$/;
         if (legacyPattern.test(url)) {
-            return url.replace(legacyPattern, '$_57.JPG');
+            return url.replace(legacyPattern, '$_12.JPG');
         }
 
         return url;

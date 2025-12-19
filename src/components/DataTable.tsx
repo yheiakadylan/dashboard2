@@ -6,6 +6,7 @@ import EmptyState from './EmptyState';
 import DesktopRow from './datatable/DesktopRow';
 import MobileCard from './datatable/MobileCard';
 import { RowData, DataTableProps } from './datatable/types';
+import ImagePreviewModal from './ImagePreviewModal';
 
 // Helper to check if a header should be hidden on mobile (Only applied in Desktop View now)
 const isHiddenOnDesktopMobileView = (header: string) => HIDDEN_MOBILE_HEADERS.includes(header);
@@ -274,30 +275,10 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                     {RowComponent}
                 </List>
             </div>
-            {
-                previewImage && (
-                    <div
-                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200 cursor-pointer"
-                        onClick={() => setPreviewImage(null)}
-                        title="Click anywhere to close"
-                    >
-                        <div className="relative max-w-4xl max-h-[90vh] bg-white dark:bg-gray-800 p-2 rounded-lg shadow-2xl">
-                            <img
-                                src={previewImage}
-                                alt="Product Mockup"
-                                className="max-w-full max-h-[85vh] object-contain rounded"
-                            />
-                            <div className="absolute top-0 right-0 -mt-3 -mr-3">
-                                <button className="bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-lg">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
+            <ImagePreviewModal
+                imageUrl={previewImage}
+                onClose={() => setPreviewImage(null)}
+            />
         </div >
     );
 };

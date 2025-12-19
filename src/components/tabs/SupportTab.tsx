@@ -63,7 +63,7 @@ const SupportTab: React.FC<SupportTabProps> = ({ processedData }) => {
                         <DataTable
                             headers={displayData.headers}
                             data={displayData.rows}
-                            mobileRowHeight={120}
+                            mobileRowHeight={220}
                             autoHeight={false}
                         />
                     </Suspense>

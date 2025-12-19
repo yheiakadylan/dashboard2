@@ -34,6 +34,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                                 headers={processedData.products.headers}
                                 data={processedData.products.rows}
                                 autoHeight={false} // Internal scroll
+                                mobileRowHeight={200}
                             />
                         </Suspense>
                     </div>

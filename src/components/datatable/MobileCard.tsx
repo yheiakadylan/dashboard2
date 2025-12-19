@@ -153,7 +153,9 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         )}
                         <div className="flex-grow min-w-0">
                             <div className="pb-1">
-                                <span className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Order #{orderIdValue}</span>
+                                {orderIdIndex !== -1 && (
+                                    <span className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Order #{orderIdValue}</span>
+                                )}
                                 <h4
                                     className={`text-base font-bold text-gray-900 dark:text-white leading-tight mt-0.5 truncate ${viewId ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
                                     title={String(productValue)}
@@ -167,7 +169,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             </div>
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-3 flex-grow content-start border-t border-gray-100 dark:border-gray-700 pt-3">
+                    <div className={`grid ${orderIdIndex === -1 ? 'grid-cols-3 gap-2' : 'grid-cols-2 gap-x-4 gap-y-2'} mb-3 flex-grow content-start border-t border-gray-100 dark:border-gray-700 pt-3`}>
                         {bodyItems.map((item) => {
                             const isMoney = item.isMoney || (typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Cost') || item.h.includes('Amount')));
                             const valueClass = isMoney ? 'text-gray-900 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300';
@@ -184,6 +186,60 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             {renderActionCell(actions, actionIndex, loadingItems, onResyncClick, onViewOrderDetails, onViewDayDetails, row, isMobile)}
                         </div>
                     )}
+                </div>
+            </div>
+        );
+
+    } else if (findIdx('Message') !== -1 && (findIdx('Order Number') !== -1 || findIdx('Order ID') !== -1)) {
+        // SUPPORT / CASE LAYOUT
+        const orderIdIndex = findIdx('Order Number') !== -1 ? findIdx('Order Number') : findIdx('Order ID');
+        const messageIndex = findIdx('Message');
+        const sourceIndex = findIdx('Source');
+        const accountIndex = findIdx('Account');
+        const dateTimeIndex = headers.indexOf('DateTime');
+
+        const orderIdValue = row[orderIdIndex];
+        const messageValue = row[messageIndex];
+        const sourceValue = sourceIndex !== -1 ? row[sourceIndex] : null;
+        const accountValue = accountIndex !== -1 ? row[accountIndex] : null;
+        const dateTimeValue = dateTimeIndex !== -1 ? renderTextContent(row[dateTimeIndex]) : null;
+
+        return (
+            <div style={{ ...style, willChange: 'transform' }} className="px-4 py-2">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 h-full flex flex-col">
+                    {/* Header */}
+                    <div className="flex justify-between items-start mb-3">
+                        <span className="text-sm font-bold text-gray-900 dark:text-white">
+                            #{renderTextContent(orderIdValue)}
+                        </span>
+                        {sourceValue && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                                {renderTextContent(sourceValue)}
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Message Body */}
+                    <div className="flex-grow mb-3">
+                        <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed line-clamp-4">
+                            {renderTextContent(messageValue)}
+                        </p>
+                    </div>
+
+                    {/* Footer - Meta Info */}
+                    <div className="pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
+                        <div className="font-medium truncate max-w-[50%]">
+                            {accountValue && (
+                                <span className="flex items-center gap-1">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                    {renderTextContent(accountValue)}
+                                </span>
+                            )}
+                        </div>
+                        <div>
+                            {dateTimeValue}
+                        </div>
+                    </div>
                 </div>
             </div>
         );

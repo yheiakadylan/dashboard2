@@ -126,7 +126,7 @@ export const processData = (
         products: {
             headers: ['Image', 'Product Name', 'Shop', 'Quantity', 'Revenue'],
             rows: (() => {
-                const productStats = new Map<string, { image: any, name: string, shop: string, quantity: number, revenue: number }>();
+                const productStats = new Map<string, { image: any, name: string, shop: string, quantity: number, revenue: number, currency: string }>();
 
                 uniqueRecords.forEach(r => {
                     if (r.kind !== 'order') return;
@@ -155,7 +155,8 @@ export const processData = (
                                 name: name,
                                 shop: shopName,
                                 quantity: 0,
-                                revenue: 0
+                                revenue: 0,
+                                currency: r.currency || 'USD'
                             };
 
                             // Update stats
@@ -179,7 +180,8 @@ export const processData = (
                                     name: name,
                                     shop: shopName,
                                     quantity: 0,
-                                    revenue: 0
+                                    revenue: 0,
+                                    currency: r.currency || 'USD'
                                 };
                                 current.quantity += 1; // Assume 1
                                 current.revenue += itemRevenue;
@@ -196,7 +198,11 @@ export const processData = (
                         p.name,
                         p.shop,
                         p.quantity,
-                        p.revenue
+                        {
+                            type: 'value_with_unit',
+                            value: p.revenue,
+                            display: `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(p.revenue)} ${p.currency}`
+                        }
                     ]);
             })()
         }

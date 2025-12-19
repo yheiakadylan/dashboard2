@@ -4,7 +4,7 @@ import { TopProduct } from '../types';
 import useMediaQuery from '../hooks/useMediaQuery';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
-import { getHighResImageUrl } from '../utils/imageUtils.js';
+import ImagePreviewModal from './ImagePreviewModal';
 
 interface TopProductsChartProps {
   data: { [shopName: string]: TopProduct[] };
@@ -59,7 +59,6 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
 
   // State để quản lý hiển thị ảnh phóng to - now stores the whole product
   const [previewProduct, setPreviewProduct] = useState<TopProduct | null>(null);
-  const [imageLoaded, setImageLoaded] = useState(false);
 
   useEffect(() => {
     if (shopNames.length > 0 && (!selectedShop || !data[selectedShop])) {
@@ -126,7 +125,6 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
 
   const handleBarClick = (data: TopProduct) => {
     if (data.image) {
-      setImageLoaded(false); // Reset loading state
       setPreviewProduct(data);
     }
   };
@@ -243,46 +241,11 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
       </div>
 
       {/* --- IMAGE PREVIEW MODAL (OVERLAY) --- */}
-      {previewProduct && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-modal-backdrop cursor-pointer"
-          onClick={() => setPreviewProduct(null)}
-          title="Click anywhere to close"
-        >
-          <div className="relative max-w-4xl max-h-[90vh] bg-white dark:bg-gray-800 p-2 rounded-lg shadow-2xl animate-modal-scale" onClick={(e) => e.stopPropagation()}>
-            {/* Loading Spinner */}
-            {!imageLoaded && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-800 rounded-lg">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading image...</p>
-                </div>
-              </div>
-            )}
-
-            <img
-              src={getHighResImageUrl(previewProduct.image) || previewProduct.image}
-              alt="Product Mockup"
-              className={`max-w-full max-h-[85vh] object-contain rounded transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-              onLoad={() => setImageLoaded(true)}
-            />
-            <div className="absolute top-0 right-0 -mt-3 -mr-3">
-              <button
-                onClick={() => setPreviewProduct(null)}
-                className="bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-lg transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className={`absolute bottom-0 left-0 right-0 p-2 bg-white/80 dark:bg-black/70 backdrop-blur-sm rounded-b-lg transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}>
-              <p className="text-center text-black dark:text-white font-semibold text-base truncate" title={previewProduct.name}>
-                {previewProduct.name}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      <ImagePreviewModal
+        imageUrl={previewProduct?.image || null}
+        productName={previewProduct?.name}
+        onClose={() => setPreviewProduct(null)}
+      />
     </div>
   );
 };

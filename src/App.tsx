@@ -176,7 +176,7 @@ const DashboardLayout: React.FC = () => {
                         {/* Single scroll container - SIMPLE! */}
                         <div
                             id="active-tab-container"
-                            className="h-full w-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
+                            className="h-full w-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] pb-24 md:pb-0"
                             onScroll={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
                             onClick={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
                             onWheel={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
@@ -208,9 +208,7 @@ const DashboardLayout: React.FC = () => {
             {selectedOrder && (
                 <OrderDetailModal record={selectedOrder} onClose={closeOrderDetail} />
             )}
-            <div className="md:hidden border-t border-gray-200 dark:border-gray-700 fixed bottom-0 w-full z-50 bg-white dark:bg-gray-800">
-                <BottomNav tabs={visibleTabs} />
-            </div>
+            <BottomNav tabs={visibleTabs} />
             <InstallPrompt />
         </div>
     );

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Record } from '../types';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useUI } from '../contexts/UIContext';
-import { getHighResImageUrl } from '../utils/imageUtils.js';
+import ImagePreviewModal from './ImagePreviewModal';
 
 interface OrderDetailModalProps {
   record: Record;
@@ -13,7 +13,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
   const { accounts } = useDashboard();
   const { timeZone } = useUI();
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [imageLoaded, setImageLoaded] = useState(false);
 
   if (!record.details) return null;
 
@@ -94,10 +93,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
                         src={item.image}
                         alt=""
                         className="w-20 h-20 object-cover rounded-md border border-gray-200 dark:border-gray-600 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => {
-                          setImageLoaded(false);
-                          setPreviewImage(item.image);
-                        }}
+                        onClick={() => setPreviewImage(item.image)}
                         title="Click to view full size"
                       />
                     )}
@@ -155,10 +151,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
                               src={item.image}
                               alt=""
                               className="w-16 h-16 object-cover rounded-md border border-gray-200 dark:border-gray-600 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
-                              onClick={() => {
-                                setImageLoaded(false);
-                                setPreviewImage(item.image);
-                              }}
+                              onClick={() => setPreviewImage(item.image)}
                               title="Click to view full size"
                             />
                           )}
@@ -233,40 +226,10 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
       </div>
 
       {/* Image Preview Modal */}
-      {previewImage && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-modal-backdrop cursor-pointer"
-          onClick={() => setPreviewImage(null)}
-          title="Click to close"
-        >
-          <div className="relative max-w-5xl max-h-[95vh] animate-modal-scale" onClick={(e) => e.stopPropagation()}>
-            {/* Loading Spinner */}
-            {!imageLoaded && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-800 rounded-lg">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading image...</p>
-                </div>
-              </div>
-            )}
-
-            <img
-              src={getHighResImageUrl(previewImage) || previewImage}
-              alt="Product"
-              className={`max-w-full max-h-[95vh] object-contain rounded-lg shadow-2xl transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-              onLoad={() => setImageLoaded(true)}
-            />
-            <button
-              onClick={() => setPreviewImage(null)}
-              className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow-lg transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
+      <ImagePreviewModal
+        imageUrl={previewImage}
+        onClose={() => setPreviewImage(null)}
+      />
     </div>
   );
 };
