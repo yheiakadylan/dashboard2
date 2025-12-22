@@ -28,6 +28,9 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
     const [isOpen, setIsOpen] = useState(false);
     const [processedFirestoreIds, setProcessedFirestoreIds] = useState<Set<string>>(new Set());
 
+    const [limitCount, setLimitCount] = useState(20);
+    const [hasMore, setHasMore] = useState(true);
+
     // Load notifications from localStorage on mount
     useEffect(() => {
         try {
@@ -59,13 +62,13 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
             return;
         }
 
-        console.log('[NotificationCenter] Setting up Firestore listener for teamId:', teamId);
+        console.log('[NotificationCenter] Setting up Firestore listener for teamId:', teamId, 'limit:', limitCount);
 
         const notificationsRef = collection(db, 'user', teamId, 'notifications');
         const q = query(
             notificationsRef,
             orderBy('createdAt', 'desc'),
-            limit(MAX_NOTIFICATIONS)
+            limit(limitCount)
         );
 
         const unsubscribe = onSnapshot(
@@ -97,16 +100,68 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                         // Add to state and ensuring sorting
                         setNotifications((prev) => {
                             // Check if already exists (by ID)
-                            const exists = prev.some((n) => n.id === firestoreId);
-                            if (exists) return prev;
+                            const existingIndex = prev.findIndex((n) => n.id === firestoreId);
 
-                            // Add new notification and sort entire list by date desc
+                            if (existingIndex >= 0) {
+                                // EXISTING: Check if Firestore data is different/newer than local
+                                // We prioritize Firestore as the source of truth
+                                const existing = prev[existingIndex];
+                                const isDifferent =
+                                    existing.isRead !== firestoreNotification.isRead ||
+                                    existing.title !== firestoreNotification.title ||
+                                    JSON.stringify(existing.metadata) !== JSON.stringify(firestoreNotification.metadata);
+
+                                if (!isDifferent) return prev;
+
+                                // Update the existing notification
+                                const newPrev = [...prev];
+                                newPrev[existingIndex] = firestoreNotification;
+                                return newPrev;
+                            }
+
+                            // DEDUPLICATION LOGIC
+                            // 1. Strict deduplication: Same content within short timeframe (prevent double-sends)
+                            const isDuplicateContent = prev.some(n =>
+                                n.type === firestoreNotification.type &&
+                                n.title === firestoreNotification.title &&
+                                n.content === firestoreNotification.content &&
+                                Math.abs(new Date(n.createdAt).getTime() - new Date(firestoreNotification.createdAt).getTime()) < 60000 // 1 minute
+                            );
+
+                            if (isDuplicateContent) {
+                                console.log('[NotificationCenter] Skipped duplicate content (1m window):', firestoreNotification.id);
+                                return prev;
+                            }
+
+                            // 2. Business logic deduplication: SUMMARY type - Only 1 per date
+                            if (firestoreNotification.type === 'SUMMARY' && firestoreNotification.metadata?.summary_data?.date) {
+                                const targetDate = firestoreNotification.metadata.summary_data.date;
+                                const existingSummaryIndex = prev.findIndex(n =>
+                                    n.type === 'SUMMARY' &&
+                                    n.metadata?.summary_data?.date === targetDate
+                                );
+
+                                if (existingSummaryIndex >= 0) {
+                                    // Found existing summary for this date. Replace it with the new one (latest version).
+                                    // This prevents seeing 2 summaries for the same day.
+                                    console.log('[NotificationCenter] Replaced existing summary for date:', targetDate);
+
+                                    const newList = [...prev];
+                                    newList[existingSummaryIndex] = firestoreNotification;
+
+                                    // Re-sort to ensure correct order if timestamp changed
+                                    newList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                                    return newList;
+                                }
+                            }
+
+                            // NEW: Add new notification and sort entire list by date desc
                             const newList = [firestoreNotification, ...prev];
 
                             // Sort by createdAt desc (newest first)
                             newList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-                            return newList.slice(0, MAX_NOTIFICATIONS);
+                            return newList.slice(0, limitCount);
                         });
 
                         // Mark as processed
@@ -144,7 +199,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
             console.log('[NotificationCenter] Cleaning up Firestore listener');
             unsubscribe();
         };
-    }, [teamId, enableFirestoreSync]);
+    }, [teamId, enableFirestoreSync, limitCount]);
 
     // Auto-cleanup on interval (every hour)
     useEffect(() => {
@@ -153,6 +208,13 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
         }, 60 * 60 * 1000); // 1 hour
 
         return () => clearInterval(interval);
+    }, []);
+
+    /**
+     * Increase limit to load more notifications
+     */
+    const loadMore = useCallback(() => {
+        setLimitCount(prev => prev + 20);
     }, []);
 
     /**
@@ -295,5 +357,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
         deleteNotification,
         toggleOpen,
         closePanel,
+        loadMore,
+        hasMore: filteredNotifications.length >= limitCount, // Simple check if we probably have more
     };
 }
