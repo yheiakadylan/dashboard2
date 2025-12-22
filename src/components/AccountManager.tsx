@@ -12,9 +12,6 @@ import NotificationSettings from './NotificationSettings';
 import Spinner from './Spinner';
 
 // --- MAIL MANAGER COMPONENT ---
-
-
-// --- MAIL MANAGER COMPONENT ---
 const MailManager: React.FC = () => {
   const {
     managementAccounts, // Use managementAccounts instead of accounts
@@ -35,26 +32,98 @@ const MailManager: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLocalAccounts(JSON.parse(JSON.stringify(managementAccounts)));
+    setLocalAccounts(prevLocal => {
+      // Create a map of the latest server state
+      const serverMap = new Map(managementAccounts.map(a => [a.id, a]));
+      const localIds = new Set(prevLocal.map(a => a.id));
+
+      // 1. Update existing local accounts with server data, but PRESERVE user edits (label, platforms)
+      //    and preserve the current local array order.
+      const mergedLocal = prevLocal
+        .filter(localAcc => serverMap.has(localAcc.id)) // Remove accounts deleted on server
+        .map(localAcc => {
+          const serverAcc = serverMap.get(localAcc.id)!;
+          return {
+            ...serverAcc,       // Take latest system fields (sync status, last_synced_at, etc.)
+            label: localAcc.label,         // Preserve local user edit
+            platforms: localAcc.platforms, // Preserve local user edit
+            order: localAcc.order          // Preserve local order
+          };
+        });
+
+      // 2. Identify new accounts from server that aren't in local state yet
+      const newAccounts = managementAccounts.filter(a => !localIds.has(a.id));
+
+      // 3. Combine: Existing/Merged + New
+      return [...mergedLocal, ...newAccounts];
+    });
   }, [managementAccounts]);
 
-  // Auto-save with debounce when localAccounts change
+  // Ref to hold latest state for the timeout callback
+  const latestLocalAccountsRef = useRef(localAccounts);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
-    // Skip if localAccounts is same as managementAccounts (initial load or after save)
-    if (JSON.stringify(localAccounts) === JSON.stringify(managementAccounts)) {
+    latestLocalAccountsRef.current = localAccounts;
+  }, [localAccounts]);
+
+  // Auto-save logic with starvation prevention
+  useEffect(() => {
+    // 1. Identify if meaningful changes exist (User Edits)
+    // We only care if Label, Platforms, or Order differ.
+    // System fields (last_synced_at, status) changes should NOT trigger save, 
+    // but they should be included when we do save.
+
+    // Quick length check first
+    let hasChanges = localAccounts.length !== managementAccounts.length;
+
+    if (!hasChanges) {
+      // Deep check of editable fields
+      for (let i = 0; i < localAccounts.length; i++) {
+        const local = localAccounts[i];
+        // Find corresponding account in management (order might differ, so search by ID)
+        const remote = managementAccounts.find(a => a.id === local.id);
+
+        if (!remote) { hasChanges = true; break; } // Should be caught by length, but safe check
+
+        // Check Editable Fields
+        if (local.label !== remote.label) { hasChanges = true; break; }
+        if (local.order !== remote.order) { hasChanges = true; break; }
+
+        // Check Platforms array
+        const localPlatforms = local.platforms || [];
+        const remotePlatforms = remote.platforms || [];
+        if (localPlatforms.length !== remotePlatforms.length) { hasChanges = true; break; }
+        // Simple array comparison (assuming order doesn't matter or is sorted, usually sufficient)
+        const sortedLocalP = [...localPlatforms].sort();
+        const sortedRemoteP = [...remotePlatforms].sort();
+        if (JSON.stringify(sortedLocalP) !== JSON.stringify(sortedRemoteP)) { hasChanges = true; break; }
+      }
+    }
+
+    if (!hasChanges) {
+      // If no changes, do nothing. 
+      // If a timer was running, we can let it die? 
+      // No, if we reverted changes effectively, we might not need to save.
+      // But typically we just let the logic below flow.
       return;
     }
 
-    // Debounce: wait 1.5s after last change
-    const timeoutId = setTimeout(() => {
-      const orderedAccounts = localAccounts.map((acc, index) => ({
-        ...acc,
-        order: index
-      }));
-      handleSaveAccounts(orderedAccounts);
-    }, 1500);
+    // 2. Schedule Save (Persistent Timer)
+    // If a timer is already running, WE DO NOT RESET IT.
+    // This allows the save to execute after 500ms even if updates keep coming.
+    if (!saveTimeoutRef.current) {
+      saveTimeoutRef.current = setTimeout(() => {
+        // Execute Save using the LATEST state
+        const accountsToSave = latestLocalAccountsRef.current.map((acc, index) => ({
+          ...acc,
+          order: index // Ensure order is explicit
+        }));
 
-    return () => clearTimeout(timeoutId);
+        handleSaveAccounts(accountsToSave);
+        saveTimeoutRef.current = null;
+      }, 500); // 500ms delay
+    }
   }, [localAccounts, managementAccounts, handleSaveAccounts]);
 
   const dragItem = useRef<number | null>(null);
@@ -156,7 +225,7 @@ const MailManager: React.FC = () => {
         ...acc,
         order: index
       }));
-      handleSaveAccounts(orderedAccounts);
+      handleSaveAccounts(orderedAccounts, [id]);
     }
   };
 

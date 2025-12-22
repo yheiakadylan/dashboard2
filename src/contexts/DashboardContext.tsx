@@ -50,7 +50,7 @@ interface DashboardContextType {
 
 
   // Actions
-  handleSaveAccounts: (updatedAccounts: Account[]) => Promise<void>;
+  handleSaveAccounts: (updatedAccounts: Account[], explicitlyRemovedIds?: string[]) => Promise<void>;
   handleSyncClick: () => Promise<void>;
   handleResyncAccount: (account: Account) => Promise<void>;
   handleQuickSync: (account: Account) => Promise<void>;
@@ -325,7 +325,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     addNotification(`Queued quick sync for ${account.email}`, "info");
   };
 
-  const handleSaveAccounts = async (updatedAccounts: Account[]) => {
+  const handleSaveAccounts = async (updatedAccounts: Account[], explicitlyRemovedIds: string[] = []) => {
     if (!user) return;
     setIsSavingAccounts(true);
     setSyncState('Saving accounts...');
@@ -334,9 +334,22 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       const originalAccounts = [...allAccounts];
       const originalRecords = [...records];
 
-      // Detect deletions
-      const deletedAccounts = originalAccounts.filter(acc => !updatedAccounts.some(u => u.id === acc.id));
-      const deletedEmails = deletedAccounts.map(a => a.email);
+      // Detect deletions (Derived + Explicit)
+      const derivedDeletedAccounts = originalAccounts.filter(acc => !updatedAccounts.some(u => u.id === acc.id));
+
+      // Combine derived and explicit IDs
+      const derivedDeletedIds = derivedDeletedAccounts.map(a => a.id);
+      const deletedAccountIds = Array.from(new Set([...derivedDeletedIds, ...explicitlyRemovedIds]));
+
+      // Resolve emails for cleanup (only for known accounts)
+      const deletedEmails: string[] = [];
+      deletedAccountIds.forEach(id => {
+        const acc = originalAccounts.find(a => a.id === id);
+        if (acc) deletedEmails.push(acc.email);
+      });
+
+      // Keep 'deletedAccounts' variable for safety check (only includes known accounts)
+      const deletedAccounts = derivedDeletedAccounts;
 
       // CRITICAL SAFETY CHECK: Prevent users from deleting accounts they can't see
       if (role !== 'owner' && deletedAccounts.length > 0) {
@@ -358,6 +371,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
         }
       }
 
+
+
       let nextRecords = originalRecords;
       if (deletedAccounts.length > 0) {
         setSyncState(`Cleaning up ${deletedAccounts.length} accounts...`);
@@ -366,10 +381,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
         setRecords(nextRecords);
       }
 
-      await saveAccountsToFirebase(teamId, updatedAccounts);
-      setAllAccounts(updatedAccounts);
-      // setIsAccountManagerOpen(false); // REMOVED: UI Action should be handled by caller
-      addNotification('Accounts saved.', "success");
+      // Safe update: Only upsert updatedAccounts and delete explicitly deleted IDs
+      await saveAccountsToFirebase(teamId, updatedAccounts, deletedAccountIds);
+
+      // REMOVED: setAllAccounts(updatedAccounts) 
+      // REMOVED: addNotification('Accounts saved.', "success");
+      // We rely on the real-time listener in useDataSync to update the state and notify the user.
+      // This ensures 1) we are sure the server has the data, and 2) the "Account Renamed" notification triggers correctly because the local state is still "stale" when the listener fires.
 
 
       // Detect additions

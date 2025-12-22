@@ -104,23 +104,47 @@ export const getAccountsFromFirebase = async (teamId: string): Promise<Account[]
   return accountList;
 };
 
-export const saveAccountsToFirebase = async (teamId: string, accounts: Account[]): Promise<void> => {
+export const listenForAccounts = (teamId: string, callback: (accounts: Account[]) => void): (() => void) => {
+  const accountsCol = collection(db, 'user', teamId, 'accounts');
+
+  const unsubscribe = onSnapshot(accountsCol, (snapshot) => {
+    const accountList = snapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as Account));
+
+    // Sort by the order field
+    accountList.sort((a, b) => {
+      const orderA = typeof a.order === 'number' ? a.order : Infinity;
+      const orderB = typeof b.order === 'number' ? b.order : Infinity;
+      return orderA - orderB;
+    });
+
+    callback(accountList);
+  }, (error) => {
+    console.error("Error listening for accounts:", error);
+  });
+
+  return unsubscribe;
+};
+
+export const saveAccountsToFirebase = async (teamId: string, accounts: Account[], deletedAccountIds: string[] = []): Promise<void> => {
   const batch = writeBatch(db);
-  const accountsCollectionRef = collection(db, 'user', teamId, 'accounts');
 
-  const existingDocsSnapshot = await getDocs(accountsCollectionRef);
-  const newAccountIds = new Set(accounts.map(acc => acc.id));
+  // 1. Delete explicitly removed accounts
+  if (deletedAccountIds.length > 0) {
+    deletedAccountIds.forEach(id => {
+      const docRef = doc(db, 'user', teamId, 'accounts', id);
+      batch.delete(docRef);
+    });
+  }
 
-  existingDocsSnapshot.forEach(doc => {
-    if (!newAccountIds.has(doc.id)) {
-      batch.delete(doc.ref);
-    }
-  });
-
-  accounts.forEach(acc => {
-    const docRef = doc(db, 'user', teamId, 'accounts', acc.id);
-    batch.set(docRef, acc);
-  });
+  // 2. Upsert (Add/Update) accounts
+  if (accounts.length > 0) {
+    accounts.forEach(acc => {
+      const docRef = doc(db, 'user', teamId, 'accounts', acc.id);
+      // Use set to overwrite or create. 
+      // Ensuring we write the full object as provided.
+      batch.set(docRef, acc);
+    });
+  }
 
   await batch.commit();
 };

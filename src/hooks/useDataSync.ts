@@ -10,6 +10,7 @@ import {
     updateRecordsInFirebase,
     saveRecordsToFirebase,
     listenForNewRecords,
+    listenForAccounts,
     getRecordsForDateRange,
     getAccountsFromFirebase,
     getManualCosts,
@@ -41,6 +42,12 @@ export const useDataSync = ({
     const [records, setRecords] = useState<Record[]>([]);
     const [previousPeriodRecords, setPreviousPeriodRecords] = useState<Record[] | null>(null);
     const [manualCosts, setManualCosts] = useState<ManualCost[]>([]);
+
+    // Ref to track latest accounts for safety checks in async functions
+    const allAccountsRef = useRef<Account[]>([]);
+    useEffect(() => {
+        allAccountsRef.current = allAccounts;
+    }, [allAccounts]);
 
     // Loading States
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -147,12 +154,29 @@ export const useDataSync = ({
 
             if (signal?.aborted) return [];
 
-            setSyncState('Updating costs...');
             const isHistoricalSync = !!overrideDateRange;
 
+            // SAFETY CHECK: validRecords only
+            // If an account was deleted during fetch, we must NOT save its records or update its status.
+            const currentAccountEmails = new Set(allAccountsRef.current.map(a => a.email));
+            let validRecords = fetchedRecords.filter(r => currentAccountEmails.has(r.account));
+
+            if (validRecords.length < fetchedRecords.length) {
+                console.warn("Sync: Detected removed accounts. Dropping orphaned records.");
+            }
+
+            if (validRecords.length === 0 && fetchedRecords.length > 0) {
+                // All accounts in this batch were removed
+                setSyncState(null);
+                return [];
+            }
+
+            // Use validRecords for the rest of the function
             const recordsToScanForCost = isHistoricalSync
-                ? fetchedRecords
-                : [...existingRecords, ...fetchedRecords];
+                ? validRecords
+                : [...existingRecords, ...validRecords]; // Note: existingRecords might need filtering too if we want to be super strict, but usually fine.
+
+            setSyncState('Updating costs...');
 
             const ordersNeedingCost = recordsToScanForCost.filter(r => r.kind === 'order' && !r.cost_total);
             let costMap: Map<string, CostData> = new Map();
@@ -165,7 +189,7 @@ export const useDataSync = ({
             if (signal?.aborted) return [];
 
             let updatedOldRecords: (Partial<Record> & { id: string; })[] = [];
-            const newRecordsWithCost = fetchedRecords.map(record => {
+            const newRecordsWithCost = validRecords.map(record => {
                 if (record.order_id && costMap.has(record.order_id)) {
                     const costInfo = costMap.get(record.order_id)!;
                     return { ...record, cost_total: costInfo.cost_total, ff_code: costInfo.ff_code, product_name: costInfo.product_name || null };
@@ -195,12 +219,18 @@ export const useDataSync = ({
             if (signal?.aborted) return [];
 
             if (!overrideDateRange) {
-                const updatedAccountsForFirebase = accountsForSync.map(acc => ({ ...acc, last_synced_at: syncStartTime }));
-                await updateAccountsInFirebase(teamId, updatedAccountsForFirebase);
-                setAllAccounts(prevAccounts => {
-                    const updatedAccountsMap = new Map(updatedAccountsForFirebase.map(acc => [acc.id, acc]));
-                    return prevAccounts.map(acc => updatedAccountsMap.get(acc.id) || acc);
-                });
+                // SAFETY CHECK: Only update accounts that are still in the system
+                const currentAccountIds = new Set(allAccountsRef.current.map(a => a.id));
+                const accountsToUpdate = accountsForSync.filter(acc => currentAccountIds.has(acc.id));
+
+                if (accountsToUpdate.length > 0) {
+                    const updatedAccountsForFirebase = accountsToUpdate.map(acc => ({ ...acc, last_synced_at: syncStartTime }));
+                    await updateAccountsInFirebase(teamId, updatedAccountsForFirebase);
+                    setAllAccounts(prevAccounts => {
+                        const updatedAccountsMap = new Map(updatedAccountsForFirebase.map(acc => [acc.id, acc]));
+                        return prevAccounts.map(acc => updatedAccountsMap.get(acc.id) || acc);
+                    });
+                }
             }
 
             if (addedRecords.length > 0 || updatedOldRecords.length > 0) {
@@ -237,6 +267,12 @@ export const useDataSync = ({
 
         for (let account of accountsToSync) {
             if (signal?.aborted) return;
+
+            // SAFETY CHECK: Abort if account no longer exists
+            if (!allAccountsRef.current.some(a => a.id === account.id)) {
+                console.log(`Historical Sync: Account ${account.email} was removed. Skipping.`);
+                continue;
+            }
 
             if (!account.scan_start_date) {
                 setSyncState(`[${account.email}] Probing history...`);
@@ -277,6 +313,12 @@ export const useDataSync = ({
             let safetyCounter = 0;
             while (currentSyncEnd > finalSyncEnd) {
                 if (signal?.aborted) return;
+
+                // SAFETY CHECK: Abort loop if account deleted
+                if (!allAccountsRef.current.some(a => a.id === account.id)) {
+                    console.log(`Historical Sync: Account ${account.email} removed during loop. Aborting.`);
+                    break;
+                }
 
                 safetyCounter++;
                 if (safetyCounter > 1000) {
@@ -611,6 +653,45 @@ export const useDataSync = ({
             unsubscribe();
         };
     }, [filterDateRange, user, teamId, addNotification]);
+
+    // --- Effect: Listen for Account Changes (Realtime) ---
+    useEffect(() => {
+        if (!user) return;
+
+        const unsubscribe = listenForAccounts(teamId, (updatedAccounts) => {
+            // Only notify if we are past the initial load phase to avoid spamming on startup
+            if (initialLoadCompleteRef.current) {
+                const prevAccounts = allAccountsRef.current;
+                const prevMap = new Map(prevAccounts.map(a => [a.id, a]));
+                const currentMap = new Map(updatedAccounts.map(a => [a.id, a]));
+
+                // Detect Additions & Udpates
+                updatedAccounts.forEach(newAcc => {
+                    const oldAcc = prevMap.get(newAcc.id);
+                    if (!oldAcc) {
+                        addNotification(`New account added: ${newAcc.email}`, 'info');
+                    } else {
+                        if (oldAcc.label !== newAcc.label) {
+                            addNotification(`Account ${newAcc.email} renamed to "${newAcc.label}"`, 'info');
+                        }
+                    }
+                });
+
+                // Detect Deletions
+                prevAccounts.forEach(oldAcc => {
+                    if (!currentMap.has(oldAcc.id)) {
+                        addNotification(`Account removed: ${oldAcc.email}`, 'info');
+                    }
+                });
+            }
+
+            setAllAccounts(updatedAccounts);
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [user, teamId, addNotification]);
 
     // --- Cleanup on Unmount ---
     useEffect(() => {
