@@ -161,3 +161,21 @@ export const registerPWAUpdate = (callbacks?: UpdateCallback) => {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
 };
+
+/**
+ * Trigger the waiting service worker to skip waiting and activate
+ * This should be called when the user accepts the update prompt
+ */
+export const applyUpdate = async () => {
+    if (!('serviceWorker' in navigator)) return;
+
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (registration && registration.waiting) {
+        console.log('[PWA] Sending SKIP_WAITING to waiting worker');
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+    } else {
+        console.warn('[PWA] No waiting worker found to activate');
+        // Fallback: reload anyway to be sure
+        window.location.reload();
+    }
+};
