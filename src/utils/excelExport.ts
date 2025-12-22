@@ -169,6 +169,10 @@ const REQUIRED_ORDER_HEADERS = [
     'Order ID', 'Image', 'Product Name', 'Variants', 'Revenue', 'Currency', 'Cost', 'FF Code', 'Case', 'Help', 'Account', 'Datetime', 'Source'
 ];
 
+const REQUIRED_SUPPORT_HEADERS = [
+    'Order Number', 'Type', 'Message/Kind', 'Account', 'Datetime'
+];
+
 const remapTableDataForOrders = (originalData: TableData): TableData => {
     // 1. Map required headers to indices in original data
     // We try to find the best match in originalData.headers
@@ -204,6 +208,38 @@ const remapTableDataForOrders = (originalData: TableData): TableData => {
 
     return {
         headers: REQUIRED_ORDER_HEADERS,
+        rows: newRows
+    };
+};
+
+const remapTableDataForSupport = (originalData: TableData, type: 'Case' | 'Help'): TableData => {
+    // Original headers from dataProcessing:
+    // Case: ["Order Number", "Message", "Source", "Account", "DateTime"]
+    // Help: ["Order Number", "Help Kind", "Source", "Account", "DateTime"]
+
+    const headerMapping: { [target: string]: number } = {};
+
+    originalData.headers.forEach((h, index) => {
+        const lowerH = h.toLowerCase();
+        if (lowerH.includes('order')) headerMapping['Order Number'] = index;
+        else if (lowerH.includes('message') || lowerH.includes('kind')) headerMapping['Message/Kind'] = index;
+        else if (lowerH.includes('source')) headerMapping['Source'] = index;
+        else if (lowerH.includes('account')) headerMapping['Account'] = index;
+        else if (lowerH.includes('date') || lowerH.includes('time')) headerMapping['Datetime'] = index;
+    });
+
+    const newRows = originalData.rows.map(row => {
+        return [
+            row[headerMapping['Order Number']] || 'N/A',
+            type, // Static 'Type' column
+            row[headerMapping['Message/Kind']] || '',
+            row[headerMapping['Account']] || '',
+            row[headerMapping['Datetime']] || ''
+        ];
+    });
+
+    return {
+        headers: REQUIRED_SUPPORT_HEADERS,
         rows: newRows
     };
 };
@@ -722,14 +758,30 @@ export const exportDashboardToExcel = async (processedData: ProcessedData, filen
         sheetPromises.push(addStandardSheet(workbook, 'Product', processedData.products, includeImages, includeImages ? imageProgressCallback : undefined));
     }
 
-    // 4. Case
+    // 4. Support (Combined Case & Help)
+    const supportRows: any[] = [];
+
     if (processedData.cases) {
-        sheetPromises.push(addStandardSheet(workbook, 'Case', processedData.cases, false));
+        const remappedCases = remapTableDataForSupport(processedData.cases, 'Case');
+        supportRows.push(...remappedCases.rows);
     }
 
-    // 5. Help
     if (processedData.help) {
-        sheetPromises.push(addStandardSheet(workbook, 'Help', processedData.help, false));
+        const remappedHelp = remapTableDataForSupport(processedData.help, 'Help');
+        supportRows.push(...remappedHelp.rows);
+    }
+
+    if (supportRows.length > 0) {
+        // Sort by Date (Last column usually)
+        // Assuming datetime is last index from remapping: REQUIRED_SUPPORT_HEADERS index 5
+        const dateIndex = 5;
+        supportRows.sort((a, b) => new Date(b[dateIndex]).getTime() - new Date(a[dateIndex]).getTime());
+
+        const supportTableData = {
+            headers: REQUIRED_SUPPORT_HEADERS,
+            rows: supportRows
+        };
+        sheetPromises.push(addStandardSheet(workbook, 'Support', supportTableData, false));
     }
 
     // 6. Fulfill
