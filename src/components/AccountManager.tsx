@@ -18,6 +18,8 @@ const MailManager: React.FC = () => {
     handleSaveAccounts,
     isSavingAccounts,
     syncState,
+    syncProgress,
+    accountSyncStatuses,
     handleResyncAccount,
     handleQuickSync // Add new handler
   } = useDashboard();
@@ -312,9 +314,15 @@ const MailManager: React.FC = () => {
                 onDragEnter={() => dragOverItem.current = index}
                 onDragEnd={handleDrop}
                 onDragOver={(e) => e.preventDefault()}
-                className="flex flex-col md:flex-row md:items-center justify-between bg-gray-100 dark:bg-gray-700 p-1.5 md:p-3 rounded gap-2 cursor-grab active:cursor-grabbing"
+                className="flex flex-col md:flex-row md:items-center justify-between bg-white dark:bg-gray-800 p-3 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 gap-3 cursor-grab active:cursor-grabbing hover:shadow-md transition-all duration-200 group relative overflow-hidden"
               >
+                {/* Numbering Badge */}
+                <div className="absolute top-0 left-0 bg-gray-50 dark:bg-gray-700/50 px-1.5 py-0.5 rounded-br-lg border-b border-r border-gray-100 dark:border-gray-600/50 z-10">
+                  <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 font-mono">{index + 1}</span>
+                </div>
                 <div className="flex items-center gap-2 md:gap-3 flex-grow min-w-0">
+
+
                   <div className="flex-shrink-0">
                     {acc.provider === 'gmail' ? (
                       <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-5 h-5 md:w-6 md:h-6" />
@@ -327,7 +335,7 @@ const MailManager: React.FC = () => {
                       type="text"
                       value={acc.label}
                       onChange={(e) => handleLabelChange(acc.id, e.target.value)}
-                      className="font-semibold bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-white p-1 text-sm md:text-base rounded w-full focus:ring-1 focus:ring-blue-500 focus:outline-none truncate"
+                      className="font-semibold bg-transparent text-gray-900 dark:text-white p-1 text-sm md:text-base rounded w-full focus:bg-gray-50 dark:focus:bg-gray-700/50 focus:ring-2 focus:ring-blue-500/20 focus:outline-none truncate transition-colors border-b border-transparent focus:border-blue-500"
                       placeholder="Enter Shop Name"
                     />
                     <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 px-1 truncate">{acc.email}</p>
@@ -354,10 +362,34 @@ const MailManager: React.FC = () => {
                       </label>
                     </div>
 
-                    <div className={`flex items-center gap-1.5 px-1 text-xs font-medium ${syncStatus.color}`} title={syncStatus.title}>
-                      {syncStatus.icon}
-                      <span>{syncStatus.text}</span>
-                    </div>
+                    {/* Sync Status / Progress */}
+                    {accountSyncStatuses && accountSyncStatuses[acc.id] ? (
+                      <div className="mt-1.5 w-full pr-2 animate-fadeIn bg-purple-50 dark:bg-purple-900/30 p-1.5 rounded-md border border-purple-100 dark:border-purple-800/50">
+                        <div className="flex items-center gap-2 text-[11px] font-bold text-purple-600 dark:text-purple-400">
+                          <Spinner size="xs" color="text-purple-600 dark:text-purple-400" />
+                          <span className="uppercase tracking-wide">Syncing History:</span>
+                          <span className="font-mono">{accountSyncStatuses[acc.id]}</span>
+                        </div>
+                      </div>
+                    ) : (syncProgress && syncProgress.message.includes(`[${acc.email}]`)) ? (
+                      <div className="mt-1.5 w-full pr-2 animate-fadeIn bg-white/50 dark:bg-black/20 p-1.5 rounded-md">
+                        <div className="flex justify-between items-center text-[10px] font-bold text-blue-600 dark:text-blue-400 mb-1">
+                          <span className="truncate mr-1 uppercase">{syncProgress.message.replace(`[${acc.email}]`, '').trim()}</span>
+                          <span>{Math.round((syncProgress.current / syncProgress.total) * 100)}%</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(100, (syncProgress.current / syncProgress.total) * 100)}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`flex items-center gap-1.5 px-1 text-xs font-medium ${syncStatus.color}`} title={syncStatus.title}>
+                        {syncStatus.icon}
+                        <span>{syncStatus.text}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 

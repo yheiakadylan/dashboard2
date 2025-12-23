@@ -135,6 +135,54 @@ const getPlainTextFromGmailPayload = (payload: any): string => {
     return "";
 };
 
+/**
+ * Fetch wrapper with exponential backoff for 429 errors
+ */
+const fetchWithRetry = async (url: string, options: RequestInit = {}, retries = 5, backoff = 1000): Promise<Response> => {
+    try {
+        const response = await fetch(url, options);
+
+        if (response.status === 429) {
+            if (retries <= 0) {
+                throw new Error("Max retries exceeded for 429 Too Many Requests");
+            }
+
+            // Get retry-after header if available (seconds), or use backoff
+            const retryAfterHeader = response.headers.get('Retry-After');
+            let waitTime = backoff;
+
+            if (retryAfterHeader) {
+                const seconds = parseInt(retryAfterHeader, 10);
+                if (!isNaN(seconds)) {
+                    waitTime = seconds * 1000;
+                }
+            }
+
+            // Add some jitter to prevent thundering herd
+            const jitter = Math.random() * 200 + 100; // 100-300ms jitter
+            waitTime += jitter;
+
+            console.warn(`Rate limit hit (429). Retrying in ${Math.round(waitTime)}ms... URL: ${url}`);
+
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+
+            // Exponential backoff for next retry (max 16 seconds)
+            const nextBackoff = Math.min(backoff * 2, 16000);
+            return fetchWithRetry(url, options, retries - 1, nextBackoff);
+        }
+
+        return response;
+    } catch (error) {
+        // Also retry on network errors (fetch throws on network error)
+        if (retries > 0) {
+            console.warn(`Network error. Retrying in ${backoff}ms... Error: ${error}`);
+            await new Promise(resolve => setTimeout(resolve, backoff));
+            return fetchWithRetry(url, options, retries - 1, backoff * 2);
+        }
+        throw error;
+    }
+};
+
 const createGmailFetcher = (account: Account) => {
     let currentTokenPromise: Promise<string> | null = null;
 
@@ -148,7 +196,10 @@ const createGmailFetcher = (account: Account) => {
     const authorizedFetch = async (url: string, isRetry: boolean = false): Promise<Response> => {
         try {
             const accessToken = await getFreshToken(isRetry);
-            const response = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+            // Use global fetchWithRetry
+            const response = await fetchWithRetry(url, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
 
             if (response.status === 401 && !isRetry) {
                 console.warn(`Gmail token may have expired for ${account.email}. Retrying with a fresh token.`);
@@ -322,7 +373,8 @@ async function fetchOutlookMessages(
             console.warn(`Reached fetch limit (${LIMIT}) for rule "${rule.name}" and account ${account.email}.`);
             break;
         }
-        const response = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        const response = await fetchWithRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+
         if (response.status === 401) throw new Error(`Authentication failed for ${account.email}.`);
         if (!response.ok) throw new Error(`MS Graph API error: Status ${response.status}.`);
 
@@ -455,9 +507,25 @@ export const fetchAllRecords = async (
     accounts: Account[],
     setStatus: (status: string) => void,
     overrideDateRange?: { from: string, to: string },
-    existingEmailIds?: Set<string>
+    existingEmailIds?: Set<string>,
+    onProgress?: (progress: { current: number, total: number, message: string }) => void
 ): Promise<Record[]> => {
     setStatus(`Starting sync for ${accounts.length} account(s)...`);
+
+    // Calculate total steps (Rules * Accounts)
+    let totalSteps = 0;
+    accounts.forEach(acc => {
+        const activeRules = RULES.filter(r =>
+            !r.platform || !acc.platforms || acc.platforms.length === 0 || acc.platforms.includes(r.platform)
+        );
+        totalSteps += activeRules.length;
+    });
+
+    let completedSteps = 0;
+    const reportProgress = (msg: string) => {
+        if (onProgress) onProgress({ current: completedSteps, total: totalSteps, message: msg });
+        setStatus(msg); // Keep legacy status update for now
+    };
 
     const accountPromises = accounts.map(async (account) => {
         let syncFromDate: string;
@@ -472,7 +540,7 @@ export const fetchAllRecords = async (
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
             syncFromDate = sevenDaysAgo.toISOString();
-            setStatus(`[${account.email}] New account. Syncing last 7 days...`);
+            // setStatus used to be here, moved to reportProgress logic implicitly via updates
         }
 
         const accountDateRange = { from: syncFromDate, to: syncRunToDate };
@@ -497,6 +565,9 @@ export const fetchAllRecords = async (
                 }
 
                 // Map records and add source right away
+                completedSteps++;
+                reportProgress(`[${account.email}] Processed ${rule.name} (${completedSteps}/${totalSteps})`);
+
                 return fetchedRecords.map(r => ({
                     ...(r as Partial<Record>),
                     account: account.email,
@@ -556,7 +627,7 @@ export const reprocessRecord = async (teamId: string, account: Account, record: 
     } else if (account.provider === 'outlook') {
         const token = await getMicrosoftToken(account);
         const url = `https://graph.microsoft.com/v1.0/me/messages/${record.email_id}?$select=subject,bodyPreview,body,receivedDateTime`;
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) throw new Error(`Outlook API error: ${res.statusText}`);
         const msgData = await res.json();
 

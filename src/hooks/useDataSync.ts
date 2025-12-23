@@ -54,6 +54,8 @@ export const useDataSync = ({
     const [isSyncing, setIsSyncing] = useState<boolean>(false);
     const [isFetchingNewRange, setIsFetchingNewRange] = useState<boolean>(false);
     const [syncState, setSyncState] = useState<string | null>('Initializing...');
+    const [syncProgress, setSyncProgress] = useState<{ current: number, total: number, message: string } | null>(null);
+    const [accountSyncStatuses, setAccountSyncStatuses] = useState<{ [key: string]: string }>({});
 
     // Refs for Abort Control
     const initialLoadAbortControllerRef = useRef<AbortController | null>(null);
@@ -130,7 +132,9 @@ export const useDataSync = ({
         accountsForSync: Account[],
         existingRecords: Record[],
         overrideDateRange?: { from: string, to: string },
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        onProgress?: (progress: { current: number, total: number, message: string }) => void,
+        isSilent: boolean = false
     ): Promise<Record[]> => {
         if (!accountsForSync.length) {
             addNotification("No accounts available to sync.", "info");
@@ -143,7 +147,8 @@ export const useDataSync = ({
         }
 
         setIsSyncing(true);
-        setSyncState(`Syncing ${accountsForSync.length} account(s)...`);
+        setIsSyncing(true);
+        if (!isSilent) setSyncState(`Syncing ${accountsForSync.length} account(s)...`);
         try {
             const syncStartTime = new Date().toISOString();
             const existingEmailIds = new Set(existingRecords.filter(r => r.email_id).map(r => r.email_id!));
@@ -330,9 +335,14 @@ export const useDataSync = ({
                 currentSyncStart.setDate(currentSyncStart.getDate() - 7);
 
                 const effectiveSyncStart = currentSyncStart < finalSyncEnd ? finalSyncEnd : currentSyncStart;
+
+                const historyMsg = `${effectiveSyncStart.toLocaleDateString()} - ${currentSyncEnd.toLocaleDateString()}`;
+                setSyncState(null); // Clear global state to avoid flickering
+                setAccountSyncStatuses(prev => ({ ...prev, [account.id]: historyMsg }));
+
                 const dateRange = { from: effectiveSyncStart.toISOString(), to: currentSyncEnd.toISOString() };
 
-                setSyncState(`[${account.email}] History: ${effectiveSyncStart.toLocaleDateString()} - ${currentSyncEnd.toLocaleDateString()}`);
+
 
                 try {
                     const fetchedChunk = await runSync([account], currentExistingRecords, dateRange, signal);
@@ -360,6 +370,13 @@ export const useDataSync = ({
                 await updateAccountsInFirebase(teamId, [finalAccountUpdate]);
                 setAllAccounts(prevAccounts => prevAccounts.map(acc => acc.id === account.id ? { ...acc, historical_sync_complete: true } : acc));
                 addNotification(`[${account.email}] Historical sync complete.`, "info");
+
+                // Clear status
+                setAccountSyncStatuses(prev => {
+                    const next = { ...prev };
+                    delete next[account.id];
+                    return next;
+                });
             }
         }
         setSyncState(null);
@@ -430,17 +447,22 @@ export const useDataSync = ({
                         setSyncState('Auto-syncing...');
 
                         try {
-                            await runSync(fbAccounts, initialDisplayRecords, undefined, syncSignal);
+                            // Silence the initial sync progress to prevent UI flashing "Processing..."
+                            const silentProgress = () => { };
+                            const syncResult = await runSync(fbAccounts, initialDisplayRecords, undefined, syncSignal, silentProgress, true);
 
                             if (syncSignal.aborted) {
                                 return;
                             }
 
-                            // Refresh data after sync
-                            const updatedDisplayRecords = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
-
-                            if (syncSignal.aborted) return;
-                            setRecords(updatedDisplayRecords);
+                            // Only refresh view if sync actually brought in new data OR updated old records
+                            if (syncResult.length > 0) {
+                                const updatedDisplayRecords = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
+                                if (syncSignal.aborted) return;
+                                setRecords(updatedDisplayRecords);
+                            } else {
+                                console.log("Initial sync yielded no new records. Skipping re-fetch to prevent UI flash.");
+                            }
 
                             const latestAccounts = await getAccountsFromFirebase(teamId);
 
@@ -454,7 +476,7 @@ export const useDataSync = ({
                             const accountsForHistoricalSync = latestAccounts.filter(acc => !acc.historical_sync_complete);
                             if (accountsForHistoricalSync.length > 0 && !syncSignal.aborted) {
                                 historicalSyncAbortControllerRef.current = new AbortController();
-                                runHistoricalSync(accountsForHistoricalSync, updatedDisplayRecords, historicalSyncAbortControllerRef.current.signal);
+                                runHistoricalSync(accountsForHistoricalSync, initialDisplayRecords, historicalSyncAbortControllerRef.current.signal);
                             }
                         } catch (error) {
                             if (syncSignal.aborted) return;
@@ -709,6 +731,8 @@ export const useDataSync = ({
         isSyncing,
         isFetchingNewRange,
         syncState, setSyncState,
+        syncProgress,
+        accountSyncStatuses,
         runSync,
         runHistoricalSync,
         enqueueSyncTask

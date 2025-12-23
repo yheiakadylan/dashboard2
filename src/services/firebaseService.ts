@@ -411,7 +411,46 @@ export const addRecord = async (teamId: string, record: Record): Promise<Record>
     ? doc(recordsCollectionRef, record.email_id)
     : doc(recordsCollectionRef); // Fallback: Auto ID
 
-  // Dùng setDoc để ghi đè nếu đã tồn tại (hoặc tạo mới)
   await setDoc(docRef, data);
   return { ...record, id: docRef.id };
+};
+
+export const searchGlobalRecords = async (teamId: string, term: string): Promise<Record[]> => {
+  if (!term || !term.trim()) return [];
+
+  const recordsRef = collection(db, 'user', teamId, 'records');
+  const results: Record[] = [];
+  const seenIds = new Set<string>();
+
+  // Helper to add unique records
+  const addDocs = (docs: QuerySnapshot<DocumentData>) => {
+    docs.forEach(doc => {
+      if (!seenIds.has(doc.id)) {
+        seenIds.add(doc.id);
+        results.push({ ...(doc.data() as object), id: doc.id } as Record);
+      }
+    });
+  };
+
+  try {
+    // 1. Exact match on Order ID
+    const qOrder = query(recordsRef, where('order_id', '==', term.trim()));
+    const snapOrder = await getDocs(qOrder);
+    addDocs(snapOrder);
+
+    // 2. Exact match on FF Code
+    const qFF = query(recordsRef, where('ff_code', '==', term.trim()));
+    const snapFF = await getDocs(qFF);
+    addDocs(snapFF);
+
+    // 3. Exact match on Email ID (sometimes used as ref)
+    const qEmailId = query(recordsRef, where('email_id', '==', term.trim()));
+    const snapEmailId = await getDocs(qEmailId);
+    addDocs(snapEmailId);
+
+    return results;
+  } catch (error) {
+    console.error("Global search error:", error);
+    return [];
+  }
 };

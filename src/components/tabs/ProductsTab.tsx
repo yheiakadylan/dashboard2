@@ -16,7 +16,6 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
             <div className="p-2 md:p-6 pb-0">
                 <div className="mb-6">
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
-                        <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Top Products</h3>
                         <div>
                             <ChartErrorBoundary>
                                 <TopProductsChart data={processedData.summary.topProductsByShop} />

@@ -39,6 +39,8 @@ interface DashboardContextType {
   isSyncing: boolean;
   isFetchingNewRange: boolean;
   syncState: string | null;
+  syncProgress: { current: number, total: number, message: string } | null;
+  accountSyncStatuses: { [key: string]: string };
   isProcessing: boolean;
   isSavingAccounts: boolean;
   exportProgress: ExportProgress | null;
@@ -57,6 +59,7 @@ interface DashboardContextType {
   handleLogout: () => Promise<void>;
   handleExport: () => void;
   handleExportWithOptions: (includeImages: boolean) => void;
+  performGlobalSearch: (term: string) => Promise<void>;
 
 
 
@@ -102,6 +105,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     isSyncing,
     isFetchingNewRange,
     syncState, setSyncState,
+    syncProgress,
+    accountSyncStatuses,
     runSync,
     runHistoricalSync,
     enqueueSyncTask
@@ -141,31 +146,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   // Actually, filtering logs often depends on UI state (filterDateRange).
   // So we should ACCEPT these as props or dependencies, or move filtering to UI layer?
   // Ideally: DashboardContext provides RAW data, specific views filter it.
-  // BUT the worker needs filterDateRange to optimize.
-  // TEMPORARY FIX: We will accept these as arguments in hooks or context?
-  // Problem: useDataSync needs filterDateRange.
-  // SOLUTION: We will inject the filter params into DashboardContext from App (via UIContext) OR
-  // we let DashboardContext consume UIContext?
-  // Circular dependency risk: DashboardContext -> UIContext -> (maybe) DashboardContext.
-  // Better: App passes these values down to DashboardProvider?
-  // Let's modify DashboardProviderProps.
-
-  // NOTE: For this step I am deleting the state definitions but I need to get them from somewhere
-  // to pass to useDataSync.
-  // I will update DashboardProvider to accept `filterDateRange`, `timeZone` etc as props from App wrapper.
-
-
-
-  // Filter Records for Display/Processing
-  const filteredRecords = useRecordFiltering({
-    records,
-    accounts: visibleAccounts,
-    selectedAccountId,
-    searchTerm
-  });
-
-
-
+  // BUT the worker needs filterDateRange to optimize
 
   // --- Worker / Data Processing ---
   const initialProcessedData: ProcessedData = {
@@ -216,8 +197,55 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     return () => workerRef.current?.terminate();
   }, []);
 
-  // Track the last records sent to worker
-  const lastTriggeredRef = useRef(filteredRecords);
+  // Computed Processing Accounts (Stable reference for Worker)
+  // Strips out timestamps to prevent re-processing when only sync status changes
+  const processingAccounts = useMemo(() => {
+    return visibleAccounts.map(acc => ({
+      id: acc.id,
+      email: acc.email,
+      label: acc.label,
+      platforms: acc.platforms,
+      provider: acc.provider
+    }));
+  }, [visibleAccounts]);
+
+  // Ref to hold stable processing accounts
+  const stableProcessingAccountsRef = useRef(processingAccounts);
+  // Manual check
+  const isProcessingAccountsDifferent = JSON.stringify(processingAccounts) !== JSON.stringify(stableProcessingAccountsRef.current);
+  if (isProcessingAccountsDifferent) {
+    stableProcessingAccountsRef.current = processingAccounts;
+  }
+
+  // Let's explicitly memoize the JSON string and use that as dependency?
+  const processingAccountsHash = useMemo(() => JSON.stringify(processingAccounts), [processingAccounts]);
+
+
+  // Filter Records for Display/Processing
+  // Use stableProcessingAccountsRef to prevent re-filtering (and re-processing) when only timestamps change
+  const filteredRecords = useRecordFiltering({
+    records,
+    accounts: stableProcessingAccountsRef.current as Account[], // Cast as full Account[] assuming filtering uses only stable IDs
+    selectedAccountId,
+    searchTerm
+  });
+
+  // Track the last trigger state for worker to prevent redundant runs
+  const lastTriggeredRef = useRef<{
+    records: any;
+    prevRecords: any;
+    accountsHash: string;
+    filter: any;
+    tz: string;
+    manual: any;
+  }>({
+    records: null,
+    prevRecords: null,
+    accountsHash: '',
+    filter: null,
+    tz: '',
+    manual: null
+  });
 
   // Sync ref for safety timeout check
   const isProcessingRef = useRef(isProcessing);
@@ -227,12 +255,34 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   useEffect(() => {
     if (!workerRef.current) return;
 
-    // Check if records actually changed
-    if (filteredRecords === lastTriggeredRef.current) {
+    const triggerKey = {
+      records: filteredRecords,
+      prevRecords: previousPeriodRecords,
+      accountsHash: processingAccountsHash,
+      filter: filterDateRange,
+      tz: timeZone,
+      manual: manualCosts
+    };
+
+    if (
+      filteredRecords === lastTriggeredRef.current.records &&
+      previousPeriodRecords === lastTriggeredRef.current.prevRecords &&
+      processingAccountsHash === lastTriggeredRef.current.accountsHash &&
+      filterDateRange === lastTriggeredRef.current.filter &&
+      timeZone === lastTriggeredRef.current.tz &&
+      manualCosts === lastTriggeredRef.current.manual
+    ) {
       return;
     }
 
-    lastTriggeredRef.current = filteredRecords;
+    lastTriggeredRef.current = {
+      records: filteredRecords,
+      prevRecords: previousPeriodRecords,
+      accountsHash: processingAccountsHash,
+      filter: filterDateRange,
+      tz: timeZone,
+      manual: manualCosts
+    };
 
     // Set processing state
     setIsProcessing(true);
@@ -249,11 +299,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     // Increment request ID
     workerRequestIdRef.current += 1;
     const currentRequestId = workerRequestIdRef.current;
+
+    // Use stable accounts for worker
     workerRef.current.postMessage({
       requestId: currentRequestId,
       records: filteredRecords,
       previousRecords: previousPeriodRecords,
-      accounts: visibleAccounts,
+      accounts: stableProcessingAccountsRef.current, // Use stable structure
       filterDateRange,
       timeZone,
       role,
@@ -262,7 +314,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     });
 
     return () => clearTimeout(safetyTimeout);
-  }, [filteredRecords, previousPeriodRecords, visibleAccounts, filterDateRange, timeZone, role, permissions, manualCosts]);
+  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, manualCosts]);
 
 
   // --- Action Handlers ---
@@ -483,6 +535,29 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       });
   };
 
+  const performGlobalSearch = async (term: string) => {
+    if (!term || !term.trim()) return;
+    setIsProcessing(true);
+    setSyncState('Searching globally...');
+    try {
+      const { searchGlobalRecords } = await import('../services/firebaseService');
+      const results = await searchGlobalRecords(teamId, term);
+
+      if (results.length > 0) {
+        setRecords(results);
+        addNotification(`Global Search: Found ${results.length} record(s) matching "${term}"`, 'success');
+      } else {
+        addNotification(`Global Search: No records found for "${term}"`, 'info');
+      }
+    } catch (e) {
+      console.error(e);
+      addNotification('Global Search failed', 'error');
+    } finally {
+      setIsProcessing(false);
+      setSyncState(null);
+    }
+  };
+
 
   return (
     <DashboardContext.Provider value={{
@@ -493,7 +568,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       setAccounts: setAllAccounts,
       records, setRecords,
       manualCosts, setManualCosts,
-      isLoading, isSyncing, isFetchingNewRange, syncState, isProcessing, isSavingAccounts,
+      isLoading, isSyncing, isFetchingNewRange, syncState, syncProgress, accountSyncStatuses, isProcessing, isSavingAccounts,
       exportProgress, isExporting,
       showExportOptions, setShowExportOptions,
       handleSaveAccounts,
@@ -503,6 +578,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       handleLogout: onLogout,
       handleExport,
       handleExportWithOptions,
+      performGlobalSearch,
       processedData
 
 

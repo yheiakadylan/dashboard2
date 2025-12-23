@@ -28,6 +28,7 @@ const Header: React.FC = () => {
     handleExportWithOptions,
     teamId, // For NotificationCenter Firestore sync
     allowedAccounts, // For notification filtering by shop
+    performGlobalSearch, // Global Search Function
   } = useDashboard();
 
   const {
@@ -205,6 +206,11 @@ const Header: React.FC = () => {
                       setTimeout(() => setIsSearchExpanded(false), 150);
                     }
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      performGlobalSearch(searchTerm);
+                    }
+                  }}
                 />
                 <button
                   onClick={handleSearchClear}
@@ -375,6 +381,13 @@ const Header: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search Orders, Customers..."
               className="w-full pl-10 pr-3 py-2.5 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg text-base focus:ring-2 focus:ring-blue-500 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 transition-colors"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  performGlobalSearch(searchTerm);
+                  // Close mobile menu on search
+                  setIsMobileMenuOpen(false);
+                }
+              }}
             />
           </div>
 

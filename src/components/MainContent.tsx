@@ -3,6 +3,7 @@ import { useDashboard } from '../contexts/DashboardContext';
 import { useUI } from '../contexts/UIContext';
 import SkeletonLoader from './SkeletonLoader';
 import ErrorBoundary from './ErrorBoundary';
+import ScrollToTop from './ScrollToTop';
 
 // Keep OverviewTab as direct import since it's the default tab
 import OverviewTab from './tabs/OverviewTab';
@@ -67,49 +68,53 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
 
     // Render content with optional processing overlay
     const renderContent = () => {
-        switch (activeTab) {
-            case 'Overview':
-                const isSingleDay = filterDateRange.from === filterDateRange.to;
-                return (
-                    <ErrorBoundary>
-                        <OverviewTab
+        const content = (() => {
+            switch (activeTab) {
+                case 'Overview':
+                    const isSingleDay = filterDateRange.from === filterDateRange.to;
+                    return (
+                        <ErrorBoundary>
+                            <OverviewTab
+                                processedData={processedData}
+                                isSingleDay={isSingleDay}
+                                handleViewDayDetails={handleViewDayDetails}
+                            />
+                        </ErrorBoundary>
+                    );
+
+                case 'Products':
+                    return (
+                        <ProductsTab processedData={processedData} />
+                    );
+
+                case 'Order List':
+                    return (
+                        <OrderListTab
                             processedData={processedData}
-                            isSingleDay={isSingleDay}
-                            handleViewDayDetails={handleViewDayDetails}
+                            dayFilter={dayFilter}
+                            sourceFilter={sourceFilter}
+                            timeZone={timeZone}
+                            handleViewOrderDetails={onViewOrderDetails}
+                            handleResyncOrder={onResyncOrder}
                         />
-                    </ErrorBoundary>
-                );
+                    );
 
-            case 'Products':
-                return (
-                    <ProductsTab processedData={processedData} />
-                );
+                case 'Support':
+                    return <SupportTab processedData={processedData} />;
 
-            case 'Order List':
-                return (
-                    <OrderListTab
-                        processedData={processedData}
-                        dayFilter={dayFilter}
-                        sourceFilter={sourceFilter}
-                        timeZone={timeZone}
-                        handleViewOrderDetails={onViewOrderDetails}
-                        handleResyncOrder={onResyncOrder}
-                    />
-                );
+                case 'Fulfill':
+                    return <FulfillTab processedData={processedData} />;
 
-            case 'Support':
-                return (
-                    <SupportTab processedData={processedData} />
-                );
+                default:
+                    return <div className="p-8 text-center text-gray-500">Selected tab content not available.</div>;
+            }
+        })();
 
-            case 'Fulfill':
-                return (
-                    <FulfillTab processedData={processedData} />
-                );
-
-            default:
-                return <div className="p-8 text-center text-gray-500">Selected tab content not available.</div>;
-        }
+        return (
+            <div key={activeTab} className="animate-fade-in-up min-h-full">
+                {content}
+            </div>
+        );
     };
 
     return (
@@ -119,19 +124,15 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
 
             {/* Skeleton overlay when processing with existing data */}
             {showOverlay && hasData && (
-                <div className="absolute inset-0 bg-white/60 dark:bg-gray-900/60 backdrop-blur-[2px] rounded-lg overflow-hidden pointer-events-none
-                    transition-opacity duration-300 ease-in-out">
-
-                    {/* Animated progress bar */}
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 
-                        animate-pulse shadow-lg shadow-purple-500/50" />
-
-                    {/* Skeleton content */}
-                    <div className="p-4">
-                        <SkeletonLoader variant="table-row" count={8} />
+                <div className="absolute top-0 left-0 right-0 z-50">
+                    <div className="h-1 w-full bg-blue-100 dark:bg-blue-900/30 overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 animate-progress-indeterminate shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
                     </div>
                 </div>
             )}
+
+            {/* Scroll To Top Button */}
+            <ScrollToTop />
         </div>
     );
 };
