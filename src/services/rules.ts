@@ -208,7 +208,7 @@ const _cleanCaseMessage = (s: string): string => {
 };
 
 // ==================== EBAY DETAIL EXTRACTION ====================
-const extractEbayDetails = (html: string): OrderDetails => {
+const extractEbayDetails = (html: string, subject?: string): OrderDetails => {
   let shippingAddress = {
     name: "", address1: "", address2: "", city: "", state: "", zip: "", country: ""
   };
@@ -289,24 +289,33 @@ const extractEbayDetails = (html: string): OrderDetails => {
     personalization = stripHtmlBasic(msgMatch[1]).trim();
   }
 
-  // 4. Extract Image & Title (REVISED)
-  let image = "";
+  // 4. Extract Product Name (PRIORITY: Subject > Body HTML)
   let title = "eBay Item";
 
-  // Title: Find the first h3 that isn't a section header
-  // eBay uses h3 for titles in emails, but also for headers like "Your buyer's shipping details"
-  const h3Regex = /<h3[^>]*>([\s\S]*?)<\/h3>/gi;
-  const h3Matches = [...html.matchAll(h3Regex)];
-  for (const m of h3Matches) {
-    const text = stripHtmlBasic(m[1]).trim();
-    if (!text) continue;
-    // Filter out known section headers
-    if (/shipping details|Ship by|packaging|labels|Get labels|right way to package|message from the buyer/i.test(text)) continue;
-    title = text;
-    break; // First valid h3 is the item title
+  // PRIORITY 1: Extract from subject "You made the sale for [Product Name]"
+  if (subject) {
+    const subjectMatch = subject.match(/You made the sale for\s+(.+)$/i);
+    if (subjectMatch && subjectMatch[1]) {
+      title = subjectMatch[1].trim();
+    }
   }
 
-  // Image: Find img tag, handle Gmail proxy # hash
+  // FALLBACK: Extract from body HTML if subject extraction failed
+  if (title === "eBay Item") {
+    const h3Regex = /<h3[^>]*>([\s\S]*?)<\/h3>/gi;
+    const h3Matches = [...html.matchAll(h3Regex)];
+    for (const m of h3Matches) {
+      const text = stripHtmlBasic(m[1]).trim();
+      if (!text) continue;
+      // Filter out known section headers
+      if (/shipping details|Ship by|packaging|labels|Get labels|right way to package|message from the buyer/i.test(text)) continue;
+      title = text;
+      break; // First valid h3 is the item title
+    }
+  }
+
+  // 5. Extract Image
+  let image = "";
   const imgTagRegex = /<img[^>]+src="([^"]+)"[^>]*>/gi;
   const imgMatches = [...html.matchAll(imgTagRegex)];
 
@@ -739,7 +748,7 @@ export const parseMessage = (
 
     // 2. Try detailed extraction
     try {
-      const details = extractEbayDetails(body);
+      const details = extractEbayDetails(body, subject);
 
       // Kiểm tra: phải có ít nhất item hoặc amount
       const hasItems = (details?.items?.length || 0) > 0;
