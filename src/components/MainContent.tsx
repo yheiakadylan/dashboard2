@@ -96,6 +96,7 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
                             timeZone={timeZone}
                             handleViewOrderDetails={onViewOrderDetails}
                             handleResyncOrder={onResyncOrder}
+                            allRecords={records}
                         />
                     );
 

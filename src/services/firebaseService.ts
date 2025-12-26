@@ -3,6 +3,7 @@ import {
   getFirestore,
   collection,
   getDocs,
+  getDoc,
   writeBatch,
   doc,
   query,
@@ -454,3 +455,54 @@ export const searchGlobalRecords = async (teamId: string, term: string): Promise
     return [];
   }
 };
+
+// === Settings Management ===
+export interface TeamSettings {
+  googleSheetId?: string;
+  sheetAccount?: Account;
+  autoSyncToSheet?: boolean;
+  [key: string]: any;
+}
+
+export const getSettings = async (teamId: string): Promise<TeamSettings> => {
+  try {
+    const settingsRef = doc(db, 'user', teamId, 'settings', 'config');
+    const settingsSnap = await getDoc(settingsRef);
+
+    if (!settingsSnap.exists()) {
+      return {};
+    }
+
+    return settingsSnap.data() as TeamSettings;
+  } catch (error) {
+    console.error("Error getting settings:", error);
+    return {};
+  }
+};
+
+export const saveSettings = async (teamId: string, settings: Partial<TeamSettings>): Promise<void> => {
+  try {
+    const settingsRef = doc(db, 'user', teamId, 'settings', 'config');
+    await setDoc(settingsRef, settings, { merge: true });
+  } catch (error) {
+    console.error("Error saving settings:", error);
+    throw new Error("Failed to save settings.");
+  }
+};
+
+export const listenForSettings = (teamId: string, callback: (settings: TeamSettings) => void): (() => void) => {
+  const settingsRef = doc(db, 'user', teamId, 'settings', 'config');
+
+  const unsubscribe = onSnapshot(settingsRef, (snapshot) => {
+    if (snapshot.exists()) {
+      callback(snapshot.data() as TeamSettings);
+    } else {
+      callback({});
+    }
+  }, (error) => {
+    console.error("Error listening for settings:", error);
+  });
+
+  return unsubscribe;
+};
+

@@ -104,10 +104,16 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hi
     return null;
   }
 
-  // Find all unique keys for Revenue and Funds
-  const allKeys = Object.keys(data.reduce((acc, cur) => ({ ...acc, ...cur }), {}));
-  const revenueKeys = allKeys.filter(key => key.startsWith('revenue'));
-  const fundsKeys = hideFunds ? [] : allKeys.filter(key => key.startsWith('funds'));
+  // Optimize: Use Set to find all unique keys efficiently
+  const { revenueKeys, fundsKeys } = React.useMemo(() => {
+    const keys = new Set<string>();
+    data.forEach(item => Object.keys(item).forEach(k => keys.add(k)));
+    const all = Array.from(keys);
+    return {
+      revenueKeys: all.filter(key => key.startsWith('revenue')),
+      fundsKeys: hideFunds ? [] : all.filter(key => key.startsWith('funds'))
+    };
+  }, [data, hideFunds]);
 
   // Sort by Total Revenue (Desc) and Filter for Shops with Sales > 0
   const sortedData = [...data]
@@ -152,7 +158,7 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hi
               dataKey="shop"
               type="category"
               stroke="#4B5563"
-              width={140}
+              width={90}
               tick={{ fontSize: 12, fontWeight: 600 }}
               axisLine={false}
               tickLine={false}

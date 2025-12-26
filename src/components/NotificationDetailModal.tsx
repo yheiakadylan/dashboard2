@@ -20,6 +20,15 @@ const NotificationDetailModal: React.FC<Props> = ({ notification, onClose, userP
     // Check if user has permission to view funds
     const canViewFunds = userProfile?.role === 'owner' || userProfile?.permissions.viewFunds === true;
 
+    // Helper to format currency object {AUD: 100, USD: 200} => "AUD $100.00, USD $200.00"
+    const formatCurrencies = (currencyObj: any): string => {
+        if (!currencyObj || typeof currencyObj !== 'object') return '$0.00';
+        return Object.entries(currencyObj)
+            .filter(([_, amount]) => amount && (amount as number) > 0)
+            .map(([currency, amount]) => `${currency} $${(amount as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
+            .join(', ') || '$0.00';
+    };
+
     const renderSummaryContent = () => {
         const data = notification.metadata.summary_data;
         if (!data) return null;
@@ -48,41 +57,35 @@ const NotificationDetailModal: React.FC<Props> = ({ notification, onClose, userP
             });
         }
 
-        // Calculate totals from filtered shops
-        const filteredTotalOrders = filteredShops.reduce((sum: number, shop: any) => sum + (shop.orders || 0), 0);
-        const filteredTotalRevenue = filteredShops.reduce((sum: number, shop: any) => {
-            // Extract USD value from revenue object {USD: amount}
-            const revenueUSD = typeof shop.revenue === 'object' ? (shop.revenue.USD || 0) : (shop.revenue || 0);
-            return sum + revenueUSD;
-        }, 0);
+        // Calculate totals by currency from filtered shops
+        const filteredRevenueByCurrency: Record<string, number> = {};
+        const filteredFundsByCurrency: Record<string, number> = {};
 
-        // Calculate total funds (payouts)
-        const filteredTotalFunds = filteredShops.reduce((sum: number, shop: any) => {
-            if (!shop.funds) return sum;
-            const fundsUSD = typeof shop.funds === 'object' ? (shop.funds.USD || 0) : (shop.funds || 0);
-            return sum + fundsUSD;
-        }, 0);
+        filteredShops.forEach((shop: any) => {
+            // Aggregate revenues by currency
+            if (shop.revenue && typeof shop.revenue === 'object') {
+                Object.entries(shop.revenue).forEach(([currency, amount]) => {
+                    filteredRevenueByCurrency[currency] = (filteredRevenueByCurrency[currency] || 0) + (amount as number);
+                });
+            }
+            // Aggregate funds by currency
+            if (shop.funds && typeof shop.funds === 'object') {
+                Object.entries(shop.funds).forEach(([currency, amount]) => {
+                    filteredFundsByCurrency[currency] = (filteredFundsByCurrency[currency] || 0) + (amount as number);
+                });
+            }
+        });
 
-        // Extract total revenue (handle both object and number formats)
-        const displayTotalRevenue = typeof data.totalRevenue === 'object'
-            ? (data.totalRevenue.USD || 0)
-            : (data.totalRevenue || 0);
-
-        // Extract total funds from data
-        const displayTotalFunds = data.totalFunds
-            ? (typeof data.totalFunds === 'object' ? (data.totalFunds.USD || 0) : data.totalFunds)
-            : 0;
-
-        // Use filtered values if user has permissions, otherwise use totals
+        // Use filtered values if user has permissions, otherwise use totals from data
         const displayOrders = userProfile?.allowedAccounts && userProfile.allowedAccounts.length > 0
-            ? filteredTotalOrders
+            ? filteredShops.reduce((sum: number, shop: any) => sum + (shop.orders || 0), 0)
             : data.totalOrders;
         const displayRevenue = userProfile?.allowedAccounts && userProfile.allowedAccounts.length > 0
-            ? filteredTotalRevenue
-            : displayTotalRevenue;
+            ? filteredRevenueByCurrency
+            : data.totalRevenue;
         const displayFunds = userProfile?.allowedAccounts && userProfile.allowedAccounts.length > 0
-            ? filteredTotalFunds
-            : displayTotalFunds;
+            ? filteredFundsByCurrency
+            : (data.totalFunds || {});
 
         return (
             <div className="space-y-6">
@@ -99,24 +102,44 @@ const NotificationDetailModal: React.FC<Props> = ({ notification, onClose, userP
                     </div>
 
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
-                        <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 mb-2">
+                        <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 mb-3">
                             <DollarSign className="w-5 h-5" />
                             <span className="text-sm font-medium">Total Revenue</span>
                         </div>
-                        <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
-                            ${displayRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </p>
+                        <div className="space-y-1.5">
+                            {Object.entries(displayRevenue as Record<string, number>)
+                                .filter(([_, amount]) => amount > 0)
+                                .map(([currency, amount]) => (
+                                    <div key={currency} className="flex justify-between items-baseline">
+                                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{currency}</span>
+                                        <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                                            ${(amount as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                ))
+                            }
+                        </div>
                     </div>
 
                     {canViewFunds && (
                         <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
-                            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 mb-2">
+                            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 mb-3">
                                 <TrendingUp className="w-5 h-5" />
                                 <span className="text-sm font-medium">Total Funds</span>
                             </div>
-                            <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
-                                ${displayFunds.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </p>
+                            <div className="space-y-1.5">
+                                {Object.entries(displayFunds as Record<string, number>)
+                                    .filter(([_, amount]) => amount > 0)
+                                    .map(([currency, amount]) => (
+                                        <div key={currency} className="flex justify-between items-baseline">
+                                            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{currency}</span>
+                                            <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                                                ${(amount as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </span>
+                                        </div>
+                                    ))
+                                }
+                            </div>
                         </div>
                     )}
                 </div>
@@ -178,12 +201,34 @@ const NotificationDetailModal: React.FC<Props> = ({ notification, onClose, userP
                                             <td className="px-4 py-3 text-sm text-right text-gray-700 dark:text-gray-300">
                                                 {shop.orders}
                                             </td>
-                                            <td className="px-4 py-3 text-sm text-right font-semibold text-green-600 dark:text-green-400">
-                                                ${shopRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            <td className="px-4 py-3 text-sm text-right">
+                                                {shop.revenue && typeof shop.revenue === 'object' ? (
+                                                    Object.entries(shop.revenue)
+                                                        .filter(([_, amount]) => (amount as number) > 0)
+                                                        .map(([currency, amount]) => (
+                                                            <div key={currency} className="flex justify-between gap-2">
+                                                                <span className="text-xs text-gray-500">{currency}</span>
+                                                                <span className="font-semibold text-green-600 dark:text-green-400">
+                                                                    ${(amount as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                </span>
+                                                            </div>
+                                                        ))
+                                                ) : '$0.00'}
                                             </td>
                                             {canViewFunds && (
-                                                <td className="px-4 py-3 text-sm text-right font-semibold text-blue-600 dark:text-blue-400">
-                                                    ${shopFunds.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                <td className="px-4 py-3 text-sm text-right">
+                                                    {shop.funds && typeof shop.funds === 'object' ? (
+                                                        Object.entries(shop.funds)
+                                                            .filter(([_, amount]) => (amount as number) > 0)
+                                                            .map(([currency, amount]) => (
+                                                                <div key={currency} className="flex justify-between gap-2">
+                                                                    <span className="text-xs text-gray-500">{currency}</span>
+                                                                    <span className="font-semibold text-blue-600 dark:text-blue-400">
+                                                                        ${(amount as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </div>
+                                                            ))
+                                                    ) : '$0.00'}
                                                 </td>
                                             )}
                                         </tr>

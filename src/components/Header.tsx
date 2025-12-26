@@ -393,27 +393,7 @@ const Header: React.FC = () => {
 
           {/* Mobile Filters */}
           <div className="space-y-4">
-            {/* Tab Specific Filters (Mobile) */}
-            {activeTab === 'Order List' && (
-              <div className="w-full">
-                <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 mb-1.5 uppercase tracking-wider">Source</label>
-                <div className="flex bg-gray-50 dark:bg-gray-700/50 rounded-lg p-1 border border-gray-200 dark:border-gray-600">
-                  {(['All', 'Ebay_Sales', 'Etsy_Sales'] as const).map(src => (
-                    <button
-                      key={src}
-                      onClick={() => setSourceFilter(src)}
-                      className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-200 ${sourceFilter === src
-                        ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm border border-gray-200 dark:border-gray-500'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                        }`}
-                    >
-                      {src === 'All' ? 'All' : src === 'Ebay_Sales' ? 'eBay' : 'Etsy'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
+            {/* Tab Specific Filters (Mobile) - Only Support Tab */}
             {activeTab === 'Support' && (
               <div className="w-full">
                 <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 mb-1.5 uppercase tracking-wider">Filter</label>

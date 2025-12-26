@@ -12,8 +12,6 @@ import { getPermittedTabs } from './utils/permissions';
 import { UIProvider, useUI } from './contexts/UIContext';
 import SidebarSkeleton from './components/SidebarSkeleton';
 import Spinner from './components/Spinner';
-import { registerPWAUpdate } from './services/pwaUpdateService';
-import ReloadPrompt from './components/ReloadPrompt';
 import { DeepLinkHandler } from './components/DeepLinkHandler';
 
 // Lazy load heavy components
@@ -309,23 +307,6 @@ const App: React.FC = () => {
     // --- USE NEW AUTH HOOK ---
     const { user, userProfile, authLoading, authError, logout } = useAuthLogic();
 
-    const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
-
-    // --- PWA AUTO-UPDATE ---
-    useEffect(() => {
-        const cleanup = registerPWAUpdate({
-            onUpdateFound: () => {
-                console.log('[App] New version found!');
-            },
-            onUpdateReady: () => {
-                console.log('[App] New version ready, prompting user...');
-                setShowUpdatePrompt(true);
-            },
-        });
-
-        return cleanup;
-    }, []);
-
     if (authLoading) {
         return (
             <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
@@ -348,10 +329,6 @@ const App: React.FC = () => {
                     </ErrorBoundary>
                 </ConnectedDashboardProvider>
             </UIProvider>
-            <ReloadPrompt
-                isOpen={showUpdatePrompt}
-                onClose={() => setShowUpdatePrompt(false)}
-            />
         </NotificationProvider>
     );
 };

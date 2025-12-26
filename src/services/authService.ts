@@ -145,7 +145,7 @@ export const getMicrosoftToken = async (account: Account): Promise<string> => {
 
 export const signInWithGoogle = (): Promise<Account> => {
   return new Promise((resolve, reject) => {
-    const GOOGLE_SCOPES = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
+    const GOOGLE_SCOPES = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/spreadsheets";
     const redirectUri = window.location.origin;
 
     const oauth2Endpoint = 'https://accounts.google.com/o/oauth2/v2/auth';

@@ -27,7 +27,7 @@ const OverviewChart: React.FC<OverviewChartProps> = ({ data }) => {
     .filter(key => key.startsWith('revenue'));
 
   return (
-    <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 animate-fade-in-up h-[250px] md:h-[450px]">
+    <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 animate-fade-in-up h-[200px] md:h-[450px]">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={data}
@@ -37,11 +37,11 @@ const OverviewChart: React.FC<OverviewChartProps> = ({ data }) => {
           <XAxis
             dataKey="date"
             stroke="#9CA3AF"
-            tick={{ fontSize: 11 }}
-            tickMargin={10}
+            tick={{ fontSize: 10 }}
+            tickMargin={5}
             axisLine={false}
             tickLine={false}
-            minTickGap={30} // Prevent overcrowding
+            minTickGap={20} // Prevent overcrowding
             tickFormatter={(value) => {
               // Handle HH:00 format (Daily view) - Format to 12 AM, 1 PM
               if (typeof value === 'string' && /^\d{2}:00$/.test(value)) {
@@ -88,7 +88,10 @@ const OverviewChart: React.FC<OverviewChartProps> = ({ data }) => {
             itemStyle={{ color: '#F3F4F6' }}
             labelStyle={{ color: '#9CA3AF', fontWeight: 'bold' }}
           />
-          <Legend wrapperStyle={{ paddingTop: '20px' }} />
+          <Legend
+            wrapperStyle={{ paddingTop: '10px', fontSize: '10px' }}
+            iconSize={10}
+          />
           <Line
             yAxisId="left"
             type="monotone"

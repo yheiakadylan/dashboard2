@@ -11,6 +11,7 @@ import { useNotification } from './NotificationContext';
 import { User } from 'firebase/auth';
 import { useDataSync } from '../hooks/useDataSync';
 import { useRecordFiltering } from '../hooks/useRecordFiltering';
+import { useAutoSync } from '../hooks/useAutoSync';
 
 // Default Tab List
 // Default Tab List
@@ -118,6 +119,82 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     timeZone,
     addNotification
   });
+
+  // --- Auto-Sync to Google Sheets ---
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+
+  // Listen to auto-sync settings changes in real-time
+  useEffect(() => {
+    if (!teamId) return;
+
+    import('../services/firebaseService').then(({ listenForSettings }) => {
+      const unsubscribe = listenForSettings(teamId, (settings) => {
+        if (settings.autoSyncToSheet !== undefined) {
+          setAutoSyncEnabled(settings.autoSyncToSheet);
+          console.log(`[Auto-Sync] Settings updated: ${settings.autoSyncToSheet ? 'ENABLED' : 'DISABLED'}`);
+        }
+      });
+
+      return () => unsubscribe();
+    });
+  }, [teamId]);
+
+  // Use auto-sync hook
+  useAutoSync({
+    enabled: autoSyncEnabled,
+    teamId,
+    records,
+    allAccounts,
+    timeZone,
+    onSyncSuccess: (count) => {
+      console.log(`[Auto-Sync] ✅ Synced ${count} records to Google Sheets`);
+      // Silent notification - no need to disturb the user
+      // addNotification(`Auto-synced ${count} orders to Google Sheets`, 'success');
+    },
+    onSyncError: (error) => {
+      console.error('[Auto-Sync] ❌ Error:', error);
+      // Only notify on errors that need attention
+      if (error.includes('Permission') || error.includes('403')) {
+        addNotification('Auto-sync failed: Please check Google Sheet permissions', 'error');
+      }
+    }
+  });
+
+  // --- Real-time Listener for New Records ---
+  useEffect(() => {
+    if (!teamId) return;
+
+    console.log('[Real-time] Setting up listener for new records...');
+
+    import('../services/firebaseService').then(({ listenForNewRecords }) => {
+      const unsubscribe = listenForNewRecords(teamId, (newRecord) => {
+        // Quietly add new record to state (React will re-render efficiently, no flash)
+        setRecords(prev => {
+          // Check if record already exists (avoid duplicates)
+          const exists = prev.some(r => r.id === newRecord.id);
+          if (exists) return prev;
+
+          console.log(`[Real-time] ✨ New ${newRecord.kind} arrived: ${newRecord.order_id || newRecord.id}`);
+
+          // Show toast notification only for orders
+          if (newRecord.kind === 'order') {
+            const productName = newRecord.details?.items?.[0]?.name || 'Unknown product';
+            addNotification(
+              `New order #${newRecord.order_id}: ${productName}`,
+              'success'
+            );
+          }
+
+          return [...prev, newRecord];
+        });
+      });
+
+      return () => {
+        console.log('[Real-time] Cleaning up listener...');
+        unsubscribe();
+      };
+    });
+  }, [teamId, addNotification]);
 
   // --- 4. Logic Functions ---
 

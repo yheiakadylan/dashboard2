@@ -120,8 +120,8 @@ export const sendPushNotificationToUsers = async (
     const settings = data.notificationSettings || {};
     const tokens: string[] = data.fcmTokens || [];
 
-    // Check preference
-    if (settings[notificationType] !== true) return;
+    // Check preference (Default: ON. Only skip if explicitly false)
+    if (settings[notificationType] === false) return;
     if (!Array.isArray(tokens) || tokens.length === 0) return;
 
     // Giới hạn số token / user (giữ 3 token cuối cùng)
