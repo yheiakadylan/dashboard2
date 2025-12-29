@@ -153,10 +153,38 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         return (
             <div className={rootClasses} ref={containerRef}>
                 <div style={{ width: '100%', height: autoHeight ? 400 : '100%' }} className="p-4">
-                    <div className="animate-pulse space-y-4">
-                        <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded w-full"></div>
-                        {[...Array(10)].map((_, i) => (
-                            <div key={i} className="h-16 bg-gray-100 dark:bg-gray-800 rounded w-full"></div>
+                    <div className="animate-pulse">
+                        {/* Header Skeleton */}
+                        <div className="h-12 bg-gray-100/50 dark:bg-gray-700/50 rounded-t-lg w-full mb-0.5"></div>
+
+                        {/* Row Skeletons */}
+                        {[...Array(6)].map((_, i) => (
+                            <div key={i} className="flex items-center px-4 py-3 space-x-4 border-b border-gray-100 dark:border-gray-800 bg-white/50 dark:bg-gray-800/50 h-[92px]">
+                                {/* Image Placeholder */}
+                                <div className="h-[60px] w-[60px] bg-gray-200 dark:bg-gray-700 rounded-md flex-shrink-0"></div>
+
+                                {/* Content Placeholders */}
+                                <div className="flex-1 grid grid-cols-12 gap-4">
+                                    {/* Product Name & Order ID */}
+                                    <div className="col-span-4 space-y-2">
+                                        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+                                        <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded w-1/2"></div>
+                                    </div>
+
+                                    {/* Middle Columns (Values) */}
+                                    <div className="col-span-2 hidden md:block">
+                                        <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-full mt-1"></div>
+                                    </div>
+                                    <div className="col-span-2 hidden md:block">
+                                        <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-2/3 mt-1"></div>
+                                    </div>
+
+                                    {/* End/Actions */}
+                                    <div className="col-span-4 md:col-span-4 flex justify-end items-center gap-2">
+                                        <div className="h-8 w-20 bg-gray-100 dark:bg-gray-800 rounded"></div>
+                                    </div>
+                                </div>
+                            </div>
                         ))}
                     </div>
                 </div>
@@ -195,13 +223,13 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
             {!isMobile && (
                 <div
                     ref={headerRef}
-                    className={`flex items-center bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 font-semibold text-xs text-gray-500 dark:text-gray-300 uppercase tracking-wider h-12 flex-shrink-0 z-20 ${useWindowScroll ? 'sticky top-0 shadow-sm' : ''}`}
+                    className={`flex items-center bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 font-semibold text-xs text-gray-500 dark:text-gray-300 uppercase tracking-wider h-12 flex-shrink-0 z-20 ${useWindowScroll ? 'sticky top-0 shadow-sm' : 'pr-[8px]'}`}
                     style={{ width: width }}
                 >
                     {headers.map((header, index) => {
                         const isHidden = isHiddenOnDesktopMobileView(header);
                         const canSort = header !== 'Image' && header !== 'Actions';
-                        let headerCellClass = `${isHidden ? 'hidden lg:flex' : 'flex'} items-center h-full px-3 py-2 ${canSort ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600' : ''} transition-colors `;
+                        let headerCellClass = `${isHidden ? 'hidden lg:flex' : 'flex'} min-w-0 items-center h-full px-3 py-2 ${canSort ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600' : ''} transition-colors `;
 
                         switch (header) {
                             case 'Image':
@@ -223,9 +251,14 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                                 headerCellClass += 'flex-[2] basis-[250px]';
                                 break;
                             case 'Fulfill':
-                            case 'DateTime':
                             case 'Account':
                                 headerCellClass += 'flex-1 basis-[120px]';
+                                break;
+                            case 'DateTime':
+                                headerCellClass += 'flex-1 basis-[170px]'; // Increased width
+                                break;
+                            case 'Actions':
+                                headerCellClass += 'flex-none w-[90px] justify-center'; // Decreased width
                                 break;
                             default:
                                 headerCellClass += 'flex-1 basis-[120px]';

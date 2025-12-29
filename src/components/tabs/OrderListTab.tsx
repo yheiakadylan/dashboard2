@@ -7,6 +7,7 @@ import { formatDateEfficiently } from '../../utils/dateFormatter';
 import GoogleSheetModal from '../GoogleSheetModal';
 import OrderSelectorModal from '../OrderSelectorModal';
 import PreviewSyncModal from '../PreviewSyncModal';
+import { useUI } from '../../contexts/UIContext';
 
 interface OrderListTabProps {
     processedData: ProcessedData;
@@ -27,8 +28,8 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     handleResyncOrder,
     allRecords
 }) => {
+    const { isOrderSelectorOpen, setIsOrderSelectorOpen } = useUI();
     const [showGoogleSheetModal, setShowGoogleSheetModal] = useState(false);
-    const [showOrderSelector, setShowOrderSelector] = useState(false);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [selectedRecords, setSelectedRecords] = useState<Record[]>([]);
 
@@ -69,7 +70,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     const handleOrderSelection = (selectedIds: Set<string>) => {
         const records = allRecords.filter(r => r.id && selectedIds.has(r.id));
         setSelectedRecords(records);
-        setShowOrderSelector(false);
+        setIsOrderSelectorOpen(false);
         setShowPreviewModal(true);
     };
 
@@ -90,26 +91,11 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
                 </div>
             </div>
 
-            {/* Floating Action Button - Select Orders to Sync */}
-            <div className="fixed bottom-28 left-4 md:top-20 md:left-auto md:right-6 z-40">
-                <button
-                    onClick={() => setShowOrderSelector(true)}
-                    className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-200 flex items-center gap-2 group"
-                    title="Select Orders to Sync"
-                >
-                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M19 19H5V5H19V19M12 13H7V11H12V13M17 9H7V7H17V9M17 17H7V15H17V17Z" />
-                    </svg>
-                    <span className="hidden md:group-hover:inline-block font-medium text-sm whitespace-nowrap">
-                        Select Orders
-                    </span>
-                </button>
-            </div>
 
             {/* Order Selector Modal */}
             <OrderSelectorModal
-                isOpen={showOrderSelector}
-                onClose={() => setShowOrderSelector(false)}
+                isOpen={isOrderSelectorOpen}
+                onClose={() => setIsOrderSelectorOpen(false)}
                 allRecords={allRecords}
                 onConfirm={handleOrderSelection}
                 onOpenSettings={() => setShowGoogleSheetModal(true)}

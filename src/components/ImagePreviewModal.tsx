@@ -51,76 +51,59 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, product
 
     return (
         <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-modal-backdrop cursor-pointer"
-            style={{
-                // iOS PWA safe area support
-                paddingTop: 'max(1rem, env(safe-area-inset-top))',
-                paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
-                paddingLeft: 'max(1rem, env(safe-area-inset-left))',
-                paddingRight: 'max(1rem, env(safe-area-inset-right))',
-            }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8 bg-black/90 backdrop-blur-sm animate-modal-backdrop"
             onClick={onClose}
-            title="Click anywhere to close"
         >
+            {/* Wrapper for Image + Caption + Close Button */}
             <div
-                className="relative max-w-5xl max-h-[95vh] bg-white dark:bg-gray-800 p-2 rounded-lg shadow-2xl animate-modal-scale"
+                className="relative flex flex-col items-center bg-transparent w-auto h-auto max-w-[95vw] max-h-[95vh] rounded-lg shadow-2xl overflow-visible animate-modal-scale"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Loading Spinner */}
                 {!imageLoaded && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-800 rounded-lg z-10">
-                        <div className="flex flex-col items-center gap-3">
-                            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">Loading image...</p>
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                        <div className="bg-black/50 p-4 rounded-full backdrop-blur-md">
+                            <div className="w-8 h-8 border-2 border-white/80 border-t-transparent rounded-full animate-spin"></div>
                         </div>
                     </div>
                 )}
 
-                {/* High-res Image */}
-                {highResUrl && (
-                    <img
-                        src={highResUrl}
-                        alt={productName || 'Product'}
-                        className={`max-w-full w-full object-contain rounded transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'
-                            }`}
-                        style={{
-                            // Use dvh (dynamic viewport height) for better iOS handling
-                            maxHeight: 'calc(100dvh - max(8rem, env(safe-area-inset-top) + env(safe-area-inset-bottom) + 6rem))',
-                        }}
-                    />
-                )}
+                {/* Main Image Container */}
+                <div className="relative overflow-hidden rounded-lg bg-black/20 shadow-2xl ring-1 ring-white/10">
+                    {highResUrl && (
+                        <img
+                            src={highResUrl}
+                            alt={productName || 'Product'}
+                            className={`block w-auto h-auto object-contain transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                            style={{
+                                maxWidth: 'min(90vw, 1200px)',
+                                maxHeight: '70vh' /* Reduced height as requested */
+                            }}
+                        />
+                    )}
+                </div>
 
-                {/* Close Button - Always visible */}
+                {/* Close Button */}
                 <button
                     onClick={onClose}
-                    className="absolute top-0 right-0 -mt-3 -mr-3 bg-red-500 text-white rounded-full p-2 hover:bg-red-600 active:bg-red-700 shadow-lg transition-colors z-20"
+                    className="absolute -top-3 -right-3 md:-top-4 md:-right-4 bg-white text-gray-900 rounded-full p-2 hover:bg-gray-200 shadow-xl border border-gray-200 z-50 transform hover:scale-110 active:scale-95 transition-all"
                     title="Close preview"
-                    style={{
-                        // Ensure button is visible on iOS with notch
-                        top: 'max(-0.75rem, calc(env(safe-area-inset-top) - 0.75rem))',
-                    }}
                 >
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        className="h-6 w-6"
+                        className="h-5 w-5 md:h-6 md:w-6"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
                     >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
 
-                {/* Product Name - If provided */}
+                {/* Product Name Caption */}
                 {productName && (
-                    <div
-                        className={`absolute bottom-0 left-0 right-0 p-3 bg-white/90 dark:bg-black/80 backdrop-blur-sm rounded-b-lg transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'
-                            }`}
-                    >
-                        <p
-                            className="text-center text-gray-900 dark:text-white font-semibold text-base truncate"
-                            title={productName}
-                        >
+                    <div className="mt-4 px-6 py-2.5 bg-black/60 backdrop-blur-md rounded-full border border-white/10 shadow-2xl max-w-[80vw]">
+                        <p className="text-center text-white font-medium text-sm md:text-base truncate">
                             {productName}
                         </p>
                     </div>

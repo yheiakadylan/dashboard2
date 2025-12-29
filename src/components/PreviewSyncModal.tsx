@@ -40,20 +40,53 @@ const PreviewSyncModal: React.FC<PreviewSyncModalProps> = ({
                     try {
                         const accessToken = await getGoogleAccessToken(settings.sheetAccount);
                         const firstRecord = selectedRecords[0];
-                        const date = new Date(firstRecord.dt_local);
-                        const month = date.toLocaleString('vi-VN', { month: 'numeric', timeZone: 'America/Los_Angeles' });
-                        const year = date.toLocaleString('vi-VN', { year: 'numeric', timeZone: 'America/Los_Angeles' });
-                        const monthKey = `Tháng ${month} - ${year}`;
+                        const recordsByMonth = new Map<string, Record[]>();
 
-                        const { newOrders: newRecs, existingOrders: existingRecs } = await getNewAndExistingOrders(
-                            settings.googleSheetId,
-                            monthKey,
-                            selectedRecords,
-                            accessToken
-                        );
+                        // Group records by month to check against correct sheets
+                        selectedRecords.forEach(r => {
+                            try {
+                                const date = new Date(r.dt_local);
+                                // Use Etc/GMT+7 to match googleSheetService logic
+                                const formatter = new Intl.DateTimeFormat('en-US', {
+                                    timeZone: 'Etc/GMT+7',
+                                    month: 'numeric',
+                                    year: 'numeric'
+                                });
+                                const parts = formatter.formatToParts(date);
+                                const month = parts.find(p => p.type === 'month')?.value;
+                                const year = parts.find(p => p.type === 'year')?.value;
+                                const key = `Tháng ${month} - ${year}`;
 
-                        setNewOrders(newRecs);
-                        setSkippedOrders(existingRecs);
+                                if (!recordsByMonth.has(key)) recordsByMonth.set(key, []);
+                                recordsByMonth.get(key)!.push(r);
+                            } catch (e) {
+                                console.warn('Error parsing date for record', r.id);
+                            }
+                        });
+
+                        const allNewOrders: Record[] = [];
+                        const allSkippedOrders: Record[] = [];
+
+                        // Check each month group
+                        for (const [monthKey, groupRecords] of recordsByMonth) {
+                            try {
+                                const { newOrders: newRecs, existingOrders: existingRecs } = await getNewAndExistingOrders(
+                                    settings.googleSheetId,
+                                    monthKey,
+                                    groupRecords,
+                                    accessToken
+                                );
+                                allNewOrders.push(...newRecs);
+                                allSkippedOrders.push(...existingRecs);
+                            } catch (error) {
+                                console.error(`Error checking orders for ${monthKey}:`, error);
+                                // If check fails, assume all new (safer) or all skipped? unique constraint usually assumes new.
+                                allNewOrders.push(...groupRecords);
+                            }
+                        }
+
+                        setNewOrders(allNewOrders);
+                        setSkippedOrders(allSkippedOrders);
                         setSyncStatus('idle');
                     } catch (error) {
                         console.error('Error checking orders:', error);
@@ -73,6 +106,11 @@ const PreviewSyncModal: React.FC<PreviewSyncModalProps> = ({
             });
         }
     }, [isOpen, selectedRecords, teamId]);
+
+    const getAccountLabel = (email: string) => {
+        const acc = allAccounts.find(a => a.email.toLowerCase() === email?.toLowerCase());
+        return acc ? (acc.label || acc.email) : email;
+    };
 
     const handleConfirmSync = async () => {
         if (!sheetId) {
@@ -139,7 +177,7 @@ const PreviewSyncModal: React.FC<PreviewSyncModalProps> = ({
             onClick={onClose}
         >
             <div
-                className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col"
+                className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
@@ -165,70 +203,108 @@ const PreviewSyncModal: React.FC<PreviewSyncModalProps> = ({
                     {syncStatus === 'idle' && (
                         <>
                             {/* Summary */}
-                            <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                                <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                                    Sync Summary
+                            {/* Summary */}
+                            <div className="mb-8">
+                                <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 mb-3 uppercase tracking-wider">
+                                    Summary
                                 </h3>
-                                <div className="space-y-1 text-sm text-blue-800 dark:text-blue-200">
-                                    <p>📊 Total selected: <strong>{selectedRecords.length}</strong> orders</p>
-                                    <p>✅ Will be added: <strong>{newOrders.length}</strong> new orders</p>
-                                    {skippedOrders.length > 0 && (
-                                        <p>⏭️ Will be skipped: <strong>{skippedOrders.length}</strong> (already exist)</p>
-                                    )}
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    {/* Total Card */}
+                                    <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg border border-gray-100 dark:border-gray-700 flex flex-col items-center justify-center">
+                                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+                                            Total Selected
+                                        </span>
+                                        <span className="text-2xl font-bold text-gray-900 dark:text-white">
+                                            {selectedRecords.length}
+                                        </span>
+                                    </div>
+
+                                    {/* To Add Card */}
+                                    <div className="bg-green-50 dark:bg-green-900/10 p-4 rounded-lg border border-green-100 dark:border-green-800/30 flex flex-col items-center justify-center">
+                                        <span className="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-wide mb-1">
+                                            To Add
+                                        </span>
+                                        <span className="text-2xl font-bold text-green-700 dark:text-green-400">
+                                            {newOrders.length}
+                                        </span>
+                                    </div>
+
+                                    {/* Skipped Card */}
+                                    <div className={`p-4 rounded-lg border flex flex-col items-center justify-center ${skippedOrders.length > 0
+                                        ? 'bg-orange-50 dark:bg-orange-900/10 border-orange-100 dark:border-orange-800/30'
+                                        : 'bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700 opacity-60'
+                                        }`}>
+                                        <span className={`text-xs font-medium uppercase tracking-wide mb-1 ${skippedOrders.length > 0
+                                            ? 'text-orange-600 dark:text-orange-400 font-bold'
+                                            : 'text-gray-500 dark:text-gray-400'
+                                            }`}>
+                                            Skipped (Existing)
+                                        </span>
+                                        <span className={`text-2xl font-bold ${skippedOrders.length > 0
+                                            ? 'text-orange-700 dark:text-orange-400'
+                                            : 'text-gray-400 dark:text-gray-500'
+                                            }`}>
+                                            {skippedOrders.length}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
 
                             {/* New Orders List */}
                             {newOrders.length > 0 && (
-                                <div className="mb-4">
-                                    <h4 className="font-semibold text-gray-900 dark:text-white mb-3">
-                                        Orders to be added:
+                                <div className="mb-6">
+                                    <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-4 uppercase tracking-wider">
+                                        New Orders
                                     </h4>
-                                    <div className="space-y-2 max-h-60 overflow-y-auto">
-                                        {newOrders.map(record => (
-                                            <div
-                                                key={record.id}
-                                                className="p-3 bg-gray-50 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600"
-                                            >
-                                                <div className="flex items-center justify-between">
-                                                    <div>
-                                                        <span className="font-medium text-gray-900 dark:text-white">
-                                                            #{record.order_id}
-                                                        </span>
-                                                        <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">
-                                                            {record.account}
-                                                        </span>
+                                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                                        <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                                            {newOrders.map((record, index) => (
+                                                <div
+                                                    key={record.id}
+                                                    className={`p-3 flex items-center justify-between group transition-colors ${index % 2 === 0
+                                                        ? 'bg-white dark:bg-gray-900'
+                                                        : 'bg-gray-50 dark:bg-gray-800/30'
+                                                        }`}
+                                                >
+                                                    <div className="flex-1 min-w-0 pr-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-medium text-gray-900 dark:text-white text-sm">
+                                                                #{record.order_id}
+                                                            </span>
+                                                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                                                                • {getAccountLabel(record.account)}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-xs text-gray-500 mt-0.5 truncate">
+                                                            {record.details?.items?.[0]?.name || 'Product'}
+                                                            {record.details?.items && record.details.items.length > 1 && ` + ${record.details.items.length - 1}`}
+                                                        </p>
                                                     </div>
-                                                    <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                                    <span className="text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap">
                                                         ${record.amount}
                                                     </span>
                                                 </div>
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    {record.details?.items?.[0]?.name || 'No product'}
-                                                    {record.details?.items && record.details.items.length > 1 && ` + ${record.details.items.length - 1} more`}
-                                                </p>
-                                            </div>
-                                        ))}
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
                             )}
 
                             {/* Skipped Orders */}
                             {skippedOrders.length > 0 && (
-                                <div>
-                                    <h4 className="font-semibold text-gray-900 dark:text-white mb-3">
-                                        Orders already in sheet (will skip):
+                                <div className="opacity-60">
+                                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3 uppercase tracking-wider">
+                                        Already Synced
                                     </h4>
-                                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                                    <div className="space-y-1">
                                         {skippedOrders.map(record => (
                                             <div
                                                 key={record.id}
-                                                className="p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-sm"
+                                                className="py-1 flex items-center gap-2 text-xs text-gray-400"
                                             >
-                                                <span className="font-medium">#{record.order_id}</span>
-                                                <span className="ml-2 text-gray-600 dark:text-gray-400">
-                                                    {record.account}
-                                                </span>
+                                                <span>#{record.order_id}</span>
+                                                <span>•</span>
+                                                <span>{getAccountLabel(record.account)}</span>
                                             </div>
                                         ))}
                                     </div>
@@ -280,12 +356,9 @@ const PreviewSyncModal: React.FC<PreviewSyncModalProps> = ({
                         <button
                             onClick={handleConfirmSync}
                             disabled={isSyncing}
-                            className="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-md font-medium flex items-center gap-2"
+                            className="px-6 py-2 bg-gray-900 hover:bg-black dark:bg-white dark:text-black dark:hover:bg-gray-200 disabled:bg-gray-400 text-white rounded-md font-medium transition-colors"
                         >
-                            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M19 19H5V5H19V19M12 13H7V11H12V13M17 9H7V7H17V9M17 17H7V15H17V17Z" />
-                            </svg>
-                            Confirm & Sync
+                            Confirm Sync
                         </button>
                     )}
                 </div>

@@ -6,6 +6,7 @@ import { parseMessage, RULES } from '../src/services/rules.js';
 import { getHtmlFromGmailPayload, getPlainTextFromGmailPayload } from './_lib/gmailHelper.js';
 import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
+import { processTeamSync } from './_lib/syncService.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -153,6 +154,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (saveCount > 0) {
         await batch.commit();
         console.log(`[Webhook] Processed ${saveCount} records.`);
+
+        // 🟢 TRIGGER SHEET SYNC IMMEDIATELY
+        processTeamSync(effectiveUserId).catch(err => console.error('[Webhook] Sheet sync failed:', err));
       }
     } else {
       await batch.commit();

@@ -101,15 +101,19 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
     return (
         <div
             style={{ ...style, willChange: 'transform' }}
-            className={`flex items-center border-b border-gray-200 dark:border-gray-700 ${index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700/50'} hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors`}
+            className={`flex items-center border-b border-gray-100 dark:border-gray-800 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors duration-150 ${index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/50 dark:bg-gray-800/80'} group`}
         >
+            {/* Hover indicator strip */}
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 transform scale-y-0 group-hover:scale-y-100 transition-transform origin-left"></div>
+
             {headers.map((header, cellIndex) => {
                 const cell = row[cellIndex];
                 const isHidden = isHiddenOnDesktopMobileView(header);
 
                 const hiddenClass = isHidden ? 'hidden lg:flex' : 'flex';
 
-                let cellClass = `${hiddenClass} text-sm items-center h-full overflow-hidden px-3 py-2 `; // Changed py-1 to py-2
+                const cellClassBase = `${hiddenClass} text-sm items-center h-full overflow-hidden px-3 py-2 text-gray-700 dark:text-gray-300 min-w-0 `;
+                let cellClass = cellClassBase;
 
                 // --- NEW: Column-specific styling ---
                 switch (header) {
@@ -117,19 +121,25 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         cellClass += 'flex-none w-[95px] justify-center'; // 75px + padding
                         break;
                     case 'Product Name':
-                        cellClass += 'flex-grow-[3] basis-1/4'; // Give it more weight
+                        cellClass += 'flex-grow-[3] basis-1/4 font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200'; // Added hover effect
                         break;
                     case 'Order Number':
-                        cellClass += 'flex-1 basis-[110px]'; // Compact width for order numbers
+                        cellClass += 'flex-1 basis-[110px] font-mono text-gray-500 dark:text-gray-400';
                         break;
                     case 'Revenue':
                     case 'Cost':
                     case 'Currency':
-                        cellClass += 'flex-1 basis-[80px]';
+                        cellClass += 'flex-1 basis-[80px] font-medium group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors'; // Added revenue hover color
                         break;
                     case 'Message':
                     case 'Help Kind':
-                        cellClass += 'flex-[2] basis-[250px]';
+                        cellClass += 'flex-[2] basis-[250px] italic text-gray-500';
+                        break;
+                    case 'DateTime':
+                        cellClass += 'flex-1 basis-[170px]'; // Increased width, removed whitespace-nowrap
+                        break;
+                    case 'Actions':
+                        cellClass += 'flex-none w-[90px] justify-center'; // Decreased width
                         break;
                     default:
                         cellClass += 'flex-1 basis-[120px]';
@@ -147,9 +157,9 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         return (
                             <div key={cellIndex} className={cellClass} style={customStyle}>
                                 {cell.src ? (
-                                    <CachedImage src={cell.src} alt={cell.alt} onClick={() => cell.fullSrc && onImageClick(cell.fullSrc)} className="w-[75px] h-[75px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
+                                    <CachedImage src={cell.src} alt={cell.alt} onClick={() => cell.fullSrc && onImageClick(cell.fullSrc)} className="w-[60px] h-[60px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer shadow-sm group-hover:shadow-md hover:scale-110 transition-transform duration-200" />
                                 ) : (
-                                    <div className="w-[75px] h-[75px] bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 text-center p-1">No Image</div>
+                                    <div className="w-[60px] h-[60px] bg-gray-100 dark:bg-gray-700 rounded-md flex items-center justify-center text-[10px] text-gray-400 dark:text-gray-500 text-center p-1 border border-dashed border-gray-300 dark:border-gray-600">No Image</div>
                                 )}
                             </div>
                         )
@@ -174,11 +184,11 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                 return (
                     <div
                         key={cellIndex}
-                        className={`${cellClass} text-gray-800 dark:text-gray-200`}
+                        className={cellClass}
                         title={(header === 'Product Name' || header === 'Message' || header === 'Message / Type') && typeof cell === 'string' ? cell : undefined}
                         style={customStyle}
                     >
-                        <span className="truncate w-full">
+                        <span className="truncate w-full block">
                             {renderTextContent(cell)}
                         </span>
                     </div>

@@ -1,9 +1,5 @@
-/**
- * NotificationDetailModal Component
- * Rich modal view for SUMMARY and LOGIN notification types
- */
-
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Notification } from '../types/notification';
 import { UserProfile } from '../hooks/useAuthLogic';
 import { Account } from '../types';
@@ -19,6 +15,13 @@ interface Props {
 const NotificationDetailModal: React.FC<Props> = ({ notification, onClose, userProfile, accounts = [] }) => {
     // Check if user has permission to view funds
     const canViewFunds = userProfile?.role === 'owner' || userProfile?.permissions.viewFunds === true;
+
+    // State to ensure we only render portal on client
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => {
+        setMounted(true);
+        return () => setMounted(false);
+    }, []);
 
     // Helper to format currency object {AUD: 100, USD: 200} => "AUD $100.00, USD $200.00"
     const formatCurrencies = (currencyObj: any): string => {
@@ -504,14 +507,16 @@ const NotificationDetailModal: React.FC<Props> = ({ notification, onClose, userP
         }
     };
 
-    return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4" onClick={onClose}>
+    if (!mounted) return null;
+
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4" onClick={onClose} aria-modal="true" role="dialog">
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-10" />
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-10 animate-modal-backdrop cursor-pointer" />
 
             {/* Modal */}
             <div
-                className="relative bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden border border-slate-200 dark:border-slate-700 z-20"
+                className="relative bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden border border-slate-200 dark:border-slate-700 z-20 animate-modal-scale"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
@@ -537,7 +542,8 @@ const NotificationDetailModal: React.FC<Props> = ({ notification, onClose, userP
                     {notification.type === 'CASE_HELP' && renderCaseHelpContent()}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

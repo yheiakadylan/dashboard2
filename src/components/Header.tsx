@@ -139,7 +139,7 @@ const Header: React.FC = () => {
   }, [supportFilter, setSupportFilter]);
 
   return (
-    <header className="bg-white dark:bg-gray-800 shadow-md border-b border-gray-200 dark:border-gray-700 sticky top-0 z-30 transition-all duration-200">
+    <header className="glass-base border-b border-gray-200 dark:border-gray-700 sticky top-0 z-30 transition-all duration-200">
       {/* Primary Header Bar */}
       <div className="px-4 h-16 flex items-center justify-between max-w-[1920px] mx-auto">
 

@@ -11,6 +11,10 @@ interface UIContextType {
     isSidebarCollapsed: boolean;
     toggleSidebar: () => void;
 
+    // Theme
+    theme: 'light' | 'dark';
+    toggleTheme: () => void;
+
     // Mobile Menu
     isMobileMenuOpen: boolean;
     setIsMobileMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -23,6 +27,8 @@ interface UIContextType {
     setIsTabSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
     isNotificationDetailOpen: boolean;
     setIsNotificationDetailOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    isOrderSelectorOpen: boolean;
+    setIsOrderSelectorOpen: React.Dispatch<React.SetStateAction<boolean>>;
     selectedNotificationId: string | null;
     setSelectedNotificationId: React.Dispatch<React.SetStateAction<string | null>>;
 
@@ -149,6 +155,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const [isAccountManagerOpen, setIsAccountManagerOpen] = useState(false);
     const [isTabSettingsOpen, setIsTabSettingsOpen] = useState(false);
     const [isNotificationDetailOpen, setIsNotificationDetailOpen] = useState(false);
+    const [isOrderSelectorOpen, setIsOrderSelectorOpen] = useState(false);
     const [selectedNotificationId, setSelectedNotificationId] = useState<string | null>(null);
 
 
@@ -194,13 +201,42 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
         addNotification('Tab preferences reset.', 'success');
     }, [addNotification]);
 
+    // --- Theme State (Lifted from ThemeToggle) ---
+    const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+        if (typeof localStorage !== 'undefined' && localStorage.getItem('theme')) {
+            return localStorage.getItem('theme') as 'light' | 'dark';
+        }
+        if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            return 'dark';
+        }
+        return 'light';
+    });
+
+    useEffect(() => {
+        const root = document.documentElement;
+        if (theme === 'dark') {
+            root.classList.add('dark');
+        } else {
+            root.classList.remove('dark');
+        }
+        localStorage.setItem('theme', theme);
+    }, [theme]);
+
+    const toggleTheme = useCallback(() => {
+        setTheme(prevTheme => (prevTheme === 'dark' ? 'light' : 'dark'));
+    }, []);
+
     return (
         <UIContext.Provider value={{
+            // Theme
+            theme, toggleTheme,
+
             isSidebarCollapsed, toggleSidebar,
             isMobileMenuOpen, setIsMobileMenuOpen, toggleMobileMenu,
             isAccountManagerOpen, setIsAccountManagerOpen,
             isTabSettingsOpen, setIsTabSettingsOpen,
             isNotificationDetailOpen, setIsNotificationDetailOpen,
+            isOrderSelectorOpen, setIsOrderSelectorOpen,
             selectedNotificationId, setSelectedNotificationId,
             activeTab, setActiveTab,
             tabOrder, setTabOrder: setLocalTabOrder,

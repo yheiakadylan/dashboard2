@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface SummaryChartProps {
   data: any[];
@@ -202,7 +202,7 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hi
               } `}
             aria-label="Previous Page"
           >
-            <ChevronLeftIcon className="w-5 h-5" />
+            <ChevronLeft className="w-5 h-5" />
           </button>
 
           <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mx-auto">
@@ -218,7 +218,7 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hi
               } `}
             aria-label="Next Page"
           >
-            <ChevronRightIcon className="w-5 h-5" />
+            <ChevronRight className="w-5 h-5" />
           </button>
         </div>
       )}

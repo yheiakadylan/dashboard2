@@ -24,9 +24,8 @@ const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({ isOpen, onClose, re
     const [sheetId, setSheetId] = useState('');
     const [autoSync, setAutoSync] = useState(false);
 
-    // Dedicated Sheet Account State (Persisted in Settings or Local? For now, we need to auth manually or save token)
-    // To enable auto-sync later, we MUST save this account's refresh token to DB.
-    // Let's store the connected sheet account in settings for simplicity for now.
+    // Dedicated Sheet Account State
+    // The account includes the refresh token which is saved to settings for backend auto-sync.
     const [sheetAccount, setSheetAccount] = useState<Account | null>(null);
 
     const [isLoading, setIsLoading] = useState(false);
@@ -104,8 +103,7 @@ const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({ isOpen, onClose, re
     const handleSaveSettings = async () => {
         setIsSaving(true);
         try {
-            // Check if we can get a token to verify the account is still valid?
-            // Optional optimization.
+
             await saveSettings(teamId, {
                 googleSheetId: sheetId,
                 autoSyncToSheet: autoSync,
@@ -165,7 +163,7 @@ const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({ isOpen, onClose, re
 
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Google Sheets Integration</h2>
                 </div>

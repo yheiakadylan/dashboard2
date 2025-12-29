@@ -5,7 +5,7 @@ import {
   deleteRecordsForAccounts,
   getRecordsForDateRange
 } from '../services/firebaseService';
-import { exportDashboardToExcel, ExportProgress } from '../utils/excelExport';
+import type { ExportProgress } from '../utils/excelExport';
 import { setupGmailWatch } from '../services/emailService';
 import { useNotification } from './NotificationContext';
 import { User } from 'firebase/auth';
@@ -596,20 +596,23 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
     addNotification(`Generating Excel file${includeImages ? ' with images' : ''}...`, 'info');
 
-    exportDashboardToExcel(processedData, filename, includeImages, (progress) => {
-      setExportProgress(progress);
-    })
-      .then(() => {
-        addNotification('Export completed', 'success');
+    // Dynamic import to reduce initial bundle size
+    import('../utils/excelExport').then(({ exportDashboardToExcel }) => {
+      exportDashboardToExcel(processedData, filename, includeImages, (progress) => {
+        setExportProgress(progress);
       })
-      .catch((err) => {
-        console.error(err);
-        addNotification('Export failed', 'error');
-      })
-      .finally(() => {
-        setIsExporting(false);
-        setExportProgress(null);
-      });
+        .then(() => {
+          addNotification('Export completed', 'success');
+        })
+        .catch((err) => {
+          console.error(err);
+          addNotification('Export failed', 'error');
+        })
+        .finally(() => {
+          setIsExporting(false);
+          setExportProgress(null);
+        });
+    });
   };
 
   const performGlobalSearch = async (term: string) => {

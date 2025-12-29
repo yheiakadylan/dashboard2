@@ -299,7 +299,7 @@ const MailManager: React.FC = () => {
 
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       <div className="flex-grow overflow-y-auto pr-2 scrollbar-hide">
         <h3 className="text-lg font-semibold mb-3">Manage Mail Accounts</h3>
         <div className="space-y-2">
@@ -443,16 +443,12 @@ const MailManager: React.FC = () => {
 
 
         {authError && <p className="text-red-500 dark:text-red-400 text-sm mt-3 text-center">{authError}</p>}
+      </div>
 
-        {/* Auto-save indicator */}
-        {isSavingAccounts && (
-          <div className="flex items-center justify-center gap-2 mt-4 text-sm text-blue-600 dark:text-blue-400">
-            <Spinner size="sm" color="text-blue-600 dark:text-blue-400" />
-            <span>Auto-saving...</span>
-          </div>
-        )}
-
-
+      {/* Floating Auto-save indicator */}
+      <div className={`absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2 px-4 py-2 bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-full shadow-lg border border-blue-100 dark:border-blue-900 transition-all duration-300 pointer-events-none z-10 ${isSavingAccounts ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+        <Spinner size="xs" color="text-blue-600 dark:text-blue-400" />
+        <span className="text-sm font-medium text-blue-600 dark:text-blue-400">Saving changes...</span>
       </div>
     </div>
   );
@@ -479,7 +475,7 @@ const AccountManager: React.FC = () => {
     <div onClick={handleBackdropClick}
       className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[100] p-2 md:p-4 animate-modal-backdrop" >
       <div onClick={(e) => e.stopPropagation()}
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl border border-gray-200 dark:border-gray-700 flex flex-col h-[90vh] md:h-[720px] md:max-h-[90vh] animate-slide-in-right" >
+        className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-2xl w-full max-w-3xl border border-gray-200 dark:border-gray-700 flex flex-col h-[90vh] md:h-[720px] md:max-h-[90vh] animate-slide-in-right" >
         {/* Header */}
         <div className="flex justify-between items-center p-3 md:p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <h2 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white">Settings</h2>
@@ -528,7 +524,7 @@ const AccountManager: React.FC = () => {
         </div>
 
         {/* Content */}
-        <div className="p-3 md:p-6 flex-grow flex flex-col overflow-hidden bg-white dark:bg-gray-800">
+        <div className="p-3 md:p-6 flex-grow flex flex-col overflow-hidden bg-transparent">
           {activeTab === 'mail' && <MailManager />}
           {activeTab === 'users' && <UserManager />}
           {activeTab === 'costs' && <ManualCostManager />}

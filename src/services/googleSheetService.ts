@@ -106,11 +106,22 @@ const readExistingSheetData = async (
     accessToken: string
 ) => {
     const readRange = getRange(sheetName, 'A:ZZ');
-    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${readRange}?valueRenderOption=FORMULA`;
+    // Ensure range is encoded correctly for URL
+    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(readRange)}?valueRenderOption=FORMULA`;
 
     const res = await fetch(readUrl, {
         headers: { Authorization: `Bearer ${accessToken}` }
     });
+
+    if (!res.ok) {
+        // If sheet not found (400 range error), return empty
+        if (res.status === 400) return [];
+        try {
+            const err = await res.json();
+            console.warn(`[GoogleSheet] Read failed ${res.status}:`, err);
+        } catch { }
+        return [];
+    }
 
     const data = await res.json();
     return data.values || [];
@@ -198,11 +209,13 @@ export const getNewAndExistingOrders = async (
         }
 
         const currentHeaders = allRows[0];
-        const orderNumIndex = currentHeaders.findIndex(h =>
-            h.toLowerCase().includes('order number') || h.toLowerCase().includes('order num')
-        );
+        const orderNumIndex = currentHeaders.findIndex(h => {
+            const lower = String(h).toLowerCase();
+            return lower.includes('order number') || lower.includes('order num') || lower === 'order id' || lower.includes('id đơn');
+        });
 
         if (orderNumIndex === -1) {
+            console.warn(`[getNewAndExistingOrders] Could not find 'Order ID' column. Headers:`, currentHeaders);
             // Can't find order column - assume all new
             return { newOrders: records, existingOrders: [] };
         }
@@ -285,8 +298,8 @@ const syncBatchToSpecificSheet = async (
                             },
                             cell: {
                                 userEnteredFormat: {
-                                    backgroundColor: { red: 0.26, green: 0.52, blue: 0.96 },
-                                    textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 }, fontSize: 11 },
+                                    backgroundColor: { red: 0.9, green: 0.9, blue: 0.9 },
+                                    textFormat: { bold: true, foregroundColor: { red: 0, green: 0, blue: 0 }, fontSize: 11 },
                                     horizontalAlignment: "CENTER",
                                     verticalAlignment: "MIDDLE"
                                 }
@@ -521,10 +534,10 @@ const syncBatchToSpecificSheet = async (
                     startColumnIndex: 0,
                     endColumnIndex: COLUMNS.length
                 },
-                top: { style: "SOLID", width: 1, color: { red: 0, green: 0, blue: 0 } },
-                bottom: { style: "SOLID", width: 1, color: { red: 0, green: 0, blue: 0 } },
-                left: { style: "SOLID", width: 1, color: { red: 0, green: 0, blue: 0 } },
-                right: { style: "SOLID", width: 1, color: { red: 0, green: 0, blue: 0 } }
+                top: { style: "SOLID", width: 1, color: { red: 0.8, green: 0.8, blue: 0.8 } },
+                bottom: { style: "SOLID", width: 1, color: { red: 0.8, green: 0.8, blue: 0.8 } },
+                left: { style: "SOLID", width: 1, color: { red: 0.8, green: 0.8, blue: 0.8 } },
+                right: { style: "SOLID", width: 1, color: { red: 0.8, green: 0.8, blue: 0.8 } }
             }
         });
 

@@ -16,7 +16,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@google/genai": "^1.27.0",
-    "@heroicons/react": "^2.2.0",
+    "@radix-ui/react-toggle-group": "^1.1.11",
     "@vercel/node": "^5.5.3",
     "buffer": "^6.0.3",
     "crypto": "^1.0.1",
@@ -30,8 +30,7 @@
     "react-dom": "^19.2.1",
     "react-virtualized-auto-sizer": "1.0.24",
     "react-window": "1.8.10",
-    "recharts": "^2.12.7",
-    "xlsx": "^0.18.5"
+    "recharts": "^2.12.7"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

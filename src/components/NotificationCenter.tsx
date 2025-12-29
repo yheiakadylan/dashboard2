@@ -194,8 +194,8 @@ const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDe
                 <div
                     ref={panelRef}
                     className={`
-                        fixed sm:absolute right-4 sm:right-0 top-[60px] sm:top-full mt-2 
-                        w-[calc(100vw-2rem)] sm:w-96 max-w-[480px] bg-white dark:bg-gray-800 
+                        absolute right-0 top-full mt-2 
+                        w-96 max-w-[calc(100vw-2rem)] bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl
                         rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 
                         overflow-hidden z-[9998] origin-top-right transition-all duration-200 ease-out
                         ${isOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-2 pointer-events-none'}

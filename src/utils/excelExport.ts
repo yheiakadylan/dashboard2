@@ -808,3 +808,79 @@ export const exportDashboardToExcel = async (processedData: ProcessedData, filen
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     saveAs(blob, filename);
 };
+    //Export Top Products
+export const exportTopProductsToExcel = async (
+    allShopsData: any[],
+    shopData: { [shopName: string]: any[] },
+    filename: string
+) => {
+    const workbook = new ExcelJS.Workbook();
+
+    // 1. All Shops Summary
+    if (allShopsData.length > 0) {
+        const sheet = workbook.addWorksheet('All Shops Summary');
+        sheet.columns = [
+            { header: 'Product Name', key: 'name', width: 40 },
+            { header: 'Quantity', key: 'quantity', width: 15 },
+            { header: 'Image Link', key: 'image', width: 50 } // Wider for link
+        ];
+
+        // Style Header
+        const headerRow = sheet.getRow(1);
+        styleHeaderRow(headerRow);
+
+        allShopsData.forEach(item => {
+            const row = sheet.addRow({
+                name: item.name || '',
+                quantity: item.quantity,
+                image: item.image || ''
+            });
+
+            // Add hyperlink for image if exists
+            if (item.image) {
+                const cell = row.getCell('image');
+                cell.value = { text: item.image, hyperlink: item.image }; // Display URL as text but make it clickable
+                cell.font = { color: { argb: 'FF0000FF' }, underline: true };
+            }
+            row.alignment = { vertical: 'middle', horizontal: 'left' };
+        });
+    }
+
+    // 2. Individual Shops
+    Object.entries(shopData).forEach(([shopName, products]) => {
+        if (!Array.isArray(products) || products.length === 0) return;
+        const safeName = shopName.replace(/[\\/*?\[\]:]/g, "").substring(0, 31);
+        const sheet = workbook.addWorksheet(safeName);
+
+        sheet.columns = [
+            { header: 'Product Name', key: 'name', width: 40 },
+            { header: 'Quantity', key: 'quantity', width: 15 },
+            { header: 'Revenue', key: 'revenue', width: 20 },
+            { header: 'Image Link', key: 'image', width: 50 }
+        ];
+
+        // Style Header
+        const headerRow = sheet.getRow(1);
+        styleHeaderRow(headerRow);
+
+        products.forEach(item => {
+            const row = sheet.addRow({
+                name: item.name || '',
+                quantity: item.quantity,
+                revenue: item.revenue,
+                image: item.image || ''
+            });
+
+            // Add hyperlink for image if exists
+            if (item.image) {
+                const cell = row.getCell('image');
+                cell.value = { text: item.image, hyperlink: item.image };
+                cell.font = { color: { argb: 'FF0000FF' }, underline: true };
+            }
+            row.alignment = { vertical: 'middle', horizontal: 'left' };
+        });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
+};

@@ -59,6 +59,15 @@ const formatDateTime = (dateStr: string, timeZone: string): string => {
 // Helper function to convert eBay image URLs to higher resolution
 // MOVED TO utils/imageUtils.ts
 
+const formatSource = (source: string): string => {
+    if (!source) return '';
+    if (source === 'Etsy_Sales') return 'Etsy';
+    if (source === 'Ebay_Sales') return 'eBay';
+    if (source === 'Etsy_Case') return 'Etsy Case';
+    if (source === 'Etsy_Help') return 'Etsy Help';
+    return source.replace(/_/g, ' ');
+};
+
 export const processData = (
     records: Record[],
     previousRecords: Record[] | null,
@@ -350,9 +359,7 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
         if (o.details) {
             actions.push({ type: 'view', label: 'View', id: o.id! });
         }
-        if (o.email_id) {
-            actions.push({ type: 'resync', label: 'Resync', id: o.id! });
-        }
+
 
         // --- New logic to get product name and image ---
         let productName = o.product_name || 'N/A';
@@ -381,9 +388,7 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
         // --- End of new logic ---
 
         // Map Source
-        let displaySource = o.source;
-        if (o.source === 'Etsy_Sales') displaySource = 'Etsy';
-        else if (o.source === 'Ebay_Sales') displaySource = 'eBay';
+        const displaySource = formatSource(o.source);
 
         return [
             { type: 'image', src: productImage, fullSrc: fullProductImage, alt: productName }, // New cell for image
@@ -421,10 +426,7 @@ const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sale
             actions.push({ type: 'view', label: 'View', id: r.id! });
         }
 
-        // Show Resync if email_id exists
-        if (r.email_id) {
-            actions.push({ type: 'resync', label: 'Resync', id: r.id! });
-        }
+
 
         // --- Logic from getOrderList ---
         let productName = r.product_name || 'N/A';
@@ -470,7 +472,7 @@ const getSupportRecords = (records: Record[], kind: 'case' | 'help', accountLabe
     const rows = sortedRecords.map(r => [
         r.order_id || 'N/A',
         kind === 'case' ? decodeHTMLEntities(r.case_msg || 'N/A') : decodeHTMLEntities(r.help_kind || 'N/A'),
-        r.source,
+        formatSource(r.source),
         accountLabelMap.get(r.account) || r.account,
         formatDateTime(r.dt_local, timeZone),
         r.dt_local // Hidden column for sorting

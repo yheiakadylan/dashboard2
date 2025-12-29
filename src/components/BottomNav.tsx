@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Tab } from '../types';
 import { useUI } from '../contexts/UIContext';
 import {
-    HomeIcon,
-    DocumentTextIcon,
-    QuestionMarkCircleIcon,
-    TruckIcon,
-    TagIcon
-} from '@heroicons/react/24/outline';
+    Home,
+    FileText,
+    HelpCircle,
+    Truck,
+    Tag
+} from 'lucide-react';
 
 interface BottomNavProps {
     tabs: Tab[];
@@ -69,17 +69,17 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
         const iconClass = "w-6 h-6";
         switch (tab) {
             case 'Overview':
-                return <HomeIcon className={iconClass} />;
+                return <Home className={iconClass} />;
             case 'Order List':
-                return <DocumentTextIcon className={iconClass} />;
+                return <FileText className={iconClass} />;
             case 'Products':
-                return <TagIcon className={iconClass} />;
+                return <Tag className={iconClass} />;
             case 'Fulfill':
-                return <TruckIcon className={iconClass} />;
+                return <Truck className={iconClass} />;
             case 'Support':
-                return <QuestionMarkCircleIcon className={iconClass} />;
+                return <HelpCircle className={iconClass} />;
             default:
-                return <HomeIcon className={iconClass} />;
+                return <Home className={iconClass} />;
         }
     };
 

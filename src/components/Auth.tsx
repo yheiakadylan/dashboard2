@@ -45,46 +45,58 @@ const Auth: React.FC<{ authError?: string | null }> = ({ authError }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col justify-center items-center p-4">
-      <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8 border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-center mb-6">
-          <svg
-            width="64"
-            height="64"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-10 w-10 text-blue-600 dark:text-blue-500"
-          >
-            <path
-              d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z"
-              fill="currentColor"
-            />
-            <path
-              d="M4 15L9 9L14 13L20 8"
-              stroke="white"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="dark:stroke-gray-900"
-            />
-          </svg>
+    <div className="min-h-screen bg-gradient-mesh flex flex-col justify-center items-center p-4 relative overflow-hidden">
+      {/* Decorative Blobs */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
+        <div className="absolute top-[10%] left-[10%] w-72 h-72 bg-purple-500/30 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-blob"></div>
+        <div className="absolute top-[20%] right-[10%] w-72 h-72 bg-yellow-500/30 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-blob animation-delay-2000"></div>
+        <div className="absolute bottom-[20%] left-[20%] w-72 h-72 bg-pink-500/30 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-blob animation-delay-4000"></div>
+      </div>
+
+      <div className="w-full max-w-md glass-panel rounded-2xl shadow-2xl p-8 border border-white/20 relative z-10 backdrop-blur-xl">
+        <div className="flex flex-col items-center justify-center mb-8">
+          <div className="bg-white/20 p-4 rounded-full shadow-inner mb-4">
+            <svg
+              width="48"
+              height="48"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-10 w-10 text-white drop-shadow-md"
+            >
+              <path
+                d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z"
+                fill="currentColor"
+              />
+              <path
+                d="M4 15L9 9L14 13L20 8"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="drop-shadow-sm"
+              />
+            </svg>
+          </div>
+
+          <h1 className="text-3xl font-black text-center text-gray-900 dark:text-white tracking-tight">
+            Welcome Back
+          </h1>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mt-2">
+            Sign in to access your dashboard
+          </p>
         </div>
 
-        <h1 className="text-3xl font-bold text-center text-gray-900 dark:text-white mb-6">
-          Sales Dashboard
-        </h1>
-
         {(authError || error) && (
-          <p className="bg-red-500/20 text-red-500 dark:text-red-400 p-3 rounded mb-4 text-center">
+          <div className="bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 p-3 rounded-lg mb-6 text-sm text-center font-medium backdrop-blur-sm">
             {authError || error}
-          </p>
+          </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Email
+            <label htmlFor="username" className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1.5 ml-1">
+              Email Address
             </label>
             <input
               id="username"
@@ -94,16 +106,16 @@ const Auth: React.FC<{ authError?: string | null }> = ({ authError }) => {
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Enter your username"
+              className="block w-full px-4 py-3 bg-white/50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all backdrop-blur-sm"
+              placeholder="Enter your email"
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="password" className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1.5 ml-1">
               Password
             </label>
-            <div className="relative mt-1">
+            <div className="relative">
               <input
                 id="password"
                 name="password"
@@ -112,7 +124,7 @@ const Auth: React.FC<{ authError?: string | null }> = ({ authError }) => {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="block w-full px-3 py-2 pr-10 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="block w-full px-4 py-3 pr-10 bg-white/50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all backdrop-blur-sm"
                 placeholder="••••••••"
               />
               <button
@@ -135,11 +147,11 @@ const Auth: React.FC<{ authError?: string | null }> = ({ authError }) => {
             </div>
           </div>
 
-          <div>
+          <div className="pt-2">
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex justify-center py-3.5 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
             >
               {isLoading ? (
                 <Spinner size="md" color="text-white" />
@@ -147,6 +159,11 @@ const Auth: React.FC<{ authError?: string | null }> = ({ authError }) => {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Footer / Copyright */}
+      <div className="absolute bottom-6 text-center text-xs text-gray-500 dark:text-gray-400 opacity-60">
+        &copy; {new Date().getFullYear()} Dashboard. All rights reserved by Hai.
       </div>
     </div>
   );

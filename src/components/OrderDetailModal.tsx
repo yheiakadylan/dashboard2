@@ -7,12 +7,14 @@ import ImagePreviewModal from './ImagePreviewModal';
 interface OrderDetailModalProps {
   record: Record;
   onClose: () => void;
+  onResync?: (id: string) => void;
 }
 
-const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) => {
+const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, onResync }) => {
   const { accounts } = useDashboard();
   const { timeZone } = useUI();
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isResyncing, setIsResyncing] = useState(false);
 
   if (!record.details) return null;
 
@@ -33,9 +35,21 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
     hour12: true
   }).format(new Date(dt_local));
 
+  const handleResyncClick = async () => {
+    if (onResync && record.id) {
+      if (!record.email_id) {
+        return;
+      }
+
+      setIsResyncing(true);
+      await onResync(record.id);
+      setIsResyncing(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[70] p-4 animate-modal-backdrop" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 animate-modal-scale" onClick={e => e.stopPropagation()}>
+      <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 animate-modal-scale" onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
@@ -218,7 +232,30 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose }) 
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-lg flex justify-end">
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-lg flex justify-between items-center">
+          {/* Left Action: Resync */}
+          {onResync && record.email_id ? (
+            <button
+              onClick={handleResyncClick}
+              disabled={isResyncing}
+              className="px-4 py-2 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-md transition-colors text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
+            >
+              {isResyncing ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  Syncing...
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Resync
+                </>
+              )}
+            </button>
+          ) : <div></div>}
+
           <button onClick={onClose} className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-500 text-gray-700 dark:text-white rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors font-medium">
             Close
           </button>

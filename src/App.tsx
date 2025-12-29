@@ -30,6 +30,8 @@ import MainContent from './components/MainContent';
 import ErrorBoundary from './components/ErrorBoundary';
 import { getMessagingInstance } from './services/firebaseService';
 import { onMessage } from 'firebase/messaging';
+import CommandPalette from './components/CommandPalette';
+
 
 const DashboardLayout: React.FC = () => {
     const {
@@ -218,13 +220,13 @@ const DashboardLayout: React.FC = () => {
     const visibleTabs = getPermittedTabs(tabOrder, role, permissions).filter(tab => !hiddenTabs.has(tab));
 
     return (
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex overflow-hidden">
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 bg-gradient-mesh text-gray-900 dark:text-gray-100 flex overflow-hidden">
             <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
 
             <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
                 <Header />
                 <main className="flex-grow p-2 md:p-6 flex flex-col overflow-hidden relative">
-                    <div className="relative flex-grow bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden border border-gray-100 dark:border-gray-700">
+                    <div className="relative flex-grow glass-panel rounded-lg shadow-lg overflow-hidden border-0">
                         {/* Pull-to-refresh UI */}
                         {(isPulling || isRefreshing) && (
                             <div className="absolute top-0 left-0 right-0 flex justify-center items-center z-20" style={{ height: `${Math.min(pullDistance, 60)}px`, opacity: pullProgress }}>
@@ -280,13 +282,18 @@ const DashboardLayout: React.FC = () => {
                 <TabSettings />
             )}
             {selectedOrder && (
-                <OrderDetailModal record={selectedOrder} onClose={closeOrderDetail} />
+                <OrderDetailModal record={selectedOrder} onClose={closeOrderDetail} onResync={handleResyncOrder} />
             )}
             <BottomNav tabs={visibleTabs} />
             <InstallPrompt />
 
             {/* Deep Link Handler */}
             <DeepLinkHandler onOpenOrder={handleOpenOrderById} />
+
+
+
+            {/* NEW: Command Palette */}
+            <CommandPalette />
         </div>
     );
 };

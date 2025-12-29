@@ -196,7 +196,7 @@ const DateRangePicker: React.FC = () => {
                         <li key={p.label} className={isMobile ? "" : ""}>
                             <button
                                 onClick={() => handlePresetClick(p.label)}
-                                className={`w-full text-left px-3 py-1.5 text-sm rounded transition-colors ${activePreset === p.label ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                                className={`w-full text-left px-3 py-2 text-sm rounded-md transition-all ${activePreset === p.label ? 'bg-blue-600 text-white shadow-md' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'}`}
                             >
                                 {p.label}
                             </button>

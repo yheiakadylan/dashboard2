@@ -18,6 +18,9 @@ export default {
                 'blue-500': '#3b82f6',
                 'blue-600': '#2563eb',
             },
+            fontFamily: {
+                sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            },
         }
     },
     plugins: [],
