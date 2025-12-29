@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { auth } from '../services/firebaseService';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import Spinner from './Spinner';
+import { useNotification } from '../contexts/NotificationContext';
 
 const Auth: React.FC<{ authError?: string | null }> = ({ authError }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(authError || null);
   const [isLoading, setIsLoading] = useState(false);
+  const { addNotification } = useNotification();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,6 +147,35 @@ const Auth: React.FC<{ authError?: string | null }> = ({ authError }) => {
                 )}
               </button>
             </div>
+          </div>
+
+          <div className="pt-1 flex justify-end">
+            <button
+              type="button"
+              onClick={async () => {
+                const email = username.trim();
+                if (!email) {
+                  setError("Please enter your email address first.");
+                  return;
+                }
+                try {
+                  setIsLoading(true);
+                  await sendPasswordResetEmail(auth, email);
+                  addNotification(`Password reset email sent to ${email}`, 'success');
+                  setError(null);
+                } catch (err: any) {
+                  console.error("Reset password error:", err);
+                  const msg = err.message.replace('Firebase: ', '');
+                  setError(msg);
+                  addNotification(msg, 'error');
+                } finally {
+                  setIsLoading(false);
+                }
+              }}
+              className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+            >
+              Forgot Password?
+            </button>
           </div>
 
           <div className="pt-2">

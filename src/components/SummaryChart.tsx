@@ -97,12 +97,10 @@ const renderLegend = (props: any) => {
   );
 };
 
+import EmptyState from './EmptyState';
+
 const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hideFunds = false }) => {
   const [page, setPage] = useState(0);
-
-  if (!data || data.length === 0) {
-    return null;
-  }
 
   // Optimize: Use Set to find all unique keys efficiently
   const { revenueKeys, fundsKeys } = React.useMemo(() => {
@@ -123,6 +121,25 @@ const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hi
     })
     .filter(item => item.totalRev > 0)
     .sort((a, b) => b.totalRev - a.totalRev);
+
+  // Show Empty State if no data OR if all data was filtered out (zero revenue)
+  if (!data || data.length === 0 || sortedData.length === 0) {
+    return (
+      <div className="bg-white dark:bg-gray-800 p-2 md:p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 h-[300px] md:h-[450px] flex flex-col items-center justify-center animate-fade-in-up">
+        {!hideTitle && (
+          <h3 className="w-full text-base md:text-lg font-semibold mb-2 md:mb-4 text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-700 pb-2">Shop Performance</h3>
+        )}
+        <div className="flex-grow flex items-center justify-center">
+          <EmptyState
+            variant="no-data"
+            title="No Shop Data"
+            description="Performance metrics will appear here."
+            className="p-0"
+          />
+        </div>
+      </div>
+    );
+  }
 
   const totalPages = Math.ceil(sortedData.length / ITEMS_PER_PAGE);
   const paginatedData = sortedData.slice(page * ITEMS_PER_PAGE, (page + 1) * ITEMS_PER_PAGE);

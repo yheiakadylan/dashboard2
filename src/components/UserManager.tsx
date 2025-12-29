@@ -7,17 +7,18 @@ import { db, auth } from '../services/firebaseService';
 import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
 import { Account } from '../types';
 import Spinner from './Spinner';
+import { KeyRound } from 'lucide-react';
+import { useNotification } from '../contexts/NotificationContext';
 
 // Định nghĩa kiểu dữ liệu cho User Role
 interface UserRole {
-  id: string; // Document ID (chính là user.uid)
+  id: string;
   email: string;
   role: 'owner' | 'user';
   permissions: {
     viewSales: boolean;
     viewFunds: boolean;
     viewFulfill: boolean;
-
     canManageSettings: boolean;
   };
   allowedAccounts?: string[];
@@ -155,6 +156,7 @@ const AccountSelectionModal: React.FC<AccountSelectionModalProps> = ({ user, all
 
 const UserManager: React.FC = () => {
   const { teamId, accounts: allMailAccounts } = useDashboard();
+  const { addNotification } = useNotification();
   const [users, setUsers] = useState<UserRole[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -174,6 +176,10 @@ const UserManager: React.FC = () => {
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<UserRole | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
 
+  // --- State cho Reset Password (Owner) ---
+  const [resetPasswordUser, setResetPasswordUser] = useState<UserRole | null>(null);
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [isResettingPass, setIsResettingPass] = useState(false);
 
   // Hàm tải danh sách user
   const fetchUsers = useCallback(async () => {
@@ -194,7 +200,6 @@ const UserManager: React.FC = () => {
             viewSales: false,
             viewFunds: false,
             viewFulfill: false,
-
             canManageSettings: false,
           };
         }
@@ -275,7 +280,40 @@ const UserManager: React.FC = () => {
     handleCloseAccountModal();
   };
 
+  // Hàm Owner đổi pass cho User
+  const handleResetPasswordByOwner = async () => {
+    if (!resetPasswordUser || !newAdminPassword) return;
+    if (newAdminPassword.length < 6) {
+      addNotification("Password must be at least 6 characters", 'error');
+      return;
+    }
 
+    setIsResettingPass(true);
+    try {
+      const idToken = await auth.currentUser!.getIdToken();
+      const response = await fetch('/api/users', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ userId: resetPasswordUser.id, password: newAdminPassword }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message);
+
+      addNotification(`Success! Password for ${resetPasswordUser.email} has been updated.`, 'success');
+      setResetPasswordUser(null);
+      setNewAdminPassword('');
+
+    } catch (error: any) {
+      console.error("Reset pass error:", error);
+      addNotification(`Failed: ${error.message}`, 'error');
+    } finally {
+      setIsResettingPass(false);
+    }
+  };
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -312,10 +350,12 @@ const UserManager: React.FC = () => {
       setNewUserPassword('');
       setNewUserRole('user');
       await fetchUsers();
+      addNotification("User created successfully.", 'success');
 
     } catch (err: any) {
       console.error(err);
       setCreateError(err.message);
+      addNotification(err.message, 'error');
     }
     setIsCreating(false);
   };
@@ -343,11 +383,17 @@ const UserManager: React.FC = () => {
 
       // Success → Refresh user list
       await fetchUsers();
+      addNotification("User deleted successfully.", 'success');
       setConfirmDeleteUser(null);
+
+      // Nếu đang mở form reset của user này thì đóng lại
+      if (resetPasswordUser?.id === userId) {
+        setResetPasswordUser(null);
+      }
 
     } catch (err: any) {
       console.error(err);
-      alert(`Error deleting user: ${err.message}`);
+      addNotification(`Error deleting user: ${err.message}`, 'error');
     } finally {
       setDeletingUserId(null);
     }
@@ -383,16 +429,25 @@ const UserManager: React.FC = () => {
                   </span>
                 </div>
 
-                {/* Delete Button */}
-                <button
-                  onClick={() => setConfirmDeleteUser(user)}
-                  className="px-3 py-1 text-sm font-semibold text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
-                  title="Delete User"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
+                {/* Actions: Delete & Reset Pass */}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setResetPasswordUser(user)}
+                    className="px-2 py-1 text-sm font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+                    title="Reset Password"
+                  >
+                    <KeyRound className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setConfirmDeleteUser(user)}
+                    className="px-2 py-1 text-sm font-semibold text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                    title="Delete User"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               {user.role === 'user' && (
@@ -461,6 +516,43 @@ const UserManager: React.FC = () => {
           onSave={handleSaveAllowedAccounts}
           onClose={handleCloseAccountModal}
         />
+      )}
+
+      {/* --- Reset Password Modal --- */}
+      {resetPasswordUser && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4" onClick={() => setResetPasswordUser(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-blue-100 dark:bg-blue-900/30 rounded-full">
+              <KeyRound className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            </div>
+            <h3 className="text-xl font-bold text-center text-gray-900 dark:text-white mb-2">Set New Password</h3>
+            <p className="text-center text-sm text-gray-500 mb-4">Set a new password for <b>{resetPasswordUser.email}</b>. They can login with this immediately.</p>
+
+            <input
+              type="text"
+              value={newAdminPassword}
+              onChange={(e) => setNewAdminPassword(e.target.value)}
+              placeholder="Enter new password (min 6 chars)"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md mb-4 bg-gray-50 dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setResetPasswordUser(null)}
+                className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResetPasswordByOwner}
+                disabled={isResettingPass}
+                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold disabled:opacity-50"
+              >
+                {isResettingPass ? 'Saving...' : 'Set Password'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation Modal */}

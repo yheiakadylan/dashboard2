@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useUI } from '../contexts/UIContext';
 import { getPermittedTabs } from '../utils/permissions';
+import { getImageFromDB } from '../utils/indexedDB'; // Import IndexedDB utility
 import {
     Home,
     FileText,
@@ -22,17 +23,35 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
-    const { role, permissions, handleLogout } = useDashboard();
+    const { role, permissions, handleLogout, user } = useDashboard();
     const {
         activeTab,
         handleTabClick,
         tabOrder,
         hiddenTabs,
         setIsAccountManagerOpen,
+        isAccountManagerOpen, // Get this to trigger refresh
         setIsTabSettingsOpen,
         setIsOrderSelectorOpen
     } = useUI();
 
+    const [localPhotoURL, setLocalPhotoURL] = useState(user?.photoURL || '');
+
+    // Load avatar (prefer local IndexedDB if available)
+    useEffect(() => {
+        if (user) {
+            // Start with Firebase URL (or previous state)
+            // We don't necessarily reset to user.photoURL immediately to avoid flash if local exists?
+            // But user.photoURL is the "source of truth" fallback.
+            setLocalPhotoURL(user.photoURL || '');
+
+            getImageFromDB(user.uid).then((blob) => {
+                if (blob) {
+                    setLocalPhotoURL(URL.createObjectURL(blob));
+                }
+            }).catch(e => console.error("Sidebar avatar load failed", e));
+        }
+    }, [user, isAccountManagerOpen]); // Refresh when user changes or Settings modal closes (potential update)
 
     // Filter tabs logic
     const permittedTabs = getPermittedTabs(tabOrder, role, permissions);
@@ -60,7 +79,35 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
             style={{ willChange: 'width' }}
         >
             <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-                <div className={`${isCollapsed ? 'hidden' : 'block'}`}></div>
+                <div
+                    onClick={() => setIsAccountManagerOpen(true)}
+                    className={`flex items-center gap-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg p-1 transition-colors ${isCollapsed ? 'hidden' : 'flex'}`}
+                    title="Edit Profile"
+                >
+                    <div className="relative flex-shrink-0">
+                        {localPhotoURL ? (
+                            <img
+                                src={localPhotoURL}
+                                alt="User Avatar"
+                                className="w-8 h-8 rounded-full object-cover border border-gray-200 dark:border-gray-600 shadow-sm"
+                            />
+                        ) : (
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold shadow-sm">
+                                {user?.displayName ? user.displayName.charAt(0).toUpperCase() : (user?.email?.charAt(0).toUpperCase() || 'U')}
+                            </div>
+                        )}
+                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full"></span>
+                    </div>
+
+                    <div className="flex-1 min-w-0 overflow-hidden max-w-[140px]">
+                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                            {user?.displayName || 'Anonymous'}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                            {user?.email}
+                        </p>
+                    </div>
+                </div>
                 <button
                     onClick={toggleSidebar}
                     className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 focus:outline-none ml-auto"
@@ -124,6 +171,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
             </nav>
 
             <div className={`border-t border-gray-200 dark:border-gray-700 space-y-2 ${isCollapsed ? 'p-2' : 'p-4'}`}>
+
+
                 {/* Sync to Sheet Button - Added here */}
                 <button
                     onClick={() => {

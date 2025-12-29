@@ -150,7 +150,7 @@ const ManualCostManager: React.FC = () => {
               disabled={isSaving}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold disabled:opacity-50"
             >
-              {isSaving ? 'Saving...' : 'Save Cost'}
+              {isSaving ? 'Saving...' : 'Save'}
             </button>
           </div>
           {error && <p className="text-red-500 text-sm">{error}</p>}

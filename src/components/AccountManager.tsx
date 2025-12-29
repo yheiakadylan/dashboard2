@@ -428,14 +428,14 @@ const MailManager: React.FC = () => {
           <button
             onClick={() => handleAuth('google')}
             disabled={!!isAuthenticating}
-            className="w-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 font-bold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-wait">
+            className="w-full bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600 font-bold py-2.5 px-4 rounded-lg transition-all shadow-sm hover:shadow flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-wait">
             <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-5 h-5" />
             {isAuthenticating === 'google' ? 'Authenticating...' : 'Sign in with Google'}
           </button>
           <button
             onClick={() => handleAuth('microsoft')}
             disabled={!!isAuthenticating}
-            className="w-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 font-bold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-wait">
+            className="w-full bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600 font-bold py-2.5 px-4 rounded-lg transition-all shadow-sm hover:shadow flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-wait">
             <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/512px-Microsoft_logo.svg.png?20210729021049" alt="Microsoft" className="w-5 h-5" />
             {isAuthenticating === 'microsoft' ? 'Authenticating...' : 'Sign in with Microsoft'}
           </button>
@@ -455,17 +455,19 @@ const MailManager: React.FC = () => {
 };
 
 // --- MAIN ACCOUNT MANAGER MODAL ---
+import UserProfileSettings from './UserProfileSettings';
+
 const AccountManager: React.FC = () => {
   const { role, permissions } = useDashboard();
   const { setIsAccountManagerOpen } = useUI();
 
-  // User thường (không có quyền mail) chỉ thấy notifications tab
+  // User often (no mail rights) sees 'profile' or 'notifications'
   const canManageMail = role === 'owner' || permissions.canManageSettings;
-  const defaultTab = canManageMail ? 'mail' : 'notifications';
 
-  const [activeTab, setActiveTab] = useState<'mail' | 'users' | 'costs' | 'notifications'>(defaultTab);
+  // Default tab logic: Profile should be default for personalization
+  const [activeTab, setActiveTab] = useState<'profile' | 'mail' | 'users' | 'costs' | 'notifications'>('profile');
+
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Chỉ đóng nếu click trực tiếp vào backdrop (không phải con của nó)
     if (e.target === e.currentTarget) {
       setIsAccountManagerOpen(false);
     }
@@ -488,7 +490,13 @@ const AccountManager: React.FC = () => {
 
         {/* Tabs */}
         <div className="flex border-b border-gray-200 dark:border-gray-700 flex-shrink-0 overflow-x-auto scrollbar-hide">
-          {/* Mail Accounts - Only for owner or users with canManageSettings */}
+          <button
+            onClick={() => setActiveTab('profile')}
+            className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'profile' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+          >
+            Profile
+          </button>
+
           {canManageMail && (
             <button
               onClick={() => setActiveTab('mail')}
@@ -498,13 +506,13 @@ const AccountManager: React.FC = () => {
             </button>
           )}
 
-          {/* Notifications - Available for ALL users */}
           <button
             onClick={() => setActiveTab('notifications')}
             className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'notifications' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
           >
             Notifications
           </button>
+
           {role === 'owner' && (
             <>
               <button
@@ -525,6 +533,7 @@ const AccountManager: React.FC = () => {
 
         {/* Content */}
         <div className="p-3 md:p-6 flex-grow flex flex-col overflow-hidden bg-transparent">
+          {activeTab === 'profile' && <UserProfileSettings />}
           {activeTab === 'mail' && <MailManager />}
           {activeTab === 'users' && <UserManager />}
           {activeTab === 'costs' && <ManualCostManager />}

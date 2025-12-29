@@ -95,6 +95,21 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                             createdAt: data.createdAt,
                         };
 
+                        // FILTER: Check if notification is too old (Auto-cleanup)
+                        const cutoffDate = new Date(Date.now() - AUTO_CLEANUP_DAYS * 24 * 60 * 60 * 1000);
+                        const notifDate = new Date(firestoreNotification.createdAt);
+
+                        if (notifDate < cutoffDate) {
+                            console.log('[NotificationCenter] Found expired notification, auto-deleting from DB:', firestoreNotification.id);
+
+                            // Lazy cleanup: Delete from Firestore in background
+                            // This keeps the DB clean without needing a separate backend cron job
+                            const notifRef = doc(db, 'user', teamId, 'notifications', firestoreNotification.id);
+                            deleteDoc(notifRef).catch(err => console.error("[NotificationCenter] Failed to auto-delete expired notification:", err));
+
+                            return;
+                        }
+
                         console.log('[NotificationCenter] New notification from Firestore:', firestoreNotification);
 
                         // Add to state and ensuring sorting
@@ -152,6 +167,20 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                                     // Re-sort to ensure correct order if timestamp changed
                                     newList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
                                     return newList;
+                                }
+                            }
+
+                            // SOUND EFFECT: Play 'Ting' for ALL fresh notifications
+                            const isFresh = (Date.now() - new Date(firestoreNotification.createdAt).getTime()) < 30000; // 30s window
+                            if (isFresh) {
+                                console.log('[NotificationCenter] Playing sound for new notification:', firestoreNotification.id);
+                                try {
+                                    // User preferred 'Ting' sound
+                                    const audio = new Audio('https://www.myinstants.com/media/sounds/quick-ting-57430.mp3');
+                                    audio.volume = 0.7;
+                                    audio.play().catch(e => console.warn('[NotificationCenter] Audio play prevented (interaction needed?):', e));
+                                } catch (e) {
+                                    console.error('[NotificationCenter] Sound error', e);
                                 }
                             }
 

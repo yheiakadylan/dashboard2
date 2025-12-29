@@ -314,28 +314,34 @@ const App: React.FC = () => {
     // --- USE NEW AUTH HOOK ---
     const { user, userProfile, authLoading, authError, logout } = useAuthLogic();
 
+    let content;
+
     if (authLoading) {
-        return (
+        content = (
             <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
                 <Spinner size="xl" />
             </div>
         );
-    }
-
-    if (!user || !userProfile) {
-        return <Auth authError={authError} />;
+    } else if (!user || !userProfile) {
+        content = <Auth authError={authError} />;
+    } else {
+        content = (
+            <>
+                <LoginNotificationHandler user={user} userProfile={userProfile} />
+                <UIProvider userUid={user.uid} teamId={userProfile.teamId}>
+                    <ConnectedDashboardProvider user={user} userProfile={userProfile} logout={logout}>
+                        <ErrorBoundary>
+                            <DashboardLayout />
+                        </ErrorBoundary>
+                    </ConnectedDashboardProvider>
+                </UIProvider>
+            </>
+        );
     }
 
     return (
         <NotificationProvider>
-            <LoginNotificationHandler user={user} userProfile={userProfile} />
-            <UIProvider userUid={user.uid} teamId={userProfile.teamId}>
-                <ConnectedDashboardProvider user={user} userProfile={userProfile} logout={logout}>
-                    <ErrorBoundary>
-                        <DashboardLayout />
-                    </ErrorBoundary>
-                </ConnectedDashboardProvider>
-            </UIProvider>
+            {content}
         </NotificationProvider>
     );
 };

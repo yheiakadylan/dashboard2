@@ -299,7 +299,22 @@ async function syncBatchToSpecificSheet(
     const finalRows: any[][] = [];
     const mergeRanges: Array<{ startRow: number; endRow: number; column: number }> = [];
 
+    // Calculate next STT
+    const sttColIndex = currentHeaders.findIndex(h => h === 'No.' || h === 'STT');
+    let nextSTT = 1;
+    if (allRows.length > 1 && sttColIndex !== -1) {
+         for (let i = 1; i < allRows.length; i++) {
+            const val = String(allRows[i][sttColIndex] || '').trim();
+            const sttVal = Number(val);
+            if (!isNaN(sttVal) && sttVal >= nextSTT) {
+                nextSTT = sttVal + 1;
+            }
+        }
+    }
+
     newRecords.forEach(record => {
+        // Assign STT for this order
+        const currentOrderSTT = nextSTT++;
         const dateKey = toUTC7DateString(record.dt_local);
         const shopEmail = record.account || '';
         const shop = accountLabelMap.get(shopEmail) || shopEmail;
@@ -322,7 +337,7 @@ async function syncBatchToSpecificSheet(
         // Track start row for this order
         const orderStartRow = finalRows.length;
 
-        itemsToProcess.forEach((item: any) => {
+        itemsToProcess.forEach((item: any, itemIdx: number) => {
             const productName = item.name || '';
             const mockup = item.image || '';
             // Filter out "Personalised item" from variant
@@ -332,7 +347,7 @@ async function syncBatchToSpecificSheet(
             const row = COLUMNS.map(col => {
                 const h = col.toLowerCase();
                 // No. (STT)
-                if (h.includes('no.') || h.includes('stt')) return '';
+                if (h.includes('no.') || h.includes('stt')) return itemIdx === 0 ? currentOrderSTT : '';
                 // Shop
                 if (h.includes('shop')) return shop;
                 // Product (Product Name)
@@ -365,8 +380,8 @@ async function syncBatchToSpecificSheet(
         const itemCount = itemsToProcess.length;
         if (itemCount > 1) {
             const orderEndRow = finalRows.length - 1;
-            // Columns to merge: Date&Time(5), OrderID(6), Customer(8), Revenue(9), BaseCost(10)
-            [5, 6, 8, 9, 10].forEach(colIndex => {
+            // Columns to merge: No.(0), Date&Time(5), OrderID(6), Customer(8), Revenue(9), BaseCost(10)
+            [0, 5, 6, 8, 9, 10].forEach(colIndex => {
                 mergeRanges.push({
                     startRow: orderStartRow,
                     endRow: orderEndRow,

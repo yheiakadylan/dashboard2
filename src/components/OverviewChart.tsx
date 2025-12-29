@@ -13,11 +13,18 @@ interface OverviewChartProps {
 // - Revenue loop: Yellow -> Purple -> Green
 const COLORS = ['#F59E0B', '#8B5CF6', '#10B981', '#EC4899'];
 
+import EmptyState from './EmptyState';
+
 const OverviewChart: React.FC<OverviewChartProps> = ({ data }) => {
   if (!data || data.length === 0) {
     return (
-      <div className="p-4 text-center text-gray-500 bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700" style={{ height: '300px' }}>
-        No chart data available for this period.
+      <div className="h-[200px] md:h-[450px] p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 flex items-center justify-center">
+        <EmptyState
+          variant="no-data"
+          title="No Chart Data"
+          description="No orders found for this period."
+          className="p-0"
+        />
       </div>
     );
   }

@@ -18,6 +18,7 @@ import {
   setDoc
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getMessaging, isSupported } from "firebase/messaging";
 import { Account, Record } from '../types';
 
@@ -33,7 +34,7 @@ const firebaseConfig = {
 
 // Validate all required Firebase config values
 const requiredFields: (keyof typeof firebaseConfig)[] = [
-  'apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'
+  'apiKey', 'authDomain', 'projectId', 'messagingSenderId', 'appId'
 ];
 
 for (const field of requiredFields) {
@@ -49,6 +50,16 @@ for (const field of requiredFields) {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+// Thiết lập ngôn ngữ mặc định cho email là Tiếng Việt
+auth.languageCode = 'en';
+export const storage = getStorage(app);
+
+// Helper: Upload Avatar
+export const uploadAvatar = async (file: File, userId: string): Promise<string> => {
+  const storageRef = ref(storage, `avatars/${userId}/${file.name}`);
+  const snapshot = await uploadBytes(storageRef, file);
+  return await getDownloadURL(snapshot.ref);
+};
 
 // HÀM QUAN TRỌNG: Khởi tạo messaging an toàn
 export const getMessagingInstance = async () => {
