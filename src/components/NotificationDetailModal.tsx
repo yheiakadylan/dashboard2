@@ -93,7 +93,7 @@ const NotificationDetailModal: React.FC<Props> = ({ notification, onClose, userP
         return (
             <div className="space-y-6">
                 {/* Header Stats */}
-                <div className={`grid gap-4 ${canViewFunds ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                <div className={`grid gap-3 sm:gap-4 ${canViewFunds ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}>
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
                         <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 mb-2">
                             <ShoppingBag className="w-5 h-5" />
@@ -161,7 +161,68 @@ const NotificationDetailModal: React.FC<Props> = ({ notification, onClose, userP
                             Shop Performance
                         </h4>
                     </div>
-                    <div className="overflow-x-auto">
+
+                    {/* Mobile Card Layout */}
+                    <div className="block sm:hidden divide-y divide-gray-200 dark:divide-gray-700">
+                        {filteredShops.map((shop: any, idx: number) => (
+                            <div key={idx} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                                {/* Shop Name */}
+                                <div className="font-semibold text-gray-900 dark:text-gray-100 mb-3">
+                                    {shop.name}
+                                </div>
+
+                                {/* Stats - Evenly Distributed */}
+                                <div className="flex justify-between gap-4 text-sm">
+                                    {/* Orders */}
+                                    <div className="flex-1">
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Orders</p>
+                                        <p className="font-medium text-gray-700 dark:text-gray-300">{shop.orders}</p>
+                                    </div>
+
+                                    {/* Revenue */}
+                                    <div className="flex-1">
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Revenue</p>
+                                        {shop.revenue && typeof shop.revenue === 'object' ? (
+                                            <div className="space-y-0.5">
+                                                {Object.entries(shop.revenue)
+                                                    .filter(([_, amount]) => (amount as number) > 0)
+                                                    .map(([currency, amount]) => (
+                                                        <div key={currency} className="font-semibold text-green-600 dark:text-green-400">
+                                                            ${(amount as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs text-gray-500">{currency}</span>
+                                                        </div>
+                                                    ))}
+                                            </div>
+                                        ) : (
+                                            <p>$0.00</p>
+                                        )}
+                                    </div>
+
+                                    {/* Funds (if allowed) */}
+                                    {canViewFunds && (
+                                        <div className="flex-1">
+                                            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Funds</p>
+                                            {shop.funds && typeof shop.funds === 'object' ? (
+                                                <div className="space-y-0.5">
+                                                    {Object.entries(shop.funds)
+                                                        .filter(([_, amount]) => (amount as number) > 0)
+                                                        .map(([currency, amount]) => (
+                                                            <div key={currency} className="font-semibold text-blue-600 dark:text-blue-400">
+                                                                ${(amount as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs text-gray-500">{currency}</span>
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            ) : (
+                                                <p>$0.00</p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Desktop Table Layout */}
+                    <div className="hidden sm:block overflow-x-auto">
                         <table className="w-full">
                             <thead className="bg-gray-50 dark:bg-gray-800/50">
                                 <tr>
@@ -182,61 +243,49 @@ const NotificationDetailModal: React.FC<Props> = ({ notification, onClose, userP
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {filteredShops.map((shop: any, idx: number) => {
-                                    // Extract revenue value (handle object format {USD: amount})
-                                    const shopRevenue = typeof shop.revenue === 'object'
-                                        ? (shop.revenue.USD || 0)
-                                        : (shop.revenue || 0);
-
-                                    // Extract funds value
-                                    const shopFunds = shop.funds
-                                        ? (typeof shop.funds === 'object' ? (shop.funds.USD || 0) : shop.funds)
-                                        : 0;
-
-                                    return (
-                                        <tr
-                                            key={idx}
-                                            className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
-                                        >
-                                            <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">
-                                                {shop.name}
-                                            </td>
-                                            <td className="px-4 py-3 text-sm text-right text-gray-700 dark:text-gray-300">
-                                                {shop.orders}
-                                            </td>
-                                            <td className="px-4 py-3 text-sm text-right">
-                                                {shop.revenue && typeof shop.revenue === 'object' ? (
-                                                    Object.entries(shop.revenue)
+                                {filteredShops.map((shop: any, idx: number) => (
+                                    <tr
+                                        key={idx}
+                                        className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
+                                    >
+                                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">
+                                            {shop.name}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-right text-gray-700 dark:text-gray-300">
+                                            {shop.orders}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-right">
+                                            {shop.revenue && typeof shop.revenue === 'object' ? (
+                                                <div className="space-y-1">
+                                                    {Object.entries(shop.revenue)
                                                         .filter(([_, amount]) => (amount as number) > 0)
                                                         .map(([currency, amount]) => (
-                                                            <div key={currency} className="flex justify-between gap-2">
-                                                                <span className="text-xs text-gray-500">{currency}</span>
-                                                                <span className="font-semibold text-green-600 dark:text-green-400">
-                                                                    ${(amount as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                                </span>
+                                                            <div key={currency} className="font-semibold text-green-600 dark:text-green-400">
+                                                                ${(amount as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs text-gray-500">{currency}</span>
                                                             </div>
                                                         ))
-                                                ) : '$0.00'}
-                                            </td>
-                                            {canViewFunds && (
-                                                <td className="px-4 py-3 text-sm text-right">
-                                                    {shop.funds && typeof shop.funds === 'object' ? (
-                                                        Object.entries(shop.funds)
+                                                    }
+                                                </div>
+                                            ) : '$0.00'}
+                                        </td>
+                                        {canViewFunds && (
+                                            <td className="px-4 py-3 text-sm text-right">
+                                                {shop.funds && typeof shop.funds === 'object' ? (
+                                                    <div className="space-y-1">
+                                                        {Object.entries(shop.funds)
                                                             .filter(([_, amount]) => (amount as number) > 0)
                                                             .map(([currency, amount]) => (
-                                                                <div key={currency} className="flex justify-between gap-2">
-                                                                    <span className="text-xs text-gray-500">{currency}</span>
-                                                                    <span className="font-semibold text-blue-600 dark:text-blue-400">
-                                                                        ${(amount as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                                    </span>
+                                                                <div key={currency} className="font-semibold text-blue-600 dark:text-blue-400">
+                                                                    ${(amount as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs text-gray-500">{currency}</span>
                                                                 </div>
                                                             ))
-                                                    ) : '$0.00'}
-                                                </td>
-                                            )}
-                                        </tr>
-                                    );
-                                })}
+                                                        }
+                                                    </div>
+                                                ) : '$0.00'}
+                                            </td>
+                                        )}
+                                    </tr>
+                                ))}
                             </tbody>
                         </table>
                     </div>

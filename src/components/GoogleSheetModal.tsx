@@ -135,7 +135,16 @@ const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({ isOpen, onClose, re
         try {
             await saveSettings(teamId, { googleSheetId: sheetId, sheetAccount });
 
-            const result = await syncRecordsToGoogleSheet(sheetId, records, sheetAccount, allAccounts, timeZone);
+            // Filter only 'order' kind records (exclude refunds, etc.)
+            const ordersOnly = records.filter(r => r.kind === 'order');
+
+            if (ordersOnly.length === 0) {
+                addNotification("No orders to sync (only refunds or other types)", "error");
+                setSyncStatus(null);
+                return;
+            }
+
+            const result = await syncRecordsToGoogleSheet(sheetId, ordersOnly, sheetAccount, allAccounts, timeZone);
 
             if (result.success) {
                 addNotification(result.message, "success");

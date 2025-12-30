@@ -134,7 +134,19 @@ export async function processTeamSync(teamId: string, forceSync: boolean = false
             };
         }
 
-        console.log(`[Sync Service] Team ${teamId}: Found ${newRecords.length} new records`);
+        // Filter: Only sync ORDERS (not refunds or other types)
+        const ordersOnly = newRecords.filter(r => r.kind === 'order');
+
+        if (ordersOnly.length === 0) {
+            console.log(`[Sync Service] Team ${teamId}: Found ${newRecords.length} new records but none are orders`);
+            return {
+                teamId,
+                success: true,
+                recordsSynced: 0
+            };
+        }
+
+        console.log(`[Sync Service] Team ${teamId}: Found ${ordersOnly.length} new orders (out of ${newRecords.length} total records)`);
 
         // Get access token
         const accessToken = await getAccessToken(settings.sheetAccount.token);
@@ -155,7 +167,7 @@ export async function processTeamSync(teamId: string, forceSync: boolean = false
         // Sync to sheet using imported helper
         const syncResult = await syncRecordsToGoogleSheet(
             settings.googleSheetId,
-            newRecords,
+            ordersOnly, // ← Only sync orders, not refunds
             accessToken,
             accountLabelMap,
             'America/Los_Angeles' // UTC-7

@@ -194,11 +194,12 @@ const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDe
                 <div
                     ref={panelRef}
                     className={`
-                        absolute right-0 top-full mt-2 
+                        fixed sm:absolute right-4 sm:right-0 top-16 sm:top-full sm:mt-2
                         w-96 max-w-[calc(100vw-2rem)] bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl
                         rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 
-                        overflow-hidden z-[9998] origin-top-right transition-all duration-200 ease-out
-                        ${isOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-2 pointer-events-none'}
+                        overflow-hidden z-[9998] transition-all duration-200 ease-out
+                        max-h-[calc(100vh-180px)] sm:max-h-[calc(100vh-80px)] flex flex-col
+                        ${isOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}
                     `}
                 >
                     {/* Header */}
@@ -256,7 +257,7 @@ const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDe
                     </div>
 
                     {/* Notification List */}
-                    <div className="max-h-[calc(100vh-220px)] sm:max-h-[60vh] overflow-y-auto bg-gray-50/50 dark:bg-gray-900/50">
+                    <div className="flex-1 overflow-y-auto bg-gray-50/50 dark:bg-gray-900/50 min-h-0">
                         {!hasAnyNotification ? (
                             <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                                 <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
@@ -311,7 +312,7 @@ const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDe
 
                     {/* Footer */}
                     {notifications.length > 0 && (
-                        <div className="bg-white dark:bg-gray-800 px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
+                        <div className="flex-shrink-0 bg-white dark:bg-gray-800 px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
                             <span className="text-[10px] text-gray-400 dark:text-gray-500">
                                 Auto-delete after 3 days
                             </span>
