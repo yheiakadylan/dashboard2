@@ -1,5 +1,5 @@
 export const merchizeConfig = {
-  base_url: "https://bo-group-2-2.merchize.com/w1fegjx/bo-api",
+  base_url: "https://bo-group-1-1.merchize.com/qj0tksw/bo-api",
   access_token: process.env.MERCHIZE_ACCESS_TOKEN || "",
   batch_size: 100,
 };
