@@ -147,7 +147,7 @@ const PreviewSyncModal: React.FC<PreviewSyncModalProps> = ({
 
         try {
             // Filter only 'order' kind records, exclude refunded
-            const ordersOnly = selectedRecords.filter(r => r.kind === 'order' && r.status === 'New');
+            const ordersOnly = selectedRecords.filter(r => r.kind === 'order' && r.status !== 'Refunded');
 
             if (ordersOnly.length === 0) {
                 setSyncStatus('error');

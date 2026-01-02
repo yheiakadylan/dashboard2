@@ -29,7 +29,7 @@ const OrderSelectorModal: React.FC<OrderSelectorModalProps> = ({
 
     // Only show orders, not Funds/case/help, AND exclude refunded orders
     const ordersOnly = useMemo(() => {
-        return allRecords.filter(r => r.kind === 'order' && r.status === 'New');
+        return allRecords.filter(r => r.kind === 'order' && r.status !== 'Refunded');
     }, [allRecords]);
 
     // Auto-select all when modal opens
