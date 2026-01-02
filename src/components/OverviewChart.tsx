@@ -96,8 +96,8 @@ const OverviewChart: React.FC<OverviewChartProps> = ({ data }) => {
             labelStyle={{ color: '#9CA3AF', fontWeight: 'bold' }}
           />
           <Legend
-            wrapperStyle={{ paddingTop: '10px', fontSize: '10px' }}
-            iconSize={10}
+            wrapperStyle={{ paddingTop: '10px', fontSize: '12px' }}
+            iconSize={12}
           />
           <Line
             yAxisId="left"

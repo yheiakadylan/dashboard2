@@ -13,6 +13,7 @@ interface OrderListTabProps {
     processedData: ProcessedData;
     dayFilter: string | null;
     sourceFilter: string;
+    statusFilter: string;
     timeZone: string;
     handleViewOrderDetails: (recordId: string) => void;
     handleResyncOrder: (recordId: string) => Promise<void>;
@@ -23,6 +24,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     processedData,
     dayFilter,
     sourceFilter,
+    statusFilter,
     timeZone,
     handleViewOrderDetails,
     handleResyncOrder,
@@ -60,12 +62,19 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
             });
         }
 
+        if (statusFilter !== 'All') {
+            rows = rows.filter(row => {
+                const status = row[ORDER_LIST_INDICES.STATUS] as string;
+                return status === statusFilter;
+            });
+        }
+
         if (variantsIndex !== -1 || sourceIndex !== -1) {
             rows = rows.map(row => row.filter((_, i) => i !== variantsIndex && i !== sourceIndex));
         }
 
         return rows;
-    }, [processedData.orders.rows, dayFilter, sourceFilter, timeZone, variantsIndex, sourceIndex]);
+    }, [processedData.orders.rows, dayFilter, sourceFilter, statusFilter, timeZone, variantsIndex, sourceIndex]);
 
     const handleOrderSelection = (selectedIds: Set<string>) => {
         const records = allRecords.filter(r => r.id && selectedIds.has(r.id));
@@ -84,7 +93,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
                             data={displayRows}
                             onViewOrderDetails={handleViewOrderDetails}
                             onResyncOrder={handleResyncOrder}
-                            mobileRowHeight={340}
+                            mobileRowHeight={390}
                             autoHeight={false}
                         />
                     </Suspense>

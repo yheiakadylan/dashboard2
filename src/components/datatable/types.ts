@@ -22,7 +22,7 @@ export interface RowData {
 
 export interface DataTableProps {
     headers: string[];
-    data: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string, alt: string, fullSrc?: string } | { type: 'action_group', actions: any[] } | { type: 'value_with_unit', value: number, display: string, unit?: string })[][];
+    data: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string, alt: string, fullSrc?: string } | { type: 'action_group', actions: any[] } | { type: 'value_with_unit', value: number, display: string, unit?: string } | { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string })[][];
     onViewDayDetails?: (date: string) => void;
     onViewOrderDetails?: (recordId: string) => void;
     onResyncOrder?: (recordId: string) => Promise<void>;

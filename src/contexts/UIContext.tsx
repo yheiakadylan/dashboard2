@@ -56,6 +56,8 @@ interface UIContextType {
     setDayFilter: React.Dispatch<React.SetStateAction<string | null>>;
     sourceFilter: 'All' | 'Ebay_Sales' | 'Etsy_Sales';
     setSourceFilter: React.Dispatch<React.SetStateAction<'All' | 'Ebay_Sales' | 'Etsy_Sales'>>;
+    statusFilter: 'All' | 'New' | 'Shipped' | 'Refunded';
+    setStatusFilter: React.Dispatch<React.SetStateAction<'All' | 'New' | 'Shipped' | 'Refunded'>>;
     supportFilter: 'All' | 'Case' | 'Help';
     setSupportFilter: React.Dispatch<React.SetStateAction<'All' | 'Case' | 'Help'>>;
 
@@ -148,6 +150,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const [dayFilter, setDayFilter] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [sourceFilter, setSourceFilter] = useState<'All' | 'Ebay_Sales' | 'Etsy_Sales'>('All');
+    const [statusFilter, setStatusFilter] = useState<'All' | 'New' | 'Shipped' | 'Refunded'>('All');
     const [supportFilter, setSupportFilter] = useState<'All' | 'Case' | 'Help'>('All');
 
     // Modals
@@ -247,6 +250,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
             filterDateRange, setFilterDateRange,
             dayFilter, setDayFilter,
             sourceFilter, setSourceFilter,
+            statusFilter, setStatusFilter,
             supportFilter, setSupportFilter,
             handleViewDayDetails
         }}>

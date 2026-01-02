@@ -47,11 +47,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     // 3. Send Push Notification with deep link to notification detail
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app';
+    let deepLink = baseUrl;
+    try {
+      const u = new URL(baseUrl);
+      u.searchParams.set('notification', notificationId);
+      deepLink = u.toString();
+    } catch (e) {
+      console.error('[daily-summary] URL Error:', e);
+      // Fallback to simple concatenation if URL class fails (unlikely)
+      deepLink = `${baseUrl}?notification=${notificationId}`;
+    }
+
     await sendPushNotificationToUsers(SHARED_USER_ID, 'summary', {
       title: 'Daily Summary Report',
       body: `📅 ${yesterdayISO}\nOrders: ${summaryData.totalOrders}\nRevenue: $${revenueUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-      url: `${appUrl}?notification=${notificationId}` // Deep link to notification detail modal
+      url: deepLink // Deep link to notification detail modal
     });
 
     res.status(200).send(`Summary for ${yesterdayISO} (UTC-7) sent successfully.`);

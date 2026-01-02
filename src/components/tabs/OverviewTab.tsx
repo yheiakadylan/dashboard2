@@ -32,13 +32,27 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
         cost: canViewCost ? (processedData.summary.kpis['Cost'] || { value: '---' }) : hiddenValue
     }), [processedData.summary.kpis, canViewFunds, canViewCost, hiddenValue]);
 
+    // Extract refund info from KPIs
+    const getRefundInfo = (kpi: any) => {
+        if ('refundInfo' in kpi) return kpi.refundInfo;
+        // For multi-currency KPIs
+        if (typeof kpi === 'object' && !('value' in kpi)) {
+            const refundMap: { [c: string]: string } = {};
+            Object.entries(kpi).forEach(([currency, val]: [string, any]) => {
+                if (val.refundInfo) refundMap[currency] = val.refundInfo;
+            });
+            return Object.keys(refundMap).length > 0 ? refundMap : undefined;
+        }
+        return undefined;
+    };
+
     return (
         <div className="p-2 md:p-6">
             {/* 1. KPIs Section (Merged from Summary) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6 mb-6">
-                <KpiCard title="Total Orders" value={kpiValues.orders} />
+                <KpiCard title="Total Orders" value={kpiValues.orders} refundInfo={getRefundInfo(kpiValues.orders)} />
                 <KpiCard title="Shops" value={kpiValues.shops} />
-                <KpiCard title="Revenue" value={kpiValues.revenue} />
+                <KpiCard title="Revenue" value={kpiValues.revenue} refundInfo={getRefundInfo(kpiValues.revenue)} />
                 <KpiCard title="Funds" value={kpiValues.funds} />
                 <KpiCard title="Cost" value={kpiValues.cost} />
             </div>
@@ -95,7 +109,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                                 headers={processedData.summary.table.headers}
                                 data={processedData.summary.table.rows}
                                 autoHeight={true}
-                                mobileRowHeight={190} // Explicitly set smaller height for mobile card view
+                                mobileRowHeight={200} // Explicitly set smaller height for mobile card view
                                 columnWidths={{ 'Revenue': 120, 'Orders': 80 }}
                             />
                         </Suspense>

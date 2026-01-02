@@ -1,5 +1,5 @@
 // src/services/rules.ts
-import { Record, OrderDetails, OrderItem } from '../types';
+import { Record, OrderDetails, OrderItem, RefundDetails } from '../types';
 import { getHighResImageUrl } from '../utils/imageUtils.js';
 
 export interface Rule {
@@ -78,6 +78,32 @@ export const RULES: Rule[] = [
     ),
     currencyTag: "USD",
     parseFrom: "snippet",
+  },
+
+  // ==================== ETSY STATUS (SHIPPED / REFUND) ====================
+  {
+    name: "Etsy_Shipped",
+    kind: "order", // ✅ Changed from 'shipped' to 'order'
+    platform: "etsy",
+    query: 'subject:"Your shipping notification sent to"',
+    // Subject: Your shipping notification sent to ... (Receipt #3877854339)
+    amountOrderRe: new RegExp(
+      `Your shipping notification sent to .*?\\(Receipt #(?<oid>\\d+)\\)`,
+      "i"
+    ),
+    parseFrom: "subject", // Lấy ID trực tiếp từ Subject
+  },
+  {
+    name: "Etsy_Refunded",
+    kind: "order", // ✅ Changed from 'refund' to 'order'
+    platform: "etsy",
+    query: 'subject:"You have issued a refund"',
+    // Subject: You have issued a refund (Order #3927077414)
+    amountOrderRe: new RegExp(
+      `You have issued a refund \\(Order #(?<oid>\\d+)\\)`,
+      "i"
+    ),
+    parseFrom: "subject",
   },
 
   // ==================== ETSY CASE ====================
@@ -596,6 +622,73 @@ const extractEtsyDetails = (html: string): OrderDetails => {
   };
 };
 
+// ==================== REFUND EXTRACTION ====================
+
+const extractRefundDetails = (html: string, order_id: string): RefundDetails | null => {
+  const stripped = stripHtmlBasic(html);
+
+  // 1. Extract Main Refund Amount
+  // "You have issued Robin Edwards a refund of $14.00 for order number 3927077414."
+  const mainRegex = /You have issued .*? a refund of\s*(?<curr>[^0-9\s]*)\s*(?<amt>[\d.,]+)\s*for order number/i;
+  const mainMatch = stripped.match(mainRegex);
+
+  if (!mainMatch) return null; // Bắt buộc phải tìm thấy dòng này
+
+  const refundAmount = toFloat(mainMatch.groups?.amt || "0");
+  const refundCurrency = detectCurrencyFromPrefix(mainMatch.groups?.curr || "$");
+
+  // 2. Extract Deduction
+  // "NZ$22.28 was deducted from your Shop Payment Account."
+  // Note: Dùng [^0-9\n]* để bắt prefix, [\d.,]+ bắt số
+  const deductionRegex = /(?<curr>[^0-9\n]*)(?<amt>[\d.,]+)\s*was deducted from your Shop Payment Account/i;
+  const deductionMatch = stripped.match(deductionRegex);
+
+  const deductedFromShop = deductionMatch ? toFloat(deductionMatch.groups?.amt || "0") : 0;
+  const deductedCurrency = deductionMatch ? detectCurrencyFromPrefix(deductionMatch.groups?.curr || "") : refundCurrency;
+
+  // 3. Extract Fee Refunded
+  // "NZ$1.24 of your payment processing fee was refunded by Etsy."
+  const feeRegex = /(?<curr>[^0-9\n]*)(?<amt>[\d.,]+)\s*of your payment processing fee was refunded by Etsy/i;
+  const feeMatch = stripped.match(feeRegex);
+
+  const refundedFee = feeMatch ? toFloat(feeMatch.groups?.amt || "0") : 0;
+  const feeCurrency = feeMatch ? detectCurrencyFromPrefix(feeMatch.groups?.curr || "") : refundCurrency;
+
+  // 4. Extract Reason - Try multiple patterns
+  // Pattern 1: "Refund reason\nCancellation requested"
+  // Pattern 2: "Reason: Cancellation requested"
+  // Pattern 3: After "reason" keyword in various formats
+  let reason = "";
+
+  // Try pattern 1: Standard format
+  const reasonRegex1 = /Refund reason\s*[\n:]\s*([^\n]+)/i;
+  const match1 = stripped.match(reasonRegex1);
+  if (match1) {
+    reason = match1[1]?.trim() || "";
+  }
+
+  // Try pattern 2: Alternative format if pattern 1 failed
+  if (!reason) {
+    const reasonRegex2 = /reason[:\s]+([^\n]+)/i;
+    const match2 = stripped.match(reasonRegex2);
+    if (match2) {
+      reason = match2[1]?.trim() || "";
+    }
+  }
+
+  console.log('[RefundDetails] Extracted reason:', reason || '(empty)');
+
+  return {
+    refundAmount,
+    refundCurrency,
+    deductedFromShop,
+    deductedCurrency,
+    refundedFee,
+    feeCurrency,
+    reason
+  };
+};
+
 // ==================== MAIN PARSER ====================
 
 export const parseMessage = (
@@ -648,12 +741,15 @@ export const parseMessage = (
     return { amount, order_id: null, currency, kind };
   }
 
+
   // ====== CASE / HELP ======
   if (kind === 'case' || kind === 'help') {
     const order_id = (groups.oid || (groups as any).oid2 || "").trim() || null;
     if (!order_id) return { amount: 0.0, order_id: null, currency: null, kind };
 
+    // Common result structure
     const result: Partial<Record> = { amount: 0.0, order_id, kind };
+
     if (kind === 'case') {
       let caseMsg = extractCaseMessage(body);
       if (!caseMsg) {
@@ -665,6 +761,59 @@ export const parseMessage = (
       }
       result.case_msg = _cleanCaseMessage(caseMsg);
     }
+
+    if (kind === 'help') {
+      let helpKind = "";
+      const helpMatch = rule.bodyHelpTypeRe?.exec(body);
+      if (helpMatch && (helpMatch as any).groups?.kind) {
+        helpKind = (helpMatch as any).groups.kind.trim();
+      }
+      result.help_kind = helpKind || null;
+    }
+
+    return {
+      kind: result.kind as 'case' | 'help',
+      amount: result.amount!,
+      order_id: result.order_id!,
+      currency: null,
+      case_msg: result.case_msg,
+      help_kind: result.help_kind,
+    };
+  }
+
+  // ====== SHIPPED / REFUNDED (now treated as orders) ======
+  if (rule.name === 'Etsy_Shipped' || rule.name === 'Etsy_Refunded') {
+    const order_id = (groups.oid || "").trim() || null;
+    if (!order_id) {
+      return {
+        kind: 'order',
+        amount: 0,
+        order_id: null,
+        currency: null,
+      };
+    }
+
+    const result: any = {
+      kind: 'order', // ✅ Always 'order'
+      amount: 0,
+      order_id,
+      currency: null,
+    };
+
+    if (rule.name === 'Etsy_Shipped') {
+      result.status = 'Shipped';
+    } else if (rule.name === 'Etsy_Refunded') {
+      result.status = 'Refunded';
+      try {
+        const refundDetails = extractRefundDetails(body, order_id);
+        if (refundDetails) {
+          result.refund_details = refundDetails;
+        }
+      } catch (e) {
+        console.warn("Error parsing refund details", e);
+      }
+    }
+
     return result;
   }
 

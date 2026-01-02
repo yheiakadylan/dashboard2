@@ -64,7 +64,19 @@ export interface Record {
   cost_total?: number;
   ff_code?: string;
   product_name?: string;
-  details?: OrderDetails; // Added detailed info
+  details?: OrderDetails;
+  status?: 'New' | 'Shipped' | 'Refunded';
+  refund_details?: RefundDetails;
+}
+
+export interface RefundDetails {
+  refundAmount: number;
+  refundCurrency: string;
+  deductedFromShop: number;
+  deductedCurrency: string;
+  refundedFee: number;
+  feeCurrency: string;
+  reason: string;
 }
 
 export interface CostData {
@@ -89,7 +101,7 @@ export interface KpiData {
 // FIX: Allowed null in TableData rows to support records with missing cost data.
 export interface TableData {
   headers: string[];
-  rows: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string } | { type: 'action_group', actions: any[] })[][];
+  rows: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string } | { type: 'action_group', actions: any[] } | { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string })[][];
 }
 
 export interface OverviewChartData {

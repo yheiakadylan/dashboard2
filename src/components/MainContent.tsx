@@ -15,29 +15,19 @@ import OrderListTab from './tabs/OrderListTab';
 import FulfillTab from './tabs/FulfillTab';
 import SupportTab from './tabs/SupportTab';
 
-// Helper for lazy data tables
-const LazyTable = ({ headers, data }: { headers: string[], data: any[] }) => (
-    <Suspense fallback={
-        <div className="p-4 h-full bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <SkeletonLoader variant="table-row" count={10} />
-        </div>
-    }>
-        <DataTable headers={headers} data={data} />
-    </Suspense>
-);
-
 interface MainContentProps {
     onViewOrderDetails: (recordId: string) => void;
     onResyncOrder: (recordId: string) => Promise<void>;
 }
 
 const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncOrder }) => {
-    const { isLoading, records, processedData, isProcessing } = useDashboard();
+    const { isLoading, records, processedData, isProcessing, isFetchingNewRange } = useDashboard();
     const {
         activeTab,
         filterDateRange,
         dayFilter,
         sourceFilter,
+        statusFilter,
         timeZone,
         handleViewDayDetails
     } = useUI();
@@ -47,20 +37,56 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
     const hasData = processedData.orders.rows.length > 0 || processedData.overview.chartData.length > 0;
 
     useEffect(() => {
-        if (isProcessing && hasData) {
-            // Delay showing overlay to avoid flashes on fast networks
+        // Show progress overlay only when processing EXISTING data (re-filtering)
+        // If fetching new range, we show Skeleton instead
+        if (isProcessing && hasData && !isFetchingNewRange) {
             const timer = setTimeout(() => setShowOverlay(true), 150);
             return () => clearTimeout(timer);
         } else {
             setShowOverlay(false);
         }
-    }, [isProcessing, hasData]);
+    }, [isProcessing, hasData, isFetchingNewRange]);
 
-    // Show skeleton if we have no data at all (initial load)
+    // RENDER SKELETON LOGIC
+    // Show skeleton if:
+    // 1. Initial loading (isLoading)
+    // 2. Fetching entirely new date range (isFetchingNewRange)
+    // 3. Processing but we have no data to show (isProcessing && !hasData)
+    const shouldShowSkeleton = isLoading || isFetchingNewRange || (isProcessing && !hasData);
 
-    if ((isLoading || isProcessing) && !hasData) {
+    if (shouldShowSkeleton) {
+        if (activeTab === 'Overview') {
+            return (
+                <div className="p-2 md:p-6 space-y-6 animate-fade-in">
+                    {/* KPIs */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6">
+                        <SkeletonLoader variant="kpi-card" count={5} />
+                    </div>
+                    {/* Charts */}
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        <SkeletonLoader variant="chart" count={1} className="h-80" />
+                        <SkeletonLoader variant="chart" count={1} className="h-80" />
+                    </div>
+                    {/* Table */}
+                    <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                        <div className="h-6 w-32 bg-gray-200 dark:bg-gray-700 rounded mb-4 animate-pulse" />
+                        <SkeletonLoader variant="table-row" count={5} />
+                    </div>
+                </div>
+            );
+        }
+
+        if (activeTab === 'Order List' || activeTab === 'Products') {
+            return (
+                <div className="p-2 md:p-6 animate-fade-in">
+                    <SkeletonLoader variant="card" count={6} />
+                </div>
+            );
+        }
+
+        // Default skeleton for other tabs
         return (
-            <div className="p-4">
+            <div className="p-4 animate-fade-in">
                 <SkeletonLoader variant="table-row" count={8} />
             </div>
         );
@@ -93,6 +119,7 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
                             processedData={processedData}
                             dayFilter={dayFilter}
                             sourceFilter={sourceFilter}
+                            statusFilter={statusFilter}
                             timeZone={timeZone}
                             handleViewOrderDetails={onViewOrderDetails}
                             handleResyncOrder={onResyncOrder}

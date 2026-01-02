@@ -11,6 +11,74 @@ import ExportOptionsModal from './ExportOptionsModal';
 import ExportProgressBar from './ExportProgressBar';
 import NotificationCenter from './NotificationCenter';
 
+const CustomSelect: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+  className?: string;
+  triggerClassName?: string;
+  align?: 'left' | 'right';
+  icon?: React.ReactNode;
+  disabled?: boolean;
+}> = ({ value, onChange, options, className = '', triggerClassName = '', align = 'left', icon, disabled = false }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedLabel = options.find(o => o.value === value)?.label || value;
+
+  return (
+    <div className={`relative ${className}`} ref={dropdownRef}>
+      <button
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`flex items-center justify-between w-full appearance-none bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md px-3 py-2 text-sm font-medium text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${triggerClassName} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+      >
+        <span className="truncate mr-1">{selectedLabel}</span>
+        {icon || (
+          <svg className="h-4 w-4 text-gray-500 flex-shrink-0 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        )}
+      </button>
+
+      {isOpen && !disabled && (
+        <div className={`absolute top-full mt-1 ${align === 'right' ? 'right-0' : 'left-0'} min-w-full max-h-60 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-xl z-50 py-1`}>
+          {options.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => {
+                onChange(option.value);
+                setIsOpen(false);
+              }}
+              className={`w-full text-left px-3 py-2 text-sm font-medium transition-colors flex items-center ${value === option.value
+                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+            >
+              {value === option.value && (
+                <svg className="h-4 w-4 mr-2 text-blue-600 dark:text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+              <span className={value === option.value ? 'ml-0' : 'ml-6'}>{option.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Header: React.FC = () => {
   const {
     handleLogout,
@@ -42,6 +110,8 @@ const Header: React.FC = () => {
     activeTab,
     sourceFilter,
     setSourceFilter,
+    statusFilter,
+    setStatusFilter,
     supportFilter,
     setSupportFilter,
     isSidebarCollapsed,
@@ -138,6 +208,12 @@ const Header: React.FC = () => {
     setSupportFilter(options[nextIndex]);
   }, [supportFilter, setSupportFilter]);
 
+  // Prepare Account Options for CustomSelect
+  const accountOptions = [
+    { value: 'all', label: 'All Accounts' },
+    ...accounts.map(acc => ({ value: acc.email, label: acc.label || acc.email }))
+  ];
+
   return (
     <header className="glass-base border-b border-gray-200 dark:border-gray-700 sticky top-0 z-30 transition-all duration-200">
       {/* Primary Header Bar */}
@@ -149,9 +225,8 @@ const Header: React.FC = () => {
             <path d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z" fill="currentColor" />
             <path d="M4 15L9 9L14 13L20 8" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="dark:stroke-gray-900" />
           </svg>
-          <h1 className="text-xl font-bold text-gray-800 dark:text-white truncate">
-            <span className="hidden sm:inline">Sales Dashboard</span>
-            <span className="sm:hidden">Dashboard</span>
+          <h1 className="hidden sm:block text-xl font-bold text-gray-800 dark:text-white truncate">
+            Sales Dashboard
           </h1>
 
           {/* Activity Indicator (Desktop/Tablet) */}
@@ -224,21 +299,31 @@ const Header: React.FC = () => {
             )}
           </div>
 
-          {/* Source Filter - Only for Order List */}
+          {/* Combined Filter - Only for Order List */}
+          {/* Updated Filter Dropdowns - Order List */}
           {activeTab === 'Order List' && (
-            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-md p-0.5">
-              {(['All', 'Ebay_Sales', 'Etsy_Sales'] as const).map(src => (
-                <button
-                  key={src}
-                  onClick={() => setSourceFilter(src)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-sm transition-all duration-200 ${sourceFilter === src
-                    ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                    }`}
-                >
-                  {src === 'All' ? 'All' : src === 'Ebay_Sales' ? 'eBay' : 'Etsy'}
-                </button>
-              ))}
+            <div className="flex items-center gap-2">
+              <CustomSelect
+                value={sourceFilter}
+                onChange={(val) => setSourceFilter(val as any)}
+                options={[
+                  { value: 'All', label: 'All Sources' },
+                  { value: 'Etsy_Sales', label: 'Etsy' },
+                  { value: 'Ebay_Sales', label: 'eBay' }
+                ]}
+                className="w-32"
+              />
+              <CustomSelect
+                value={statusFilter}
+                onChange={(val) => setStatusFilter(val as any)}
+                options={[
+                  { value: 'All', label: 'All Statuses' },
+                  { value: 'New', label: 'New' },
+                  { value: 'Shipped', label: 'Shipped' },
+                  { value: 'Refunded', label: 'Refunded' }
+                ]}
+                className="w-32"
+              />
             </div>
           )}
 
@@ -262,16 +347,13 @@ const Header: React.FC = () => {
 
           <DateRangePicker />
 
-          <select
+          <CustomSelect
             value={selectedAccountId}
-            onChange={(e) => setSelectedAccountId(e.target.value)}
-            className="bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm max-w-[150px] truncate"
+            onChange={setSelectedAccountId}
+            options={accountOptions}
             disabled={accounts.length === 0}
-            aria-label="Select Account"
-          >
-            <option value="all">All Accounts</option>
-            {accounts.map((acc) => (<option key={acc.id} value={acc.email}>{acc.label || acc.email}</option>))}
-          </select>
+            className="w-[150px]"
+          />
 
           <TimezoneSelect value={timeZone} onChange={setTimeZone} options={timezones} />
 
@@ -300,39 +382,47 @@ const Header: React.FC = () => {
 
         {/* Right: Mobile Menu Toggle & Theme */}
         <div className="flex md:hidden items-center gap-1">
-          {/* Mobile Filter Toggles */}
+          {/* Mobile Combined Filter */}
           {activeTab === 'Order List' && (
-            <div className="flex mr-1 bg-gray-100 dark:bg-gray-700 rounded-md p-0.5 border border-gray-200 dark:border-gray-600">
-              {(['All', 'Ebay_Sales', 'Etsy_Sales'] as const).map(src => (
-                <button
-                  key={src}
-                  onClick={() => setSourceFilter(src)}
-                  className={`px-1.5 py-1 text-[10px] font-bold rounded-sm transition-all ${sourceFilter === src
-                    ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-500 dark:text-gray-400'
-                    }`}
-                >
-                  {src === 'All' ? 'All' : src === 'Ebay_Sales' ? 'eBay' : 'Etsy'}
-                </button>
-              ))}
+            <div className="flex items-center gap-1 mr-1">
+              <CustomSelect
+                value={sourceFilter}
+                onChange={(val) => setSourceFilter(val as any)}
+                options={[
+                  { value: 'All', label: 'All' },
+                  { value: 'Etsy_Sales', label: 'Etsy' },
+                  { value: 'Ebay_Sales', label: 'eBay' }
+                ]}
+                className="w-[85px]"
+                triggerClassName="pl-2 pr-1"
+              />
+              <CustomSelect
+                value={statusFilter}
+                onChange={(val) => setStatusFilter(val as any)}
+                options={[
+                  { value: 'All', label: 'All' },
+                  { value: 'New', label: 'New' },
+                  { value: 'Shipped', label: 'Ship' },
+                  { value: 'Refunded', label: 'Ref' }
+                ]}
+                className="w-[85px]"
+                triggerClassName="pl-2 pr-1"
+                align="right"
+              />
             </div>
           )}
 
           {activeTab === 'Support' && (
-            <div className="flex mr-1 bg-gray-100 dark:bg-gray-700 rounded-md p-0.5 border border-gray-200 dark:border-gray-600">
-              {(['All', 'Case', 'Help'] as const).map(filter => (
-                <button
-                  key={filter}
-                  onClick={() => setSupportFilter(filter)}
-                  className={`px-1.5 py-1 text-[10px] font-bold rounded-sm transition-all ${supportFilter === filter
-                    ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-500 dark:text-gray-400'
-                    }`}
-                >
-                  {filter}
-                </button>
-              ))}
-            </div>
+            <CustomSelect
+              value={supportFilter}
+              onChange={(val) => setSupportFilter(val as any)}
+              options={[
+                { value: 'All', label: 'All Support' },
+                { value: 'Case', label: 'Case' },
+                { value: 'Help', label: 'Help' }
+              ]}
+              className="w-32"
+            />
           )}
 
           {/* Notification Center - Mobile */}
@@ -357,7 +447,7 @@ const Header: React.FC = () => {
       </div>
 
       {/* Mobile Menu Content (Collapsible) */}
-      <div className={`md:hidden overflow-hidden transition-all duration-300 ease-in-out ${isMobileMenuOpen ? 'max-h-screen opacity-100 border-t border-gray-200 dark:border-gray-700 shadow-xl' : 'max-h-0 opacity-0'}`}>
+      <div className={`md:hidden transition-all duration-300 ease-in-out ${isMobileMenuOpen ? 'max-h-screen opacity-100 border-t border-gray-200 dark:border-gray-700 shadow-xl overflow-visible' : 'max-h-0 opacity-0 overflow-hidden'}`}>
         <div className="p-4 bg-white dark:bg-gray-800 space-y-5">
 
           {/* Sync State Banner */}
@@ -393,24 +483,50 @@ const Header: React.FC = () => {
 
           {/* Mobile Filters */}
           <div className="space-y-4">
+            {/* Tab Specific Filters (Mobile) - Order List */}
+            {activeTab === 'Order List' && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 mb-1.5 uppercase tracking-wider">Source</label>
+                  <CustomSelect
+                    value={sourceFilter}
+                    onChange={(val) => setSourceFilter(val as any)}
+                    options={[
+                      { value: 'All', label: 'All Sources' },
+                      { value: 'Etsy_Sales', label: 'Etsy' },
+                      { value: 'Ebay_Sales', label: 'eBay' }
+                    ]}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 mb-1.5 uppercase tracking-wider">Status</label>
+                  <CustomSelect
+                    value={statusFilter}
+                    onChange={(val) => setStatusFilter(val as any)}
+                    options={[
+                      { value: 'All', label: 'All Statuses' },
+                      { value: 'New', label: 'New' },
+                      { value: 'Shipped', label: 'Shipped' },
+                      { value: 'Refunded', label: 'Refunded' }
+                    ]}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Tab Specific Filters (Mobile) - Only Support Tab */}
             {activeTab === 'Support' && (
               <div className="w-full">
                 <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 mb-1.5 uppercase tracking-wider">Filter</label>
-                <div className="flex bg-gray-50 dark:bg-gray-700/50 rounded-lg p-1 border border-gray-200 dark:border-gray-600">
-                  {(['All', 'Case', 'Help'] as const).map(filter => (
-                    <button
-                      key={filter}
-                      onClick={() => setSupportFilter(filter)}
-                      className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-200 ${supportFilter === filter
-                        ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm border border-gray-200 dark:border-gray-500'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                        }`}
-                    >
-                      {filter}
-                    </button>
-                  ))}
-                </div>
+                <CustomSelect
+                  value={supportFilter}
+                  onChange={(val) => setSupportFilter(val as any)}
+                  options={[
+                    { value: 'All', label: 'All Support' },
+                    { value: 'Case', label: 'Case' },
+                    { value: 'Help', label: 'Help' }
+                  ]}
+                />
               </div>
             )}
             <div className="w-full">
@@ -421,19 +537,12 @@ const Header: React.FC = () => {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 mb-1.5 uppercase tracking-wider">Account</label>
-                <div className="relative">
-                  <select
-                    value={selectedAccountId}
-                    onChange={(e) => setSelectedAccountId(e.target.value)}
-                    className="w-full bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
-                  >
-                    <option value="all">All Accounts</option>
-                    {accounts.map((acc) => (<option key={acc.id} value={acc.email}>{acc.label || acc.email}</option>))}
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                  </div>
-                </div>
+                <CustomSelect
+                  value={selectedAccountId}
+                  onChange={setSelectedAccountId}
+                  options={accountOptions}
+                  className="w-full"
+                />
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 mb-1.5 uppercase tracking-wider">Timezone</label>

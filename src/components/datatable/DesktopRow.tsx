@@ -124,19 +124,25 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         cellClass += 'flex-grow-[3] basis-1/4 font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200'; // Added hover effect
                         break;
                     case 'Order Number':
-                        cellClass += 'flex-1 basis-[110px] font-mono text-gray-500 dark:text-gray-400';
+                    case 'Order ID':
+                        cellClass += 'flex-1 basis-[110px] font-semibold text-gray-500 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200';
                         break;
                     case 'Revenue':
                     case 'Cost':
                     case 'Currency':
+                    case 'Curren':
                         cellClass += 'flex-1 basis-[80px] font-medium group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors'; // Added revenue hover color
                         break;
                     case 'Message':
                     case 'Help Kind':
                         cellClass += 'flex-[2] basis-[250px] italic text-gray-500';
                         break;
+                    case 'Status':
+                        cellClass += 'flex-none w-[95px] justify-center'; // Reduced width for badge
+                        break;
                     case 'DateTime':
-                        cellClass += 'flex-1 basis-[170px]'; // Increased width, removed whitespace-nowrap
+                    case 'Date':
+                        cellClass += 'flex-1 basis-[110px]'; // Increased width for full timestamp
                         break;
                     case 'Actions':
                         cellClass += 'flex-none w-[90px] justify-center'; // Decreased width
@@ -178,9 +184,45 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         <div key={cellIndex} className={cellClass} style={customStyle}>
                             {renderActionCell(cell, cellIndex, loadingItems, onResyncClick, onViewOrderDetails, onViewDayDetails, row)}
                         </div>
-                    )
+                    );
                 }
 
+                // Render Status as badge
+                if (header === 'Status') {
+                    const statusValue = String(cell || 'New').trim();
+                    let badgeClass = 'px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap ';
+
+                    if (statusValue === 'Shipped') {
+                        badgeClass += 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800';
+                    } else if (statusValue === 'Refunded') {
+                        badgeClass += 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800';
+                    } else {
+                        // New or default
+                        badgeClass += 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800';
+                    }
+
+                    return (
+                        <div key={cellIndex} className={cellClass} style={customStyle}>
+                            <span className={badgeClass}>{statusValue}</span>
+                        </div>
+                    );
+                }
+
+                // Render text with subtitle
+                if (cell && typeof cell === 'object' && cell.type === 'text_with_subtitle') {
+                    return (
+                        <div key={cellIndex} className={cellClass} style={customStyle}>
+                            <div className="flex flex-col">
+                                <span className="font-medium">{cell.main}</span>
+                                <span className={`text-[10px] mt-0.5 ${cell.subtitleClass || 'text-gray-500 dark:text-gray-400'}`}>
+                                    {cell.subtitle}
+                                </span>
+                            </div>
+                        </div>
+                    );
+                }
+
+                // Default cell rendering
                 return (
                     <div
                         key={cellIndex}

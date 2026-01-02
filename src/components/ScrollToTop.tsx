@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const ScrollToTop = () => {
     const [isVisible, setIsVisible] = useState(false);
     // Stores the last element that was scrolled past the threshold.
     // This will be the target for scrolling back to top.
     const [activeScrollTarget, setActiveScrollTarget] = useState<Element | Window | null>(null);
+
+    const lastScrollTops = useRef(new Map<EventTarget, number>());
 
     // Global scroll listener (capturing phase) to detect ANY scrollable area
     useEffect(() => {
@@ -26,29 +28,32 @@ const ScrollToTop = () => {
                     currentScrollTop = targetElement.scrollTop;
                     currentTarget = targetElement;
                 } else {
-                    // If the target element isn't scrollable, it might be a child of a scrollable element.
-                    // For simplicity, we'll ignore non-scrollable elements as direct targets for now.
-                    // The window scroll will still be caught by the `e.target === document` case.
                     return;
                 }
             } else {
-                // Fallback for other event targets, assume window
                 currentScrollTop = window.scrollY;
                 currentTarget = window;
             }
 
-            if (currentScrollTop > 300) {
+            const previousScrollTop = lastScrollTops.current.get(currentTarget) || 0;
+            // Update last scroll top
+            lastScrollTops.current.set(currentTarget, currentScrollTop);
+
+            const isScrollingUp = currentScrollTop < previousScrollTop;
+            const isScrollingDown = currentScrollTop > previousScrollTop;
+
+            if (currentScrollTop > 300 && isScrollingUp) {
                 setIsVisible(true);
                 setActiveScrollTarget(currentTarget);
-            } else {
-                // Only hide the button if the currently active target has scrolled back up.
-                // This prevents the button from disappearing if another element is scrolled up,
-                // but the main active target is still scrolled down.
+            } else if (isScrollingDown) {
+                // Hide when scrolling down, but only if it matches current active target context
+                // or if we simply want to hide whenever user goes deeper
+                if (currentTarget === activeScrollTarget || activeScrollTarget === null || activeScrollTarget === window) {
+                    setIsVisible(false);
+                }
+            } else if (currentScrollTop <= 300) {
                 if (currentTarget === activeScrollTarget) {
                     setIsVisible(false);
-                    // If the active target scrolled back up, clear it.
-                    // We might need to re-evaluate if another element is still scrolled.
-                    // For simplicity, we'll let the next scroll event set a new active target.
                     setActiveScrollTarget(null);
                 }
             }

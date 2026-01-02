@@ -5,6 +5,7 @@ import { KpiValue } from '../types';
 interface KpiCardProps {
   title: string;
   value: KpiValue | { [currency: string]: KpiValue };
+  refundInfo?: string | { [currency: string]: string };
 }
 
 // Icons mapping based on title
@@ -102,7 +103,7 @@ const renderComparison = (kpiValue: KpiValue) => {
 };
 
 
-const KpiCard: React.FC<KpiCardProps> = ({ title, value }) => {
+const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo }) => {
   const { icon, bg, text } = getIcon(title);
 
   return (
@@ -126,21 +127,35 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value }) => {
                 <p className="text-2xl font-black text-gray-900 dark:text-white truncate tracking-tight">{value.value}</p>
                 {renderComparison(value as KpiValue)}
               </div>
+              {/* Refund info for simple value */}
+              {refundInfo && typeof refundInfo === 'string' && (
+                <p className="text-xs text-red-600 dark:text-red-400 font-medium mt-0.5">
+                  ↩ {refundInfo}
+                </p>
+              )}
             </div>
           ) : (
             <div className="mt-2 space-y-2.5">
               {Object.entries(value as { [currency: string]: KpiValue }).map(([currency, kpiVal]) => (
-                <div key={currency} className="flex justify-between items-center border-b border-gray-50 dark:border-gray-700/50 pb-1 last:border-0 last:pb-0">
-                  <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{currency}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-base font-bold text-gray-900 dark:text-white">{kpiVal.value}</span>
-                    {/* Simplified trend for multi-currency to save space */}
-                    {kpiVal.direction && kpiVal.direction !== 'neutral' && (
-                      <span className={`text-[10px] ${kpiVal.direction === 'up' ? 'text-green-500' : 'text-red-500'}`}>
-                        {kpiVal.direction === 'up' ? '▲' : '▼'}
-                      </span>
-                    )}
+                <div key={currency} className="flex flex-col gap-0.5">
+                  <div className="flex justify-between items-center border-b border-gray-50 dark:border-gray-700/50 pb-1">
+                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{currency}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base font-bold text-gray-900 dark:text-white">{kpiVal.value}</span>
+                      {/* Simplified trend for multi-currency to save space */}
+                      {kpiVal.direction && kpiVal.direction !== 'neutral' && (
+                        <span className={`text-[10px] ${kpiVal.direction === 'up' ? 'text-green-500' : 'text-red-500'}`}>
+                          {kpiVal.direction === 'up' ? '▲' : '▼'}
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  {/* Refund info for multi-currency */}
+                  {refundInfo && typeof refundInfo === 'object' && refundInfo[currency] && (
+                    <p className="text-[11px] text-red-600 dark:text-red-400 font-medium pl-1">
+                      ↩ {refundInfo[currency]}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

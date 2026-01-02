@@ -26,9 +26,10 @@ const renderActionCell = (cell: any, _cellIndex: number, loadingItems: Set<strin
                     <button
                         key={i}
                         onClick={() => onViewOrderDetails && onViewOrderDetails(action.id)}
-                        className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-900/50 text-xs font-semibold transition-colors"
+                        className="px-4 py-1.5 bg-blue-600 text-white rounded-md shadow-sm hover:bg-blue-700 active:bg-blue-800 text-xs font-bold transition-all flex items-center gap-1.5"
                     >
-                        {action.label}
+                        <span>View Details</span>
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                     </button>
                 );
             }
@@ -74,11 +75,25 @@ const renderActionCell = (cell: any, _cellIndex: number, loadingItems: Set<strin
 }
 
 const renderTextContent = (cell: any) => {
-    if (cell && typeof cell === 'object' && cell.type === 'value_with_unit') {
-        if (cell.value === 0 || cell.display === '--') {
-            return <span className="text-gray-300 dark:text-gray-600">--</span>;
+    if (cell && typeof cell === 'object') {
+        if (cell.type === 'value_with_unit') {
+            if (cell.value === 0 || cell.display === '--') {
+                return <span className="text-gray-300 dark:text-gray-600">--</span>;
+            }
+            return cell.display;
         }
-        return cell.display;
+        if (cell.type === 'text_with_subtitle') {
+            return (
+                <span className="flex flex-col items-start leading-tight group">
+                    <span>{cell.main}</span>
+                    {cell.subtitle && (
+                        <span className={`text-[10px] ${cell.subtitleClass || 'text-gray-500'}`}>
+                            {cell.subtitle}
+                        </span>
+                    )}
+                </span>
+            );
+        }
     }
     return typeof cell === 'number'
         ? (cell === 0
@@ -90,6 +105,25 @@ const renderTextContent = (cell: any) => {
         : (typeof cell === 'string' ? cell : '');
 }
 
+const StatusBadge = ({ status }: { status: string }) => {
+    let colorClass = "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600";
+    const s = status.toString().toLowerCase();
+
+    if (s === 'new') {
+        colorClass = "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800";
+    } else if (s === 'shipped') {
+        colorClass = "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800";
+    } else if (s === 'refunded') {
+        colorClass = "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800";
+    }
+
+    return (
+        <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide ${colorClass}`}>
+            {status}
+        </span>
+    );
+};
+
 const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) => {
     const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, isMobile } = data;
     const row = items[index];
@@ -99,7 +133,8 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
     const imageIndex = findIdx('Image');
     const hasProductImage = imageIndex !== -1;
 
-    const actionIndex = findIdx('Actions') !== -1 ? findIdx('Actions') : findIdx('Details');
+    // Use 'Action' (singular/plural via includes) to find column.
+    const actionIndex = findIdx('Action') !== -1 ? findIdx('Action') : findIdx('Details');
     const actions = actionIndex !== -1 ? row[actionIndex] : null;
 
     // --- Conditional layout ---
@@ -108,15 +143,18 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         // DETAILED PRODUCT/ORDER LAYOUT
         const productIndex = findIdx('Product Name');
         const orderIdIndex = findIdx('Order Number') !== -1 ? findIdx('Order Number') : findIdx('Order ID');
+        const sourceIndex = findIdx('Source');
+        const statusIndex = findIdx('Status');
         const dateTimeIndex = headers.indexOf('DateTime'); // Find DateTime header index
 
         const imageCell = row[imageIndex];
         const productValue = productIndex !== -1 ? row[productIndex] : 'N/A';
         const orderIdValue = orderIdIndex !== -1 ? row[orderIdIndex] : 'N/A';
+        const sourceValue = sourceIndex !== -1 ? row[sourceIndex] : null;
         const dateTimeValue = dateTimeIndex !== -1 ? row[dateTimeIndex] : null; // Get DateTime value
 
         const currencyIndex = findIdx('Currency');
-        const specialIndexes = new Set([imageIndex, productIndex, orderIdIndex, actionIndex, dateTimeIndex, currencyIndex]);
+        const specialIndexes = new Set([imageIndex, productIndex, orderIdIndex, actionIndex, dateTimeIndex, currencyIndex, sourceIndex]);
         const bodyItems = headers
             .map((h, i) => {
                 if (specialIndexes.has(i) || h === 'DateTime') return null;
@@ -135,36 +173,48 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     }
                 }
 
+                // Status Badge Logic
+                if (h === 'Status') {
+                    return { h, val, i, isStatus: true };
+                }
+
                 return { h, val, i };
             })
-            .filter((item) => item !== null) as { h: string; val: any; i: number; isMoney?: boolean }[];
+            .filter((item) => item !== null) as { h: string; val: any; i: number; isMoney?: boolean; isStatus?: boolean }[];
 
         const viewAction = actions?.actions?.find((a: any) => a.type === 'view');
         const viewId = viewAction?.id;
 
         return (
-            <div style={{ ...style, willChange: 'transform' }} className="px-4 py-2">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 h-full flex flex-col justify-between">
-                    <div className="flex gap-4 mb-3 items-start">
+            <div style={{ ...style, willChange: 'transform' }} className="px-2 py-1.5">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 h-full flex flex-col justify-between">
+                    <div className="flex gap-3 mb-2 items-start">
                         {imageCell?.src ? (
-                            <CachedImage src={imageCell.src} alt={imageCell.alt} onClick={() => imageCell.fullSrc && onImageClick(imageCell.fullSrc)} className="w-[85px] h-[85px] min-w-[85px] flex-shrink-0 object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
+                            <CachedImage src={imageCell.src} alt={imageCell.alt} onClick={() => imageCell.fullSrc && onImageClick(imageCell.fullSrc)} className="w-20 h-20 min-w-20 flex-shrink-0 object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
                         ) : (
-                            <div className="w-[85px] h-[85px] min-w-[85px] flex-shrink-0 bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 text-center p-1">No Image</div>
+                            <div className="w-20 h-20 min-w-20 flex-shrink-0 bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 text-center p-1">No Image</div>
                         )}
                         <div className="flex-grow min-w-0">
                             <div className="pb-1">
-                                {orderIdIndex !== -1 && (
-                                    <span className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Order #{orderIdValue}</span>
-                                )}
+                                <div className="flex justify-between items-start">
+                                    {orderIdIndex !== -1 && (
+                                        <span className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Order #{orderIdValue}</span>
+                                    )}
+                                    {sourceValue && (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 ml-2">
+                                            {renderTextContent(sourceValue)}
+                                        </span>
+                                    )}
+                                </div>
                                 <h4
-                                    className={`text-base font-bold text-gray-900 dark:text-white leading-tight mt-0.5 truncate ${viewId ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
+                                    className={`text-sm font-bold text-gray-900 dark:text-white leading-tight mt-0.5 mb-1 line-clamp-2 ${viewId ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
                                     title={String(productValue)}
                                     onClick={() => viewId && onViewOrderDetails && onViewOrderDetails(viewId)}
                                 >
                                     {renderTextContent(productValue)}
                                 </h4>
                                 {dateTimeValue && (
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{renderTextContent(dateTimeValue)}</p>
+                                    <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">{renderTextContent(dateTimeValue)}</p>
                                 )}
                             </div>
                         </div>
@@ -173,10 +223,15 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         {bodyItems.map((item) => {
                             const isMoney = item.isMoney || (typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Cost') || item.h.includes('Amount')));
                             const valueClass = isMoney ? 'text-gray-900 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300';
+
                             return (
                                 <div key={item.i} className="flex flex-col min-w-0">
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate" title={item.h}>{item.h}</span>
-                                    <span className={`text-sm truncate ${valueClass}`}>{item.isMoney ? item.val : renderTextContent(item.val)}</span>
+                                    {item.isStatus ? (
+                                        <StatusBadge status={item.val} />
+                                    ) : (
+                                        <span className={`text-sm truncate ${valueClass}`}>{item.isMoney ? item.val : renderTextContent(item.val)}</span>
+                                    )}
                                 </div>
                             )
                         })}
@@ -205,8 +260,8 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         const dateTimeValue = dateTimeIndex !== -1 ? renderTextContent(row[dateTimeIndex]) : null;
 
         return (
-            <div style={{ ...style, willChange: 'transform' }} className="px-4 py-2">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 h-full flex flex-col">
+            <div style={{ ...style, willChange: 'transform' }} className="px-2 py-1.5">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 h-full flex flex-col">
                     {/* Header */}
                     <div className="flex justify-between items-start mb-3">
                         <span className="text-sm font-bold text-gray-900 dark:text-white">
@@ -277,7 +332,8 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             return (
                                 <div key={item.i} className="flex flex-col min-w-0">
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate" title={item.h}>{item.h}</span>
-                                    <span className={`text-sm truncate ${valueClass}`}>{renderTextContent(item.val)}</span>
+                                    {/* Removed truncate to allow wrapped text (subtitles) to show */}
+                                    <span className={`text-sm ${valueClass}`}>{renderTextContent(item.val)}</span>
                                 </div>
                             )
                         })}

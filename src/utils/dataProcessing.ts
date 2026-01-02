@@ -46,10 +46,11 @@ const formatDateTime = (dateStr: string, timeZone: string): string => {
     try {
         const date = new Date(dateStr);
         if (isNaN(date.getTime())) return 'Invalid Date';
+        // Short format: mm/dd/yy hh:mm
         return new Intl.DateTimeFormat('en-US', {
             timeZone,
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+            year: '2-digit', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hour12: false
         }).format(date).replace(',', '');
     } catch (e) {
         return 'Invalid Date';
@@ -344,19 +345,51 @@ const calculateOverview = (
 }
 
 const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Currency", "Cost", "FF Code", "Case", "Help", "Account", "DateTime", "Source", "Actions"];
-    const orders = records.filter(r => r.kind === 'order');
+    const headers = ["Image", "Product Name", "Variants", "Order ID", "Status", "Revenue", "Curren", "Cost", "FF Code", "Case", "Help", "Account", "Date", "Source", "Actions"];
+
+    // ✅ Filter out shipped/refund records - they are status updates, not separate orders
+    // Only show regular orders (Sales, etc.) with their updated status
+    const orders = records.filter(r =>
+        r.kind === 'order' &&
+        r.source !== 'Etsy_Shipped' &&
+        r.source !== 'Etsy_Refunded'
+    );
+
     const cases = records.filter(r => r.kind === 'case');
     const helps = records.filter(r => r.kind === 'help');
 
     const caseMap = new Map(cases.map(c => [c.order_id, c.case_msg || 'Yes']));
     const helpMap = new Map(helps.map(h => [h.order_id, h.help_kind || 'Yes']));
 
+    // ✅ Get shipped/refund records to join (like case/help)
+    const shipped = records.filter(r => r.source === 'Etsy_Shipped');
+    const refunded = records.filter(r => r.source === 'Etsy_Refunded');
+
+    // Create status map from shipped/refund records
+    const statusMap = new Map<string, { status: string, refund_details?: any }>();
+
+    // Shipped first
+    shipped.forEach(s => {
+        if (s.order_id) {
+            statusMap.set(s.order_id, { status: 'Shipped' });
+        }
+    });
+
+    // Refund takes priority (overwrites shipped)
+    refunded.forEach(r => {
+        if (r.order_id) {
+            statusMap.set(r.order_id, {
+                status: 'Refunded',
+                refund_details: r.refund_details
+            });
+        }
+    });
+
     const sortedOrders = [...orders].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
 
     const rows = sortedOrders.map(o => {
         const actions = [];
-        if (o.details) {
+        if (o.id) {
             actions.push({ type: 'view', label: 'View', id: o.id! });
         }
 
@@ -390,11 +423,16 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
         // Map Source
         const displaySource = formatSource(o.source);
 
+        // ✅ Get status from statusMap (joined from shipped/refund records, like case/help)
+        const statusInfo = o.order_id ? statusMap.get(o.order_id) : null;
+        const status = statusInfo?.status || o.status || 'New';
+
         return [
             { type: 'image', src: productImage, fullSrc: fullProductImage, alt: productName }, // New cell for image
             productName, // New cell for product name
             variants, // New cell for variants
             o.order_id || 'N/A',
+            status, // ✅ Status from map (not from order.status)
             o.amount,
             o.currency || 'USD',
             o.cost_total ?? null,
@@ -414,15 +452,20 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
 }
 
 const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sales', accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "DateTime", "Actions"];
-    const platformRecords = records.filter(r => r.source === source && r.kind === 'order');
+    const headers = ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"];
+
+    // Source filter is enough - Etsy_Sales won't match Etsy_Shipped/Etsy_Refunded
+    const platformRecords = records.filter(r =>
+        r.source === source &&
+        r.kind === 'order'
+    );
 
     const sortedRecords = [...platformRecords].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
 
     const rows = sortedRecords.map(r => {
         // Create a list of actions for the Action column
         const actions = [];
-        if (r.details) {
+        if (r.id) {
             actions.push({ type: 'view', label: 'View', id: r.id! });
         }
 
@@ -463,8 +506,8 @@ const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sale
 
 const getSupportRecords = (records: Record[], kind: 'case' | 'help', accountLabelMap: Map<string, string>, timeZone: string): TableData => {
     const headers = kind === 'case'
-        ? ["Order Number", "Message", "Source", "Account", "DateTime"]
-        : ["Order Number", "Help Kind", "Source", "Account", "DateTime"];
+        ? ["Order Number", "Message", "Source", "Account", "Date"]
+        : ["Order Number", "Help Kind", "Source", "Account", "Date"];
 
     const supportRecords = records.filter(r => r.kind === kind);
     const sortedRecords = [...supportRecords].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
@@ -601,6 +644,8 @@ const calculateSummary = (
         revenueByCurrency: { [c: string]: number };
         fundsByCurrency: { [c: string]: number };
         costByCurrency: { [c: string]: number };
+        refundedOrderIds: Set<string>;
+        refundByCurrency: { [c: string]: number };
     };
 
     const getRawKpis = (recordsToProcess: Record[]): RawKpis => {
@@ -610,6 +655,8 @@ const calculateSummary = (
             revenueByCurrency: {},
             fundsByCurrency: {},
             costByCurrency: {},
+            refundedOrderIds: new Set(),
+            refundByCurrency: {},
         };
         recordsToProcess.forEach(r => {
             raw.shops.add(r.account);
@@ -621,6 +668,13 @@ const calculateSummary = (
                 }
                 if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
                     raw.costByCurrency['USD'] = (raw.costByCurrency['USD'] || 0) + r.cost_total;
+                }
+                // Track refunds
+                if (r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded') {
+                    if (r.order_id) raw.refundedOrderIds.add(r.order_id);
+                    const refundAmount = r.refund_details?.refundAmount || Math.abs(r.amount || 0);
+                    const refundCurr = r.refund_details?.refundCurrency || currency;
+                    raw.refundByCurrency[refundCurr] = (raw.refundByCurrency[refundCurr] || 0) + refundAmount;
                 }
             } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewFunds)) {
                 raw.fundsByCurrency[currency] = (raw.fundsByCurrency[currency] || 0) + r.amount;
@@ -649,15 +703,21 @@ const calculateSummary = (
     kpis['Total Orders'] = {
         value: currentRawKpis.orderIds.size.toString(),
         ...ordersComparison,
-    };
+        refundInfo: currentRawKpis.refundedOrderIds.size > 0 ? `${currentRawKpis.refundedOrderIds.size} refunded` : undefined,
+    } as any;
 
     kpis['Shops'] = { value: currentRawKpis.shops.size.toString() };
 
     const processFinancialKpi = (
         currentData: { [c: string]: number },
-        previousData: { [c: string]: number } | null
+        previousData: { [c: string]: number } | null,
+        refundData?: { [c: string]: number }
     ): { [currency: string]: KpiValue } | null => {
-        const allCurrencies = new Set([...Object.keys(currentData), ...(previousData ? Object.keys(previousData) : [])]);
+        const allCurrencies = new Set([
+            ...Object.keys(currentData),
+            ...(previousData ? Object.keys(previousData) : []),
+            ...(refundData ? Object.keys(refundData) : [])
+        ]);
         if (allCurrencies.size === 0) return null;
 
         const financialKpis: { [currency: string]: KpiValue } = {};
@@ -668,12 +728,13 @@ const calculateSummary = (
             financialKpis[c] = {
                 value: formatCurrency(current),
                 ...comparison,
-            };
+                refundInfo: refundData && refundData[c] ? `${c} ${formatCurrency(refundData[c])} refunded` : undefined,
+            } as any;
         });
         return financialKpis;
     }
 
-    const revenueKpis = processFinancialKpi(currentRawKpis.revenueByCurrency, previousRawKpis?.revenueByCurrency || null);
+    const revenueKpis = processFinancialKpi(currentRawKpis.revenueByCurrency, previousRawKpis?.revenueByCurrency || null, currentRawKpis.refundByCurrency);
     kpis['Revenue'] = revenueKpis || { value: '---' };
 
     if (role === 'owner' || permissions.viewFunds) {
@@ -695,13 +756,15 @@ const calculateSummary = (
             orders: Set<string>,
             revenue: { [currency: string]: number },
             funds: { [currency: string]: number },
-            cost: { [currency: string]: number }
+            cost: { [currency: string]: number },
+            refund: { [currency: string]: number },
+            refundedOrderIds: Set<string>
         }
     } = {};
 
     // Initialize shopData for ALL accounts to ensure 0-order shops are listed
     accountLabelMap.forEach((_label, email) => {
-        shopData[email] = { revenue: {}, orders: new Set(), funds: {}, cost: {} };
+        shopData[email] = { revenue: {}, orders: new Set(), funds: {}, cost: {}, refund: {}, refundedOrderIds: new Set() };
     });
 
     const allTableCurrencies = { revenue: new Set<string>(), funds: new Set<string>(), cost: new Set<string>() };
@@ -713,7 +776,7 @@ const calculateSummary = (
         const shopLabel = accountLabelMap.get(r.account) || r.account;
 
         if (!shopData[r.account]) {
-            shopData[r.account] = { revenue: {}, orders: new Set(), funds: {}, cost: {} };
+            shopData[r.account] = { revenue: {}, orders: new Set(), funds: {}, cost: {}, refund: {}, refundedOrderIds: new Set() };
         }
 
         // Init Product Stats Map for Shop
@@ -731,6 +794,13 @@ const calculateSummary = (
             if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
                 shopData[r.account].cost['USD'] = (shopData[r.account].cost['USD'] || 0) + r.cost_total;
                 allTableCurrencies.cost.add('USD');
+            }
+
+            // Track refunds per shop
+            if (r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded') {
+                if (r.order_id) shopData[r.account].refundedOrderIds.add(r.order_id);
+                const refundAmount = r.refund_details?.refundAmount || Math.abs(r.amount || 0);
+                shopData[r.account].refund[currency] = (shopData[r.account].refund[currency] || 0) + refundAmount;
             }
 
             // --- Aggregate Product Stats ---
@@ -802,13 +872,41 @@ const calculateSummary = (
     if (role === 'owner' || permissions.viewFunds) tableHeaders.push("Funds");
     if (role === 'owner' || permissions.viewFulfill) tableHeaders.push("Cost (USD)");
 
-    const tableRows = Object.entries(shopData).map(([account, data]) => {
+    const sortedShopEntries = Object.entries(shopData).sort((a, b) => b[1].orders.size - a[1].orders.size);
+
+    const tableRows = sortedShopEntries.map(([account, data]) => {
         const revenue = formatMixedCurrency(data.revenue);
+        const refund = formatMixedCurrency(data.refund);
+
+        // Count unique refunded orders for this shop (Optimized: using pre-calculated set)
+        const refundedOrdersCount = data.refundedOrderIds.size;
+
+        const shopName = accountLabelMap.get(account) || account;
+
+        // Orders Cell with subtitle if refunds exist
+        const ordersCell = refundedOrdersCount > 0
+            ? {
+                type: 'text_with_subtitle' as const,
+                main: data.orders.size.toString(),
+                subtitle: `↩ ${refundedOrdersCount}`,
+                subtitleClass: 'text-red-500 font-medium'
+            }
+            : data.orders.size;
+
+        // Revenue Cell with subtitle if refunds exist
+        const revenueCell = refund.value > 0
+            ? {
+                type: 'text_with_subtitle' as const,
+                main: revenue.display,
+                subtitle: `↩ ${refund.display}`,
+                subtitleClass: 'text-red-500 font-medium'
+            }
+            : { type: 'value_with_unit' as const, value: revenue.value, display: revenue.display };
 
         const row = [
-            accountLabelMap.get(account) || account,
-            data.orders.size,
-            { type: 'value_with_unit' as const, value: revenue.value, display: revenue.display }
+            shopName,
+            ordersCell,
+            revenueCell
         ];
 
         if (role === 'owner' || permissions.viewFunds) {
@@ -824,7 +922,7 @@ const calculateSummary = (
         }
 
         return row;
-    }).sort((a, b) => (b[1] as number) - (a[1] as number));
+    });
 
     if ((role === 'owner' || permissions.viewFulfill) && Object.keys(manualCostData.cost).length > 0) {
         let totalManualCost = 0;

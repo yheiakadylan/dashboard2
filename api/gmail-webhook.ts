@@ -167,14 +167,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 3. Gửi Thông báo
     if (notificationEvents.length > 0) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app';
+
+      const createDeepLink = (tabName: string) => {
+        try {
+          const url = new URL(baseUrl);
+          url.searchParams.set('tab', tabName);
+          return url.toString();
+        } catch (e) {
+          console.error('[webhook] Error creating deep link:', e);
+          return baseUrl;
+        }
+      };
 
       if (notificationEvents.length === 1) {
         // Gửi 1 tin duy nhất
         const evt = notificationEvents[0];
-        const deepLink = evt.type === 'order'
-          ? `${appUrl}/?tab=Order+List`
-          : `${appUrl}/?tab=Overview`;
+        const deepLink = createDeepLink(evt.type === 'order' ? 'Order List' : 'Overview');
 
         await sendPushNotificationToUsers(effectiveUserId, evt.type, {
           title: evt.type === 'order' ? 'New Order!' : 'Funds Received!',
@@ -187,17 +196,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const funds = notificationEvents.filter(e => e.type === 'funds');
 
         if (orders.length > 0) {
+          const deepLink = createDeepLink('Order List');
           await sendPushNotificationToUsers(effectiveUserId, 'order', {
             title: 'New Orders Arrived',
             body: `You have ${orders.length} new orders.`,
-            url: `${appUrl}/?tab=Order+List`
+            url: deepLink
           });
         }
         if (funds.length > 0) {
+          const deepLink = createDeepLink('Overview');
           await sendPushNotificationToUsers(effectiveUserId, 'funds', {
             title: 'New Funds Received',
             body: `You have ${funds.length} new payout updates.`,
-            url: `${appUrl}/?tab=Overview`
+            url: deepLink
           });
         }
       }

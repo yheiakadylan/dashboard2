@@ -236,14 +236,16 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                                 headerCellClass += 'flex-none w-[95px] justify-center';
                                 break;
                             case 'Product Name':
-                                headerCellClass += 'flex-grow-[3] basis-1/4';
+                                headerCellClass += 'flex-grow-[3] basis-1/4 ';
                                 break;
                             case 'Order Number':
+                            case 'Order ID':
                                 headerCellClass += 'flex-1 basis-[110px]'; // Compact width for order numbers
                                 break;
                             case 'Revenue':
                             case 'Cost':
                             case 'Currency':
+                            case 'Curren':
                                 headerCellClass += 'flex-1 basis-[80px]';
                                 break;
                             case 'Message':
@@ -254,8 +256,12 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                             case 'Account':
                                 headerCellClass += 'flex-1 basis-[120px]';
                                 break;
+                            case 'Status':
+                                headerCellClass += 'flex-none w-[95px] justify-center';
+                                break;
                             case 'DateTime':
-                                headerCellClass += 'flex-1 basis-[170px]'; // Increased width
+                            case 'Date':
+                                headerCellClass += 'flex-1 basis-[110px]'; // Increased width
                                 break;
                             case 'Actions':
                                 headerCellClass += 'flex-none w-[90px] justify-center'; // Decreased width
