@@ -55,8 +55,8 @@ interface DashboardContextType {
   // Actions
   handleSaveAccounts: (updatedAccounts: Account[], explicitlyRemovedIds?: string[]) => Promise<void>;
   handleSyncClick: () => Promise<void>;
-  handleResyncAccount: (account: Account) => Promise<void>;
-  handleQuickSync: (account: Account) => Promise<void>;
+  handleResyncAccount: (account: Account, ruleNames?: string[]) => Promise<void>;
+  handleQuickSync: (account: Account, ruleNames?: string[]) => Promise<void>;
   handleLogout: () => Promise<void>;
   handleExport: () => void;
   handleExportWithOptions: (includeImages: boolean) => void;
@@ -411,20 +411,36 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     });
   };
 
-  const handleResyncAccount = async (account: Account) => {
+  const handleResyncAccount = async (account: Account, ruleNames?: string[]) => {
     if (!user) return;
-    enqueueSyncTask(`Resync ${account.email}`, async () => {
+    const taskTitle = ruleNames ? `Resync ${account.email} (${ruleNames.length} rules)` : `Resync ${account.email}`;
+    enqueueSyncTask(taskTitle, async () => {
       try {
         setSyncState(`[Queue] Resetting ${account.email}...`);
+
+        // If full re-sync (no rule names), reset history flags. 
+        // If custom sync (specific rules), we might NOT want to reset history flags fully? 
+        // User asked: "re-sync này gồm sync last 7d và history sync luôn".
+        // If we don't reset flags, runHistoricalSync might skip if it thinks it's complete.
+        // But runHistoricalSync logic checks `historical_sync_complete`.
+        // If we want to force re-run history for specific rules, we might need to trick it or just run it regardless of flag?
+        // Actually, runHistoricalSync has a check: `if (accountsNeedingSync.length === 0) return;`
+        // We should probably reset the flag so it runs.
+
         const resetData = { id: account.id, historical_sync_complete: false, history_synced_until: null, last_synced_at: null, scan_start_date: null };
-        await saveAccountsToFirebase(teamId, [{ ...account, ...resetData }]); // Helper reuse? Or updateAccounts
-        // Logic simplifed: Just update state & run sync
+        await saveAccountsToFirebase(teamId, [{ ...account, ...resetData }]);
+
         const updatedAccount = { ...account, ...resetData };
         setAllAccounts(prev => prev.map(a => a.id === account.id ? updatedAccount : a));
 
         setSyncState(`[Queue] Syncing ${account.email}...`);
-        const initialRecords = await runSync([updatedAccount], records);
-        await runHistoricalSync([updatedAccount], [...records, ...initialRecords]);
+
+        // 1. Run "Last 7 Days" / Recent Sync
+        const initialRecords = await runSync([updatedAccount], records, undefined, undefined, undefined, false, ruleNames);
+
+        // 2. Run Historical Sync
+        await runHistoricalSync([updatedAccount], [...records, ...initialRecords], undefined, ruleNames);
+
         addNotification(`Re-sync finished for ${account.email}`, "success");
       } catch (error) {
         console.error(error);
@@ -435,16 +451,17 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     addNotification(`Queued re-sync for ${account.email}`, "info");
   };
 
-  const handleQuickSync = async (account: Account) => {
+  const handleQuickSync = async (account: Account, ruleNames?: string[]) => {
     if (!user) return;
     const toDate = new Date();
     const fromDate = new Date(); fromDate.setDate(fromDate.getDate() - 7);
     const range = { from: fromDate.toISOString(), to: toDate.toISOString() };
 
-    enqueueSyncTask(`Quick Sync ${account.email}`, async () => {
+    const taskTitle = ruleNames ? `Quick Sync ${account.email} (${ruleNames.length} rules)` : `Quick Sync ${account.email}`;
+    enqueueSyncTask(taskTitle, async () => {
       try {
         setSyncState(`[Queue] Quick sync ${account.email}...`);
-        await runSync([account], records, range);
+        await runSync([account], records, range, undefined, undefined, false, ruleNames);
         addNotification(`Quick sync complete for ${account.email}`, "success");
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';

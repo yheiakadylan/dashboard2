@@ -508,16 +508,23 @@ export const fetchAllRecords = async (
     setStatus: (status: string) => void,
     overrideDateRange?: { from: string, to: string },
     existingEmailIds?: Set<string>,
-    onProgress?: (progress: { current: number, total: number, message: string }) => void
+    onProgress?: (progress: { current: number, total: number, message: string }) => void,
+    ruleNames?: string[] // Added optional filter
 ): Promise<Record[]> => {
     setStatus(`Starting sync for ${accounts.length} account(s)...`);
 
     // Calculate total steps (Rules * Accounts)
     let totalSteps = 0;
     accounts.forEach(acc => {
-        const activeRules = RULES.filter(r =>
+        let activeRules = RULES.filter(r =>
             !r.platform || !acc.platforms || acc.platforms.length === 0 || acc.platforms.includes(r.platform)
         );
+
+        // Filter by ruleNames if provided
+        if (ruleNames && ruleNames.length > 0) {
+            activeRules = activeRules.filter(r => ruleNames.includes(r.name));
+        }
+
         totalSteps += activeRules.length;
     });
 
@@ -549,12 +556,17 @@ export const fetchAllRecords = async (
             // Filter rules based on account platforms
             // If account.platforms is empty/undefined, run all rules (default behavior)
             // Otherwise, only run rules that match the platform or have no specific platform
-            const activeRules = RULES.filter(r =>
+            let activeRules = RULES.filter(r =>
                 !r.platform ||
                 !account.platforms ||
                 account.platforms.length === 0 ||
                 account.platforms.includes(r.platform)
             );
+
+            // Filter by ruleNames if provided
+            if (ruleNames && ruleNames.length > 0) {
+                activeRules = activeRules.filter(r => ruleNames.includes(r.name));
+            }
 
             const rulePromises = activeRules.map(async (rule) => {
                 let fetchedRecords: Partial<Record>[] = [];

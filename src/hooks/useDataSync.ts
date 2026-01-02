@@ -134,7 +134,8 @@ export const useDataSync = ({
         overrideDateRange?: { from: string, to: string },
         signal?: AbortSignal,
         onProgress?: (progress: { current: number, total: number, message: string }) => void,
-        isSilent: boolean = false
+        isSilent: boolean = false,
+        ruleNames?: string[]
     ): Promise<Record[]> => {
         if (!accountsForSync.length) {
             addNotification("No accounts available to sync.", "info");
@@ -155,7 +156,7 @@ export const useDataSync = ({
 
             if (signal?.aborted) return [];
 
-            const fetchedRecords = await fetchAllRecords(accountsForSync, setSyncState, overrideDateRange, existingEmailIds);
+            const fetchedRecords = await fetchAllRecords(accountsForSync, setSyncState, overrideDateRange, existingEmailIds, onProgress, ruleNames);
 
             if (signal?.aborted) return [];
 
@@ -177,18 +178,31 @@ export const useDataSync = ({
             }
 
             // Use validRecords for the rest of the function
-            const recordsToScanForCost = isHistoricalSync
-                ? validRecords
-                : [...existingRecords, ...validRecords]; // Note: existingRecords might need filtering too if we want to be super strict, but usually fine.
+            // Use validRecords for the rest of the function
 
-            setSyncState('Updating costs...');
+            // OPTIMIZATION: Only fetch costs if syncing Sales rules or Full Sync ("Sale" keyword check)
+            // This prevents calling MZ/PW APIs when just updating Shipped/Refunded status
+            const isSaleRuleSync = !ruleNames || ruleNames.some(name => name.includes('Sales'));
 
-            const ordersNeedingCost = recordsToScanForCost.filter(r => r.kind === 'order' && !r.cost_total);
             let costMap: Map<string, CostData> = new Map();
-            if (ordersNeedingCost.length > 0) {
-                if (signal?.aborted) return [];
-                setSyncState(`Fetching costs for ${ordersNeedingCost.length} orders...`);
-                costMap = await fetchCostsForRecords(ordersNeedingCost);
+
+            if (isSaleRuleSync) {
+                const recordsToScanForCost = isHistoricalSync
+                    ? validRecords
+                    : [...existingRecords, ...validRecords];
+
+                setSyncState('Updating costs...');
+
+                const ordersNeedingCost = recordsToScanForCost.filter(r => r.kind === 'order' && !r.cost_total);
+
+                if (ordersNeedingCost.length > 0) {
+                    if (signal?.aborted) return [];
+                    setSyncState(`Fetching costs for ${ordersNeedingCost.length} orders...`);
+                    costMap = await fetchCostsForRecords(ordersNeedingCost);
+                }
+            } else {
+                // If not syncing sales, we skip cost fetching. 
+                // Any new records (e.g. Shipped emails) will be saved without cost data, which is fine as they are statuses.
             }
 
             if (signal?.aborted) return [];
@@ -261,7 +275,8 @@ export const useDataSync = ({
     const runHistoricalSync = useCallback(async (
         accountsToSync: Account[],
         initialRecords: Record[],
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        ruleNames?: string[]
     ) => {
         const accountsNeedingSync = accountsToSync.filter(a => !a.historical_sync_complete);
         if (accountsNeedingSync.length === 0) return;
@@ -342,10 +357,8 @@ export const useDataSync = ({
 
                 const dateRange = { from: effectiveSyncStart.toISOString(), to: currentSyncEnd.toISOString() };
 
-
-
                 try {
-                    const fetchedChunk = await runSync([account], currentExistingRecords, dateRange, signal);
+                    const fetchedChunk = await runSync([account], currentExistingRecords, dateRange, signal, undefined, false, ruleNames);
                     if (signal?.aborted) return;
                     if (fetchedChunk.length > 0) currentExistingRecords.push(...fetchedChunk);
 
