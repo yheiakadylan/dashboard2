@@ -97,6 +97,7 @@ const Header: React.FC = () => {
     teamId, // For NotificationCenter Firestore sync
     allowedAccounts, // For notification filtering by shop
     performGlobalSearch, // Global Search Function
+    clearGlobalSearch, // Clear Global Search
   } = useDashboard();
 
   const {
@@ -183,7 +184,9 @@ const Header: React.FC = () => {
   const handleSearchClear = useCallback(() => {
     setSearchTerm('');
     setIsSearchExpanded(false);
-  }, [setSearchTerm]);
+    // Clear global search results - restore to date range
+    clearGlobalSearch();
+  }, [setSearchTerm, clearGlobalSearch]);
 
   const handleMobileMenuToggle = useCallback(() => {
     toggleMobileMenu();

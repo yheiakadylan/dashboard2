@@ -146,12 +146,12 @@ const PreviewSyncModal: React.FC<PreviewSyncModalProps> = ({
         setSyncMessage('Syncing to Google Sheets...');
 
         try {
-            // Filter only 'order' kind records (exclude refunds, etc.)
-            const ordersOnly = selectedRecords.filter(r => r.kind === 'order');
+            // Filter only 'order' kind records, exclude refunded
+            const ordersOnly = selectedRecords.filter(r => r.kind === 'order' && r.status === 'New');
 
             if (ordersOnly.length === 0) {
                 setSyncStatus('error');
-                setSyncMessage('No orders to sync (only refunds or other types were selected)');
+                setSyncMessage('No orders to sync (refunds excluded)');
                 return;
             }
 

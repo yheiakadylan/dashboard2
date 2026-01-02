@@ -61,6 +61,7 @@ interface DashboardContextType {
   handleExport: () => void;
   handleExportWithOptions: (includeImages: boolean) => void;
   performGlobalSearch: (term: string) => Promise<void>;
+  clearGlobalSearch: () => void;
 
 
 
@@ -655,6 +656,23 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }
   };
 
+  const clearGlobalSearch = () => {
+    // Reload records for current date range
+    const fetchData = async () => {
+      setIsProcessing(true);
+      try {
+        const { getRecordsForDateRange } = await import('../services/firebaseService');
+        const data = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
+        setRecords(data);
+      } catch (error) {
+        console.error('Error reloading records:', error);
+      } finally {
+        setIsProcessing(false);
+      }
+    };
+    fetchData();
+  };
+
 
   return (
     <DashboardContext.Provider value={{
@@ -676,6 +694,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       handleExport,
       handleExportWithOptions,
       performGlobalSearch,
+      clearGlobalSearch,
       processedData
 
 

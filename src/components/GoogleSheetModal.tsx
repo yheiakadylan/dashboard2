@@ -135,11 +135,11 @@ const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({ isOpen, onClose, re
         try {
             await saveSettings(teamId, { googleSheetId: sheetId, sheetAccount });
 
-            // Filter only 'order' kind records (exclude refunds, etc.)
-            const ordersOnly = records.filter(r => r.kind === 'order');
+            // Filter only 'order' kind records, and exclude refunded orders
+            const ordersOnly = records.filter(r => r.kind === 'order' && r.status === 'New');
 
             if (ordersOnly.length === 0) {
-                addNotification("No orders to sync (only refunds or other types)", "error");
+                addNotification("No orders to sync (refunds excluded)", "error");
                 setSyncStatus(null);
                 return;
             }
