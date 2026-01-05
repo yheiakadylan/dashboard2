@@ -92,9 +92,21 @@ async function fetchPrintwayCosts(dateRange: { from: string, to: string }): Prom
         return [];
     }
     const slices = sliceTimeRange(new Date(dateRange.from), new Date(dateRange.to), 24);
-    const slicePromises = slices.map(fetchPrintwayCostsForSlice);
-    const results = await Promise.all(slicePromises);
-    return results.flat();
+
+    // Process sequentially to avoid 429
+    const results: CostData[] = [];
+    for (const slice of slices) {
+        try {
+            const sliceCosts = await fetchPrintwayCostsForSlice(slice);
+            results.push(...sliceCosts);
+        } catch (error) {
+            console.error(`Failed to fetch slice ${slice.from}:`, error);
+        }
+        // Throttle requests (300ms delay)
+        await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    return results;
 }
 // --- END: Printway Functions ---
 
@@ -126,11 +138,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         maxDate.setDate(maxDate.getDate() + 1);
         const printwayDateRange = { from: minDate.toISOString(), to: maxDate.toISOString() };
 
+        console.log(`[PW DEBUG] Calculated Date Range: ${printwayDateRange.from} -> ${printwayDateRange.to}`);
+        console.log(`[PW DEBUG] Input Records Count: ${orderRecords.length}`);
+
         const printwayData = await fetchPrintwayCosts(printwayDateRange);
+
+        console.log(`[PW DEBUG] Fetched Total Records from PW: ${printwayData.length}`);
 
         // --- CẬP NHẬT LOGIC MERGE ---
         const costMap: { [key: string]: CostData } = {};
         for (const item of printwayData) {
+
+            if (item.cost_total <= 0) continue;
             if (costMap[item.order_id]) {
                 costMap[item.order_id].cost_total += item.cost_total;
                 if (!costMap[item.order_id].ff_code && item.ff_code) {

@@ -23,7 +23,7 @@ async function fetchAndCacheMerchizeCatalog(): Promise<Map<string, string>> {
     const newMap = new Map<string, string>();
     let page = 1;
     const limit = 50;
-    
+
     try {
         while (true) {
             const apiUrl = `${merchizeConfig.base_url}/product/catalog?limit=${limit}&page=${page}`;
@@ -70,7 +70,7 @@ async function fetchAndCacheMerchizeCatalog(): Promise<Map<string, string>> {
     } catch (e) {
         console.error("Exception during Merchize catalog fetch:", e);
         // Không cập nhật cache nếu lỗi, trả về cache cũ (nếu có)
-        return skuToNameMap || newMap; 
+        return skuToNameMap || newMap;
     }
 
     skuToNameMap = newMap;
@@ -109,10 +109,10 @@ async function fetchMerchizeCosts(orderIds: string[]): Promise<CostData[]> {
             const requestBody = {
                 orders: chunk.map(id => ({ code:"", external_number: id, identifier: "" }))
             };
-            
+
             const apiUrl = `${merchizeConfig.base_url}/order/external/orders/list-orders-detail`;
-            
-            
+
+
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
@@ -123,10 +123,10 @@ async function fetchMerchizeCosts(orderIds: string[]): Promise<CostData[]> {
             });
 
             const responseText = await response.text();
-            
+
             if (!response.ok) {
                 console.error("Raw Response Body on Error:", responseText);
-                continue; 
+                continue;
             }
 
             if (responseText) {
@@ -162,7 +162,7 @@ async function fetchMerchizeCosts(orderIds: string[]): Promise<CostData[]> {
                     console.warn('Merchize API response was not successful or data format is incorrect:', data);
                 }
             } else {
-                 console.warn('Merchize API returned an empty response body.');
+                console.warn('Merchize API returned an empty response body.');
             }
 
         } catch (e) {
@@ -198,6 +198,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // --- CẬP NHẬT LOGIC MERGE ---
         const costMap: { [key: string]: CostData } = {};
         for (const item of merchizeData) {
+            if (item.cost_total <= 0) continue;
             if (costMap[item.order_id]) {
                 costMap[item.order_id].cost_total += item.cost_total;
                 if (!costMap[item.order_id].ff_code && item.ff_code) {

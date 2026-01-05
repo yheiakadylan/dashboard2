@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Record } from '../types';
 
 import { Search, Command, Calendar, Box, Settings, LogOut, Sun, Moon, ArrowRight } from 'lucide-react';
 import { useUI } from '../contexts/UIContext';
 import { useDashboard } from '../contexts/DashboardContext';
+import { useNotification } from '../contexts/NotificationContext';
+import { fetchCostsForRecords } from '../services/fulfillmentService';
 
 const CommandPalette: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const { handleTabClick, setIsTabSettingsOpen, setIsAccountManagerOpen, toggleTheme } = useUI();
-    const { handleLogout } = useDashboard();
+    const { handleLogout, records, setRecords, teamId } = useDashboard();
+    const { addNotification } = useNotification();
 
     // Commands configuration
     const commands = [
@@ -19,6 +23,73 @@ const CommandPalette: React.FC = () => {
         { id: 'settings', icon: <Settings size={18} />, label: 'Open Settings', action: () => setIsAccountManagerOpen(true), group: 'General' },
         { id: 'theme', icon: <Sun size={18} />, label: 'Toggle Theme', action: () => toggleTheme(), group: 'General' },
         { id: 'logout', icon: <LogOut size={18} />, label: 'Logout', action: () => handleLogout(), group: 'General' },
+        {
+            id: 'quick-fetch-fulfill',
+            icon: <Box size={18} />,
+            label: 'Quick Fetch Fulfillment Cost',
+            action: async () => {
+                console.log('--- Quick Fetch Fulfill Start ---');
+                addNotification('Fetching fulfillment costs...', 'info');
+                try {
+                    const orderRecords = records.filter(r => r.kind === 'order');
+                    if (orderRecords.length === 0) {
+                        addNotification('No orders to fetch costs for.', 'info');
+                        return;
+                    }
+                    console.log(`Fetching costs for ${orderRecords.length} orders...`);
+                    const costMap = await fetchCostsForRecords(orderRecords);
+
+                    if (costMap.size === 0) {
+                        addNotification('No costs found.', 'info');
+                        return;
+                    }
+
+                    // Prepare updates
+                    const updates: (Partial<Record> & { id: string })[] = [];
+                    const updatedRecords = records.map(record => {
+                        if (record.order_id && costMap.has(record.order_id)) {
+                            const costInfo = costMap.get(record.order_id)!;
+                            // Only update if cost is different or new
+                            if (record.cost_total !== costInfo.cost_total || record.ff_code !== costInfo.ff_code) {
+                                updates.push({
+                                    id: record.id!,
+                                    cost_total: costInfo.cost_total,
+                                    ff_code: costInfo.ff_code,
+                                    product_name: costInfo.product_name || record.product_name
+                                });
+                                return {
+                                    ...record,
+                                    cost_total: costInfo.cost_total,
+                                    ff_code: costInfo.ff_code,
+                                    product_name: costInfo.product_name || record.product_name
+                                };
+                            }
+                        }
+                        return record;
+                    });
+
+                    if (updates.length > 0) {
+                        console.log(`Updating ${updates.length} records...`);
+                        const { updateRecordsInFirebase } = await import('../services/firebaseService');
+                        await updateRecordsInFirebase(teamId, updates);
+                        setRecords(updatedRecords);
+                        addNotification(`Updated ${updates.length} records with new costs.`, 'success');
+                    } else {
+                        addNotification('Costs fetched but no updates needed.', 'info');
+                    }
+
+                    console.log('--- Quick Fetch Result ---');
+                    console.log('Mapped Costs:', costMap.size);
+                    costMap.forEach((cost, orderId) => {
+                        console.log(`[${orderId}] Cost: ${cost.cost_total}, Code: ${cost.ff_code}, Product: ${cost.product_name}`);
+                    });
+                } catch (e) {
+                    console.error('Quick Fetch Error:', e);
+                    addNotification('Failed to fetch costs.', 'error');
+                }
+            },
+            group: 'Development'
+        },
     ];
 
     const filteredCommands = commands.filter(cmd =>
@@ -90,7 +161,7 @@ const CommandPalette: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="max-h-[300px] overflow-y-auto py-2">
+                        <div className="max-h-[500px] overflow-y-auto py-2">
                             {filteredCommands.length === 0 ? (
                                 <div className="px-4 py-8 text-center text-gray-500 dark:text-gray-400 text-sm">
                                     No commands found.
