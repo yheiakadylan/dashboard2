@@ -776,8 +776,8 @@ export const parseMessage = (
       amount: result.amount!,
       order_id: result.order_id!,
       currency: null,
-      case_msg: result.case_msg,
-      help_kind: result.help_kind,
+      case_msg: result.case_msg || null,
+      help_kind: result.help_kind || null,
     };
   }
 

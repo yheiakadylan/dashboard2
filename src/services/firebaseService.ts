@@ -336,6 +336,7 @@ export const saveRecordsToFirebase = async (
     return recordsToAdd;
   } catch (error) {
     console.error("Error while adding new records:", error);
+    console.error("Failed records data:", JSON.stringify(recordsToAdd, null, 2));
     throw new Error("Failed to add new records.");
   }
 };
