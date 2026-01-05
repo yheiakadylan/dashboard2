@@ -410,7 +410,7 @@ export const useDataSync = ({
 
         const loadInitialData = async () => {
             // Initialize date range tracking FIRST to prevent race condition with date range effect
-            dateRangeStringRef.current = `${filterDateRange.from}|${filterDateRange.to}`;
+            dateRangeStringRef.current = `${filterDateRange.from}|${filterDateRange.to}|${timeZone}`;
 
             setIsLoading(true);
             setSyncState('Loading data...');
@@ -517,12 +517,12 @@ export const useDataSync = ({
 
     // --- Effect: Fetch Data on Range Change ---
     useEffect(() => {
-        // Build current date range string
-        const currentDateRangeString = `${filterDateRange.from}|${filterDateRange.to}`;
+        // Build current date range string (include timezone to force refetch on TZ change)
+        const currentDateRangeString = `${filterDateRange.from}|${filterDateRange.to}|${timeZone}`;
 
         // Skip if:
         // 1. Initial load hasn't completed yet
-        // 2. Date range hasn't actually changed
+        // 2. Date range (or timezone) hasn't actually changed
         if (!initialLoadCompleteRef.current) {
             return;
         }
@@ -539,8 +539,8 @@ export const useDataSync = ({
         // STEP 1: Abort all ongoing operations immediately
         abortAllOperations();
 
-        // STEP 2: Reset data immediately for better UX
-        setRecords([]);
+        // STEP 2: Reset data immediately for better UX 
+        setRecords([]); 
         setPreviousPeriodRecords(null);
 
         // STEP 3: Abort previous date range fetch controller
@@ -644,7 +644,7 @@ export const useDataSync = ({
                 console.error("Failed to fetch records for range:", error);
                 addNotification('Error loading records for this range.', "error");
             } finally {
-                if (!signal.aborted && requestId === fetchRequestIdRef.current) {
+                if (requestId === fetchRequestIdRef.current) {
                     setIsFetchingNewRange(false);
                     setSyncState(null);
                 }

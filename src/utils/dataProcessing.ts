@@ -638,6 +638,26 @@ const calculateSummary = (
         };
     };
 
+    // 1. Collect Valid Order IDs first (Sales orders in the current view)
+    const validOrderIds = new Set<string>();
+    records.forEach(r => {
+        const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded' || r.source === 'Etsy_Shipped';
+        if (r.kind === 'order' && r.order_id && !isStatusUpdate) {
+            validOrderIds.add(r.order_id);
+        }
+    });
+
+    // Also collect for previous records if they exist, to ensure consistent comparison logic
+    const validPreviousOrderIds = new Set<string>();
+    if (previousRecords) {
+        previousRecords.forEach(r => {
+            const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded' || r.source === 'Etsy_Shipped';
+            if (r.kind === 'order' && r.order_id && !isStatusUpdate) {
+                validPreviousOrderIds.add(r.order_id);
+            }
+        });
+    }
+
     type RawKpis = {
         orderIds: Set<string>;
         shops: Set<string>;
@@ -648,7 +668,7 @@ const calculateSummary = (
         refundByCurrency: { [c: string]: number };
     };
 
-    const getRawKpis = (recordsToProcess: Record[]): RawKpis => {
+    const getRawKpis = (recordsToProcess: Record[], validIds: Set<string>): RawKpis => {
         const raw: RawKpis = {
             orderIds: new Set(),
             shops: new Set(),
@@ -662,16 +682,19 @@ const calculateSummary = (
             raw.shops.add(r.account);
             const currency = r.currency || 'USD';
             if (r.kind === 'order') {
-                if (r.order_id) raw.orderIds.add(r.order_id);
-                if (r.amount > 0) {
+                const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded' || r.source === 'Etsy_Shipped';
+
+                if (r.order_id && !isStatusUpdate) raw.orderIds.add(r.order_id);
+
+                if (r.amount > 0 && !isStatusUpdate) {
                     raw.revenueByCurrency[currency] = (raw.revenueByCurrency[currency] || 0) + r.amount;
                 }
                 if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
                     raw.costByCurrency['USD'] = (raw.costByCurrency['USD'] || 0) + r.cost_total;
                 }
-                // Track refunds
-                if (r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded') {
-                    if (r.order_id) raw.refundedOrderIds.add(r.order_id);
+                // Track refunds - ONLY if the order belongs to this period
+                if ((r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded') && r.order_id && validIds.has(r.order_id)) {
+                    raw.refundedOrderIds.add(r.order_id);
                     const refundAmount = r.refund_details?.refundAmount || Math.abs(r.amount || 0);
                     const refundCurr = r.refund_details?.refundCurrency || currency;
                     raw.refundByCurrency[refundCurr] = (raw.refundByCurrency[refundCurr] || 0) + refundAmount;
@@ -683,8 +706,8 @@ const calculateSummary = (
         return raw;
     };
 
-    const currentRawKpis = getRawKpis(records);
-    const previousRawKpis = previousRecords ? getRawKpis(previousRecords) : null;
+    const currentRawKpis = getRawKpis(records, validOrderIds);
+    const previousRawKpis = previousRecords ? getRawKpis(previousRecords, validPreviousOrderIds) : null;
 
     const filteredManualCosts = manualCosts.filter(cost =>
         cost.date >= filterDateRange.from && cost.date <= filterDateRange.to
@@ -796,11 +819,12 @@ const calculateSummary = (
                 allTableCurrencies.cost.add('USD');
             }
 
-            // Track refunds per shop
-            if (r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded') {
+            // Track refunds per shop - ONLY if validity check passes
+            if ((r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded') && r.order_id && validOrderIds.has(r.order_id)) {
                 if (r.order_id) shopData[r.account].refundedOrderIds.add(r.order_id);
                 const refundAmount = r.refund_details?.refundAmount || Math.abs(r.amount || 0);
-                shopData[r.account].refund[currency] = (shopData[r.account].refund[currency] || 0) + refundAmount;
+                const refundCurr = r.refund_details?.refundCurrency || currency;
+                shopData[r.account].refund[refundCurr] = (shopData[r.account].refund[refundCurr] || 0) + refundAmount;
             }
 
             // --- Aggregate Product Stats ---
