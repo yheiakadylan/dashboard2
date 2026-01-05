@@ -69,7 +69,8 @@ export const splitDateRange = (start: Date, end: Date): DateChunk[] => {
 
     let chunkSizeMs: number;
 
-    // Chiến lược chia nhỏ "Aggressive" để tăng tính song song
+    // Chiến lược chia nhỏ "Aggressive" cho range ngắn (<= 30 ngày) để load nhanh UI
+    // Tối ưu hóa cho range dài (> 30 ngày) để tránh quá nhiều request gây chậm
     if (totalDays <= 1) {
         chunkSizeMs = 2 * ONE_HOUR;    // 1 ngày chia thành 12 phần (mỗi phần 2h)
     } else if (totalDays <= 3) {
@@ -79,9 +80,9 @@ export const splitDateRange = (start: Date, end: Date): DateChunk[] => {
     } else if (totalDays <= 30) {
         chunkSizeMs = 1 * ONE_DAY;     // 1 tháng, mỗi phần 1 ngày
     } else if (totalDays <= 90) {
-        chunkSizeMs = 2 * ONE_DAY;     // 3 tháng, mỗi phần 2 ngày
+        chunkSizeMs = 5 * ONE_DAY;     // 3 tháng: mỗi phần 5 ngày (giảm tải số request)
     } else {
-        chunkSizeMs = 3 * ONE_DAY;     // Trên 3 tháng, mỗi phần chỉ 3 ngày
+        chunkSizeMs = 15 * ONE_DAY;    // > 3 tháng: mỗi phần 30 ngày (tối ưu cho cả năm)
     }
 
     const chunks: DateChunk[] = [];
