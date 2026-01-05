@@ -448,24 +448,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         };
       } else if (type === 'summary') {
+        const revMap = { USD: 2500.00, AUD: 150.00, GBP: 50.00 }; // Test Data with multiple currencies
+
         payload = {
           title: '📊 Daily Summary (Test)',
-          body: 'Your daily sales summary is ready!',
+          body: `📅 ${new Date().toISOString().split('T')[0]}\nOrders: 25\nTap to view full report.`,
           url: createTabLink('Overview') // Deep link to Overview
         };
         notificationData = {
           type: 'SUMMARY',
           title: 'Daily Sales Summary',
-          content: '25 orders totaling $2,500.00 for ' + new Date().toISOString().split('T')[0],
+          content: '25 orders processed on ' + new Date().toISOString().split('T')[0] + '. Tap to view full report.',
           metadata: {
             summary_data: {
               date: new Date().toISOString().split('T')[0],
-              totalOrders: 25,
-              totalRevenue: 2500.00,
+              totalOrders: 25, /* Consistent with payload */
+              totalRevenue: revMap, /* Use the multi-currency map */
               shops: [
-                { name: 'Etsy Store A', orders: 15, revenue: 1500.00 },
-                { name: 'eBay Store B', orders: 7, revenue: 700.00 },
-                { name: 'Amazon Store C', orders: 3, revenue: 300.00 },
+                { name: 'Etsy Store A', orders: 15, revenue: { USD: 2500.00 } },
+                { name: 'eBay Store B', orders: 7, revenue: { AUD: 150.00 } },
+                { name: 'Amazon Store C', orders: 3, revenue: { GBP: 50.00 } },
               ]
             }
           }
@@ -489,6 +491,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               location: 'Ho Chi Minh City, VN',
               timestamp: new Date().toISOString(),
             }
+          }
+        };
+      } else if (type === 'case') {
+        payload = {
+          title: '⚖️ Case Alert (Test)',
+          body: 'Case Opened: Order #CASE-999 (Test Shop)',
+          url: createTabLink('Support')
+        };
+        notificationData = {
+          type: 'CASE',
+          title: 'Case Alert',
+          content: 'A new case has been opened for Order #CASE-999.',
+          metadata: {
+            // Include minimal fields to match what notification center expects
+            order_id: 'CASE-999',
+            shopName: 'Test Shop',
+            case_msg: 'Buyer says: Item not received',
+          }
+        };
+      } else if (type === 'help') {
+        payload = {
+          title: '🆘 Help Request (Test)',
+          body: 'Help Request: Order #HELP-888 - Item arrived damaged (Test Shop)',
+          url: createTabLink('Support')
+        };
+        notificationData = {
+          type: 'HELP',
+          title: 'Help Request',
+          content: 'Buyer needs help with Order #HELP-888.',
+          metadata: {
+            order_id: 'HELP-888',
+            shopName: 'Test Shop',
+            help_kind: 'Item arrived damaged',
           }
         };
       } else {

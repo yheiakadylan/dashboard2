@@ -29,12 +29,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await sendLarkDailySummary(summaryData);
 
     // 2. Create Notification Document in Firestore (to get ID for deep link)
-    const revenueUSD = summaryData.totalRevenue['USD'] || 0;
     const notificationId = await createNotificationDocument({
       teamId: SHARED_USER_ID,
       type: 'SUMMARY',
       title: 'Daily Sales Summary',
-      content: `${summaryData.totalOrders} orders totaling $${revenueUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} for ${yesterdayISO}`,
+      content: `${summaryData.totalOrders} orders processed on ${yesterdayISO}. Tap to view full report.`,
       metadata: {
         summary_data: {
           date: yesterdayISO,
@@ -61,7 +60,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     await sendPushNotificationToUsers(SHARED_USER_ID, 'summary', {
       title: 'Daily Summary Report',
-      body: `📅 ${yesterdayISO}\nOrders: ${summaryData.totalOrders}\nRevenue: $${revenueUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      body: `📅 ${yesterdayISO}\nOrders: ${summaryData.totalOrders}\nTap to view full report.`,
       url: deepLink // Deep link to notification detail modal
     });
 

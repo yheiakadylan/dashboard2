@@ -84,7 +84,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const newRecords: any[] = [];
-    const notificationEvents: { type: 'order' | 'funds', text: string }[] = [];
+    const notificationEvents: { type: 'order' | 'funds' | 'case' | 'help', text: string }[] = [];
 
     for (const item of historyData.history as any[]) {
       if (item.messagesAdded) {
@@ -128,6 +128,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 notificationEvents.push({
                   type: 'funds',
                   text: `Funds Received: $${newRecord.amount} ${newRecord.currency} (${shopName})`
+                });
+              } else if (newRecord.kind === 'case') {
+                notificationEvents.push({
+                  type: 'case',
+                  text: `Case Opened: Order #${newRecord.order_id} (${shopName})`
+                });
+              } else if (newRecord.kind === 'help') {
+                notificationEvents.push({
+                  type: 'help',
+                  text: `Help Request: Order #${newRecord.order_id} - ${newRecord.help_kind || 'General'} (${shopName})`
                 });
               }
               break;
@@ -183,10 +193,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (notificationEvents.length === 1) {
         // Gửi 1 tin duy nhất
         const evt = notificationEvents[0];
-        const deepLink = createDeepLink(evt.type === 'order' ? 'Order List' : 'Overview');
+        let deepLink = baseUrl;
+
+        if (evt.type === 'order') deepLink = createDeepLink('Order List');
+        else if (evt.type === 'funds') deepLink = createDeepLink('Overview');
+        else if (evt.type === 'case' || evt.type === 'help') deepLink = createDeepLink('Support');
+
+        let title = 'Notification';
+        if (evt.type === 'order') title = 'New Order!';
+        else if (evt.type === 'funds') title = 'Funds Received!';
+        else if (evt.type === 'case') title = 'Case Alert!';
+        else if (evt.type === 'help') title = 'Help Request!';
 
         await sendPushNotificationToUsers(effectiveUserId, evt.type, {
-          title: evt.type === 'order' ? 'New Order!' : 'Funds Received!',
+          title: title,
           body: evt.text,
           url: deepLink
         });
@@ -194,6 +214,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // Gửi tổng hợp nếu nhiều tin
         const orders = notificationEvents.filter(e => e.type === 'order');
         const funds = notificationEvents.filter(e => e.type === 'funds');
+        const tasks = notificationEvents.filter(e => e.type === 'case' || e.type === 'help'); // Shared 'Support'
 
         if (orders.length > 0) {
           const deepLink = createDeepLink('Order List');
@@ -208,6 +229,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           await sendPushNotificationToUsers(effectiveUserId, 'funds', {
             title: 'New Funds Received',
             body: `You have ${funds.length} new payout updates.`,
+            url: deepLink
+          });
+        }
+        if (tasks.length > 0) {
+          const deepLink = createDeepLink('Support');
+          // Determine if it's mostly cases or help
+          const caseCount = tasks.filter(t => t.type === 'case').length;
+          const helpCount = tasks.filter(t => t.type === 'help').length;
+
+          await sendPushNotificationToUsers(effectiveUserId, caseCount > 0 ? 'case' : 'help', {
+            title: 'New Support Issues',
+            body: `You have ${caseCount} cases and ${helpCount} help requests.`,
             url: deepLink
           });
         }
