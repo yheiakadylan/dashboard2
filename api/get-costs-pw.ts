@@ -8,6 +8,11 @@ const formatPrintwayDate = (date: Date): string => date.toISOString().replace('T
 
 // Helper: Normalize Order ID via Regex (Extract first numeric sequence)
 const normalizeOrderId = (rawId: string): string => {
+    // Fix: eBay Order IDs (formatted like 01-14061-85798) should not be truncated.
+    // Check for pattern: digits-digits-digits
+    if (/^\d+-\d+-\d+$/.test(rawId)) {
+        return rawId;
+    }
     const match = rawId.match(/^(\d+)/);
     return match ? match[1] : rawId;
 };
