@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useUI } from '../contexts/UIContext';
 import { addManualCost, updateManualCost, deleteManualCost } from '../services/firebaseService';
+import ManualCostImporter from './ManualCostImporter';
 
 interface ManualCostEntry {
   id: string;
@@ -16,6 +17,8 @@ interface ManualCostEntry {
 const ManualCostManager: React.FC = () => {
   const { teamId, manualCosts, setManualCosts } = useDashboard();
   const { timeZone } = useUI();
+  const [showImporter, setShowImporter] = useState(false);
+
 
   const getTodayInTimezone = () => {
     const formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -32,6 +35,22 @@ const ManualCostManager: React.FC = () => {
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState({ providerName: '', cost: '', date: '' });
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+
+  if (showImporter) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm h-[600px] flex flex-col">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h3 className="font-semibold">Import Costs from File</h3>
+          <button onClick={() => setShowImporter(false)} className="text-gray-500 hover:text-gray-700">Close</button>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <React.Suspense fallback={<div className="p-10 text-center">Loading Importer...</div>}>
+            <ManualCostImporter onClose={() => setShowImporter(false)} />
+          </React.Suspense>
+        </div>
+      </div>
+    )
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,8 +134,17 @@ const ManualCostManager: React.FC = () => {
   };
 
 
+
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <button
+          onClick={() => setShowImporter(true)}
+          className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+        >
+          Import from File
+        </button>
+      </div>
       <div>
         <h3 className="text-lg font-semibold mb-3 border-b pb-2">Add Manual Fulfillment Cost</h3>
         <form onSubmit={handleSubmit} className="space-y-4">

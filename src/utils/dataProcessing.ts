@@ -554,16 +554,25 @@ const getFulfillRecords = (
 
     const emailRows = fulfillRecords.map(r => {
         const ffCode = r.ff_code || '-';
-        let provider = '-';
 
-        if (ffCode.startsWith('PWN')) {
-            provider = 'Printway';
-        } else if (ffCode !== '-' && ffCode !== 'owner') {
-            provider = 'Merchize';
+        // Logic: Use explicit provider if set (from manual import), else guess based on code
+        let provider = r.fulfill_provider;
+        if (!provider || provider === '-') {
+            if (ffCode.startsWith('PWN')) {
+                provider = 'Printway';
+            } else if (ffCode !== '-' && ffCode !== 'owner') {
+                provider = 'Merchize';
+            } else {
+                provider = '-';
+            }
         }
 
+        // Logic: Use fulfillment date if set, else order date
+        const dateToUse = r.fulfill_date || r.dt_local;
+        const displayDate = formatDate(dateToUse, timeZone);
+
         return [
-            formatDate(r.dt_local, timeZone),
+            displayDate,
             r.order_id || 'N/A',
             r.product_name || '-',
             provider,

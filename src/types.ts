@@ -63,6 +63,8 @@ export interface Record {
   help_kind?: string | null;
   cost_total?: number;
   ff_code?: string;
+  fulfill_provider?: string; // e.g. "IP", "Printway"
+  fulfill_date?: string; // Date of fulfillment from provider
   product_name?: string;
   details?: OrderDetails;
   status?: 'New' | 'Shipped' | 'Refunded';
