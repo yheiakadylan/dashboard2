@@ -199,7 +199,9 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
     // Calculate height for List
     let listHeight = 0;
     if (autoHeight) {
-        listHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
+        // For autoHeight, calculate total height needed for all items
+        // This ensures react-window renders all items in the list
+        listHeight = sortedData.length * itemSize;
     } else {
         listHeight = isMobile ? height : height - 48; // Subtract header height on desktop
     }
