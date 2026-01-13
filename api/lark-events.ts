@@ -373,7 +373,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         city: shippingAddress.city,
         state: shippingAddress.state,
         zipCode: shippingAddress.zip,
-        countryCode: shippingAddress.country
+        countryCode: shippingAddress.country,
+        items: bestRecord.details.items || []
       });
 
     } catch (err: any) {
