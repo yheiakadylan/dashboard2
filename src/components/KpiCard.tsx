@@ -1,4 +1,5 @@
 import React from 'react';
+import { getCountryCode } from '../utils/currencyUtils';
 
 import { KpiValue } from '../types';
 
@@ -139,7 +140,22 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo }) => {
               {Object.entries(value as { [currency: string]: KpiValue }).map(([currency, kpiVal]) => (
                 <div key={currency} className="flex flex-col gap-0.5">
                   <div className="flex justify-between items-center border-b border-gray-50 dark:border-gray-700/50 pb-1">
-                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{currency}</span>
+                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded flex items-center gap-1.5">
+                      {(() => {
+                        const code = getCountryCode(currency);
+                        return code ? (
+                          <img
+                            src={`https://flagcdn.com/24x18/${code}.png`}
+                            srcSet={`https://flagcdn.com/w40/${code}.png 2x`}
+                            width="14"
+                            height="10"
+                            alt={currency}
+                            className="object-contain rounded-[1px]"
+                          />
+                        ) : null;
+                      })()}
+                      {currency}
+                    </span>
                     <div className="flex items-center gap-2">
                       <span className="text-base font-bold text-gray-900 dark:text-white">{kpiVal.value}</span>
                       {/* Simplified trend for multi-currency to save space */}

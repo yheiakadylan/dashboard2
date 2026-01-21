@@ -178,26 +178,6 @@ export const processData = (
 
                             productStats.set(key, current);
                         });
-                    } else if (r.product_name && r.product_name !== 'N/A') {
-                        // Fallback for records without details but with product_name
-                        const names = r.product_name.split(',').map(n => n.trim()).filter(n => n);
-                        if (names.length > 0) {
-                            const itemRevenue = netRevenue / names.length; // Equal split
-                            names.forEach(name => {
-                                const key = `${name}_${shopName}`;
-                                const current = productStats.get(key) || {
-                                    image: null,
-                                    name: name,
-                                    shop: shopName,
-                                    quantity: 0,
-                                    revenue: 0,
-                                    currency: r.currency || 'USD'
-                                };
-                                current.quantity += 1; // Assume 1
-                                current.revenue += itemRevenue;
-                                productStats.set(key, current);
-                            });
-                        }
                     }
                 });
 
@@ -688,12 +668,14 @@ const calculateSummary = (
             refundByCurrency: {},
         };
         recordsToProcess.forEach(r => {
-            raw.shops.add(r.account);
             const currency = r.currency || 'USD';
             if (r.kind === 'order') {
                 const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded' || r.source === 'Etsy_Shipped';
 
-                if (r.order_id && !isStatusUpdate) raw.orderIds.add(r.order_id);
+                if (r.order_id && !isStatusUpdate) {
+                    raw.orderIds.add(r.order_id);
+                    raw.shops.add(r.account); // Active shop (Sale only)
+                }
 
                 if (r.amount > 0 && !isStatusUpdate) {
                     raw.revenueByCurrency[currency] = (raw.revenueByCurrency[currency] || 0) + r.amount;
@@ -818,14 +800,18 @@ const calculateSummary = (
 
         const currency = r.currency || 'USD';
         if (r.kind === 'order') {
-            if (r.order_id) shopData[r.account].orders.add(r.order_id);
-            if (r.amount > 0) {
-                shopData[r.account].revenue[currency] = (shopData[r.account].revenue[currency] || 0) + r.amount;
-                allTableCurrencies.revenue.add(currency);
-            }
-            if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
-                shopData[r.account].cost['USD'] = (shopData[r.account].cost['USD'] || 0) + r.cost_total;
-                allTableCurrencies.cost.add('USD');
+            const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded' || r.source === 'Etsy_Shipped';
+
+            if (!isStatusUpdate) {
+                if (r.order_id) shopData[r.account].orders.add(r.order_id);
+                if (r.amount > 0) {
+                    shopData[r.account].revenue[currency] = (shopData[r.account].revenue[currency] || 0) + r.amount;
+                    allTableCurrencies.revenue.add(currency);
+                }
+                if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
+                    shopData[r.account].cost['USD'] = (shopData[r.account].cost['USD'] || 0) + r.cost_total;
+                    allTableCurrencies.cost.add('USD');
+                }
             }
 
             // Track refunds per shop - ONLY if validity check passes
@@ -837,35 +823,23 @@ const calculateSummary = (
             }
 
             // --- Aggregate Product Stats ---
-            // Priority 1: Use parsed item details
-            if (r.details && r.details.items && r.details.items.length > 0) {
-                r.details.items.forEach(item => {
-                    const name = decodeHTMLEntities(item.name.trim());
-                    const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
+            if (!isStatusUpdate) {
+                // Priority 1: Use parsed item details
+                if (r.details && r.details.items && r.details.items.length > 0) {
+                    r.details.items.forEach(item => {
+                        const name = decodeHTMLEntities(item.name.trim());
+                        const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
 
-                    // --- High Res Image Logic --- -> Refactored
-                    const image = getHighResImageUrl(item.image || current.image);
+                        // --- High Res Image Logic --- -> Refactored
+                        const image = getHighResImageUrl(item.image || current.image);
 
-                    productStatsByShop[shopLabel].set(name, {
-                        qty: current.qty + item.quantity,
-                        rev: current.rev + (item.quantity * item.price),
-                        image: image
+                        productStatsByShop[shopLabel].set(name, {
+                            qty: current.qty + item.quantity,
+                            rev: current.rev + (item.quantity * item.price),
+                            image: image
+                        });
                     });
-                });
-            }
-            // Priority 2: Use product_name from record (likely from Cost APIs)
-            else if (r.product_name && r.product_name !== '-' && r.product_name !== 'N/A') {
-                const names = r.product_name.split(',').map(n => n.trim()).filter(n => n);
-                names.forEach(name => {
-                    const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
-                    // Assume quantity 1 and split amount if multiple names, or just assign amount to each for simplicity approx
-                    // For 'Best Selling' by quantity, just incrementing qty is safer
-                    productStatsByShop[shopLabel].set(name, {
-                        qty: current.qty + 1,
-                        rev: current.rev + r.amount, // Rough estimate
-                        image: current.image
-                    });
-                });
+                }
             }
         } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewFunds)) {
             shopData[r.account].funds[currency] = (shopData[r.account].funds[currency] || 0) + r.amount;
