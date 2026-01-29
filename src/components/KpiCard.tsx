@@ -1,13 +1,27 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { getCountryCode } from '../utils/currencyUtils';
 
 import { KpiValue } from '../types';
+import { ConversionModal } from './ConversionModal';
 
 interface KpiCardProps {
   title: string;
   value: KpiValue | { [currency: string]: KpiValue };
   refundInfo?: string | { [currency: string]: string };
+  onRateUpdate?: (currency: string, newRate: number) => void;
+  onRefresh?: () => void;
+  onReset?: () => void;
 }
+
+import {
+  ShoppingCart,
+  Store,
+  Banknote,
+  Wallet,
+  CreditCard,
+  PiggyBank,
+  LayoutDashboard
+} from 'lucide-react';
 
 // Icons mapping based on title
 const getIcon = (title: string) => {
@@ -16,66 +30,50 @@ const getIcon = (title: string) => {
 
   if (t.includes('order')) {
     return {
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-        </svg>
-      ),
+      icon: <ShoppingCart className={iconClass} />,
       bg: "bg-blue-100 dark:bg-blue-900/40",
       text: "text-blue-600 dark:text-blue-400"
     };
   }
   if (t.includes('revenue') || t.includes('money')) {
     return {
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
+      icon: <Banknote className={iconClass} />,
       bg: "bg-green-100 dark:bg-green-900/40",
       text: "text-green-600 dark:text-green-400"
     };
   }
   if (t.includes('fund')) {
     return {
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
-        </svg>
-      ),
+      icon: <Wallet className={iconClass} />,
       bg: "bg-purple-100 dark:bg-purple-900/40",
       text: "text-purple-600 dark:text-purple-400"
     };
   }
   if (t.includes('cost')) {
     return {
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-        </svg>
-      ),
+      icon: <CreditCard className={iconClass} />,
       bg: "bg-red-100 dark:bg-red-900/40",
       text: "text-red-600 dark:text-red-400"
     };
   }
   if (t.includes('shop')) {
     return {
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-        </svg>
-      ),
+      icon: <Store className={iconClass} />,
       bg: "bg-orange-100 dark:bg-orange-900/40",
       text: "text-orange-600 dark:text-orange-400"
     };
   }
+  if (t.includes('earn') || t.includes('profit')) {
+    return {
+      icon: <PiggyBank className={iconClass} />,
+      bg: "bg-teal-100 dark:bg-teal-900/40",
+      text: "text-teal-600 dark:text-teal-400"
+    };
+  }
+
   // Default
   return {
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ),
+    icon: <LayoutDashboard className={iconClass} />,
     bg: "bg-gray-100 dark:bg-gray-700",
     text: "text-gray-600 dark:text-gray-400"
   };
@@ -104,8 +102,16 @@ const renderComparison = (kpiValue: KpiValue) => {
 };
 
 
-const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo }) => {
+const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdate, onRefresh, onReset }) => {
   const { icon, bg, text } = getIcon(title);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const handleValueClick = useCallback((e: React.MouseEvent) => {
+    if ('conversionDetails' in value && value.conversionDetails) {
+      e.stopPropagation();
+      setIsModalOpen(true);
+    }
+  }, [value]);
 
   return (
     <div
@@ -125,8 +131,25 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo }) => {
           {'value' in value && typeof value.value === 'string' ? (
             <div className="flex flex-col gap-1">
               <div className="flex items-baseline gap-2">
-                <p className="text-2xl font-black text-gray-900 dark:text-white truncate tracking-tight">{value.value}</p>
+                <p
+                  className={`text-2xl font-black text-gray-900 dark:text-white truncate tracking-tight ${(value as KpiValue).conversionDetails ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-b-2 border-dotted border-gray-300 dark:border-gray-600' : ''}`}
+                  onClick={handleValueClick}
+                  title={(value as KpiValue).conversionDetails ? "Click to view conversion details" : ""}
+                >
+                  {value.value}
+                </p>
                 {renderComparison(value as KpiValue)}
+
+                {(value as KpiValue).conversionDetails && (
+                  <ConversionModal
+                    isOpen={isModalOpen}
+                    onClose={() => setIsModalOpen(false)}
+                    conversionDetails={(value as KpiValue).conversionDetails!}
+                    onRateUpdate={onRateUpdate}
+                    onRefresh={onRefresh}
+                    onReset={onReset}
+                  />
+                )}
               </div>
               {/* Refund info for simple value */}
               {refundInfo && typeof refundInfo === 'string' && (

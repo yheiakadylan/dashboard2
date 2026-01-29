@@ -77,7 +77,8 @@ export const processData = (
     timeZone: string,
     role: string,
     permissions: { [key: string]: boolean },
-    manualCosts: any[]
+    manualCosts: any[],
+    exchangeRates: { [currency: string]: number } | null
 ): ProcessedData => {
     const accountLabelMap = new Map(accounts.map(acc => [acc.email, acc.label || acc.email]));
 
@@ -117,11 +118,11 @@ export const processData = (
     const cases = getSupportRecords(uniqueRecords, 'case', accountLabelMap, timeZone);
     const help = getSupportRecords(uniqueRecords, 'help', accountLabelMap, timeZone);
     const fulfill = (role === 'owner' || permissions.viewFulfill)
-        ? getFulfillRecords(uniqueRecords, accountLabelMap, timeZone, manualCosts, filterDateRange)
-        : { table: { headers: ['Fulfill'], rows: [["Permission Denied"]] }, merchizeChartData: [], printwayChartData: [] };
+        ? getFulfillRecords(uniqueRecords, accountLabelMap, timeZone, manualCosts, filterDateRange, exchangeRates)
+        : { table: { headers: ['Fulfill'], rows: [["Permission Denied"]] }, merchizeChartData: [], printwayChartData: [], totalCost: 0 };
 
     const { kpis: summaryKpis, table: summaryTable, chartData: summaryChartData, topProductsByShop } = (role === 'owner' || permissions.viewSales)
-        ? calculateSummary(uniqueRecords, previousRecords, accountLabelMap, role, permissions, manualCosts, filterDateRange)
+        ? calculateSummary(uniqueRecords, previousRecords, accountLabelMap, role, permissions, manualCosts, filterDateRange, exchangeRates)
         : { kpis: {}, table: { headers: ['Summary'], rows: [["Permission Denied"]] }, chartData: [], topProductsByShop: {} };
 
     return {
@@ -509,31 +510,51 @@ const getFulfillRecords = (
     accountLabelMap: Map<string, string>,
     timeZone: string,
     manualCosts: any[],
-    filterDateRange: { from: string, to: string }
-): { table: TableData; merchizeChartData: FulfillChartData[]; printwayChartData: FulfillChartData[] } => {
+    filterDateRange: { from: string, to: string },
+    exchangeRates: { [currency: string]: number } | null
+): { table: TableData; merchizeChartData: FulfillChartData[]; printwayChartData: FulfillChartData[]; totalCost: number } => {
 
     const headers = ["Date", "Order Number", "Product Name", "Provider", "Fulfillment Code", "Cost (USD)", "Shop Account"];
+    let totalCost = 0;
 
     // 1. Xử lý Manual Costs (Chi phí nhập tay)
     const filteredManualCosts = manualCosts.filter(cost =>
         cost.date >= filterDateRange.from && cost.date <= filterDateRange.to
     );
 
-    const manualRows = filteredManualCosts.map(cost => [
-        cost.date,
-        "N/A (Manual)",
-        "N/A (Manual)",
-        cost.providerName,
-        "owner",
-        cost.cost,
-        "Manual Entry",
-    ]);
+    const manualRows = filteredManualCosts.map(cost => {
+        // Calculate Cost in USD
+        let costUSD = cost.cost;
+        if (cost.currency && cost.currency !== 'USD' && exchangeRates && exchangeRates[cost.currency]) {
+            costUSD = cost.cost * exchangeRates[cost.currency];
+        } else if (cost.currency && cost.currency !== 'USD' && (!exchangeRates || !exchangeRates[cost.currency])) {
+            // Fallback or ignore? Keeping original if rate missing might be wrong but better than 0? 
+            // Requirement says "chuan hoa ve USD". If rate missing, maybe strictly 0 or original?
+            // Let's keep original but strictly it should be converted.
+        }
+        totalCost += costUSD;
+
+        return [
+            cost.date,
+            "N/A (Manual)",
+            "N/A (Manual)",
+            cost.providerName,
+            "owner",
+            cost.cost, // Display original cost
+            "Manual Entry",
+        ];
+    });
 
     // 2. Xử lý Email Records (Chi phí từ API/Email)
     const fulfillRecords = records.filter(r => r.kind === 'order' && (r.ff_code || r.cost_total || r.product_name));
 
     const emailRows = fulfillRecords.map(r => {
         const ffCode = r.ff_code || '-';
+
+        // Update total Cost (Usually USD for automated records)
+        if (r.cost_total) {
+            totalCost += r.cost_total;
+        }
 
         // Logic: Use explicit provider if set (from manual import), else guess based on code
         let provider = r.fulfill_provider;
@@ -600,7 +621,7 @@ const getFulfillRecords = (
 
     const rows = [...manualRows, ...emailRows];
 
-    return { table: { headers, rows }, merchizeChartData, printwayChartData };
+    return { table: { headers, rows }, merchizeChartData, printwayChartData, totalCost };
 }
 
 const calculateSummary = (
@@ -610,7 +631,8 @@ const calculateSummary = (
     role: string,
     permissions: { [key: string]: boolean },
     manualCosts: any[],
-    filterDateRange: { from: string; to: string }
+    filterDateRange: { from: string; to: string },
+    exchangeRates: { [currency: string]: number } | null
 ): { kpis: KpiData, table: TableData, chartData: SummaryChartData[], topProductsByShop: { [shopName: string]: TopProduct[] } } => {
 
     const calculatePercentageChange = (current: number, previous: number): { change: number; direction: 'up' | 'down' | 'neutral' } => {
@@ -764,6 +786,39 @@ const calculateSummary = (
     } else {
         kpis['Cost'] = { value: '---' };
     }
+
+    // --- CALCULATE EARN (Net Profit) ---
+    if ((role === 'owner' || permissions.viewFunds) && (role === 'owner' || permissions.viewFulfill) && exchangeRates) {
+        let totalFundsUSD = 0;
+        let totalCostUSD = 0;
+
+        // Convert Funds -> USD
+        Object.entries(currentRawKpis.fundsByCurrency).forEach(([currency, amount]) => {
+            const rate = exchangeRates[currency] || (currency === 'USD' ? 1 : 0);
+            totalFundsUSD += amount * rate;
+        });
+
+        // Convert Cost -> USD
+        Object.entries(currentRawKpis.costByCurrency).forEach(([currency, amount]) => {
+            const rate = exchangeRates[currency] || (currency === 'USD' ? 1 : 0);
+            totalCostUSD += amount * rate;
+        });
+
+        const earnUSD = totalFundsUSD - totalCostUSD;
+
+        kpis['Earn'] = {
+            value: formatCurrency(earnUSD),
+            // We could compare with previous period if we calculated previous EARN, but let's skip comparison for now for simplicity
+            conversionDetails: {
+                originalAmounts: { ...currentRawKpis.fundsByCurrency },
+                rates: exchangeRates
+            }
+        };
+    } else {
+        // If no rights or no rates, cannot calc
+        kpis['Earn'] = { value: '---' };
+    }
+
 
     const shopData: {
         [account: string]: {

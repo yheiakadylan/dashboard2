@@ -29,7 +29,8 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
         shops: processedData.summary.kpis['Shops'] || { value: '---' },
         revenue: processedData.summary.kpis['Revenue'] || { value: '---' },
         funds: canViewFunds ? (processedData.summary.kpis['Funds'] || { value: '---' }) : hiddenValue,
-        cost: canViewCost ? (processedData.summary.kpis['Cost'] || { value: '---' }) : hiddenValue
+        cost: canViewCost ? (processedData.summary.kpis['Cost'] || { value: '---' }) : hiddenValue,
+        earn: (canViewFunds && canViewCost) ? (processedData.summary.kpis['Earn'] || { value: '---' }) : hiddenValue
     }), [processedData.summary.kpis, canViewFunds, canViewCost, hiddenValue]);
 
     // Extract refund info from KPIs
@@ -46,15 +47,18 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
         return undefined;
     };
 
+    const { updateRate, refreshRates, resetRates } = useDashboard(); // Get exchange rate actions
+
     return (
         <div className="p-2 md:p-6">
             {/* 1. KPIs Section (Merged from Summary) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 md:gap-6 mb-6">
                 <KpiCard title="Total Orders" value={kpiValues.orders} refundInfo={getRefundInfo(kpiValues.orders)} />
                 <KpiCard title="Shops" value={kpiValues.shops} />
                 <KpiCard title="Revenue" value={kpiValues.revenue} refundInfo={getRefundInfo(kpiValues.revenue)} />
                 <KpiCard title="Funds" value={kpiValues.funds} />
                 <KpiCard title="Cost" value={kpiValues.cost} />
+                <KpiCard title="Earn" value={kpiValues.earn} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
             </div>
 
             {/* 2. Charts Section */}

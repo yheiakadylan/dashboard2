@@ -12,8 +12,9 @@ import { User } from 'firebase/auth';
 import { useDataSync } from '../hooks/useDataSync';
 import { useRecordFiltering } from '../hooks/useRecordFiltering';
 import { useAutoSync } from '../hooks/useAutoSync';
+import { useExchangeRates } from '../hooks/useExchangeRates';
 
-// Default Tab List
+
 // Default Tab List
 // const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Case', 'Help', 'Fulfill']; // Unused
 
@@ -67,6 +68,11 @@ interface DashboardContextType {
 
 
   processedData: ProcessedData;
+  exchangeRates: { [key: string]: number } | null;
+  updateRate: (currency: string, rate: number) => void;
+  resetRates: () => void;
+  refreshRates: () => Promise<void>;
+  nextUpdateTime: Date | null;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -120,6 +126,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     timeZone,
     addNotification
   });
+
+  const { rates: exchangeRates, updateRate, resetRates, refreshRates, nextUpdateTime } = useExchangeRates();
 
   // --- Auto-Sync to Google Sheets ---
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
@@ -245,7 +253,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     etsy: { headers: [], rows: [] },
     cases: { headers: [], rows: [] },
     help: { headers: [], rows: [] },
-    fulfill: { table: { headers: [], rows: [] }, merchizeChartData: [], printwayChartData: [] },
+    fulfill: { table: { headers: [], rows: [] }, merchizeChartData: [], printwayChartData: [], totalCost: 0 },
     summary: { kpis: {}, table: { headers: [], rows: [] }, chartData: [], topProductsByShop: {} },
     products: { headers: [], rows: [] }
   };
@@ -327,13 +335,15 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     filter: any;
     tz: string;
     manual: any;
+    rates: any;
   }>({
     records: null,
     prevRecords: null,
     accountsHash: '',
     filter: null,
     tz: '',
-    manual: null
+    manual: null,
+    rates: null
   });
 
   // Sync ref for safety timeout check
@@ -350,7 +360,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       accountsHash: processingAccountsHash,
       filter: filterDateRange,
       tz: timeZone,
-      manual: manualCosts
+      manual: manualCosts,
+      rates: exchangeRates
     };
 
     if (
@@ -359,7 +370,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       processingAccountsHash === lastTriggeredRef.current.accountsHash &&
       filterDateRange === lastTriggeredRef.current.filter &&
       timeZone === lastTriggeredRef.current.tz &&
-      manualCosts === lastTriggeredRef.current.manual
+      manualCosts === lastTriggeredRef.current.manual &&
+      JSON.stringify(exchangeRates) === JSON.stringify(lastTriggeredRef.current.rates)
     ) {
       return;
     }
@@ -370,7 +382,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       accountsHash: processingAccountsHash,
       filter: filterDateRange,
       tz: timeZone,
-      manual: manualCosts
+      manual: manualCosts,
+      rates: exchangeRates
     };
 
     // Set processing state
@@ -399,11 +412,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       timeZone,
       role,
       permissions,
-      manualCosts
+      manualCosts,
+      exchangeRates
     });
 
     return () => clearTimeout(safetyTimeout);
-  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, manualCosts]);
+  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, manualCosts, exchangeRates]);
+
 
 
   // --- Action Handlers ---
@@ -706,7 +721,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       handleExportWithOptions,
       performGlobalSearch,
       clearGlobalSearch,
-      processedData
+      processedData,
+      exchangeRates,
+      updateRate,
+      resetRates,
+      refreshRates,
+      nextUpdateTime
 
 
     }}>

@@ -94,6 +94,11 @@ export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%
   direction?: 'up' | 'down' | 'neutral';
+  refundInfo?: string;
+  conversionDetails?: {
+    originalAmounts: { [currency: string]: number };
+    rates: { [currency: string]: number };
+  };
 }
 
 export interface KpiData {
@@ -143,6 +148,7 @@ export interface ProcessedData {
     table: TableData;
     merchizeChartData: FulfillChartData[];
     printwayChartData: FulfillChartData[];
+    totalCost: number; // Sum of all costs in displayed records
   };
   summary: {
     kpis: KpiData;

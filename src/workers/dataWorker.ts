@@ -11,6 +11,7 @@ interface WorkerMessage {
     role: string;
     permissions: { [key: string]: boolean };
     manualCosts: ManualCost[];
+    exchangeRates: { [currency: string]: number } | null;
 }
 
 self.onmessage = (e: MessageEvent<WorkerMessage>) => {
@@ -23,7 +24,8 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
         timeZone,
         role,
         permissions,
-        manualCosts
+        manualCosts,
+        exchangeRates
     } = e.data;
 
     try {
@@ -35,7 +37,8 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
             timeZone,
             role,
             permissions,
-            manualCosts
+            manualCosts,
+            exchangeRates
         );
         self.postMessage({ success: true, data: processed, requestId });
     } catch (error: any) {
