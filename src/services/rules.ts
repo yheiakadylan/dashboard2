@@ -80,19 +80,8 @@ export const RULES: Rule[] = [
     parseFrom: "snippet",
   },
 
-  // ==================== ETSY STATUS (SHIPPED / REFUND) ====================
-  {
-    name: "Etsy_Shipped",
-    kind: "order", // ✅ Changed from 'shipped' to 'order'
-    platform: "etsy",
-    query: 'subject:"Your shipping notification sent to"',
-    // Subject: Your shipping notification sent to ... (Receipt #3877854339)
-    amountOrderRe: new RegExp(
-      `Your shipping notification sent to .*?\\(Receipt #(?<oid>\\d+)\\)`,
-      "i"
-    ),
-    parseFrom: "subject", // Lấy ID trực tiếp từ Subject
-  },
+  // ==================== ETSY STATUS (REFUND) ====================
+
   {
     name: "Etsy_Refunded",
     kind: "order", // ✅ Changed from 'refund' to 'order'
@@ -781,8 +770,8 @@ export const parseMessage = (
     };
   }
 
-  // ====== SHIPPED / REFUNDED (now treated as orders) ======
-  if (rule.name === 'Etsy_Shipped' || rule.name === 'Etsy_Refunded') {
+  // ====== REFUNDED (now treated as orders) ======
+  if (rule.name === 'Etsy_Refunded') {
     const order_id = (groups.oid || "").trim() || null;
     if (!order_id) {
       return {
@@ -800,18 +789,14 @@ export const parseMessage = (
       currency: null,
     };
 
-    if (rule.name === 'Etsy_Shipped') {
-      result.status = 'Shipped';
-    } else if (rule.name === 'Etsy_Refunded') {
-      result.status = 'Refunded';
-      try {
-        const refundDetails = extractRefundDetails(body, order_id);
-        if (refundDetails) {
-          result.refund_details = refundDetails;
-        }
-      } catch (e) {
-        console.warn("Error parsing refund details", e);
+    result.status = 'Refunded';
+    try {
+      const refundDetails = extractRefundDetails(body, order_id);
+      if (refundDetails) {
+        result.refund_details = refundDetails;
       }
+    } catch (e) {
+      console.warn("Error parsing refund details", e);
     }
 
     return result;

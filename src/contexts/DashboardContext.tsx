@@ -188,15 +188,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
           // Show toast notification only for orders
           if (newRecord.kind === 'order') {
             const isRefund = newRecord.source === 'Etsy_Refunded' || newRecord.source === 'Ebay_Refunded';
-            const isShipped = newRecord.source === 'Etsy_Shipped';
-
             if (isRefund) {
               addNotification(
                 `Refund processed #${newRecord.order_id}`,
                 'warning'
               );
-            } else if (!isShipped) {
-              // Real new order (not shipped update)
+            } else {
+              // Real new order
               const productName = newRecord.details?.items?.[0]?.name || 'Unknown product';
               addNotification(
                 `New order #${newRecord.order_id}: ${productName}`,

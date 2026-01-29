@@ -1,4 +1,4 @@
-import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../types';
+﻿import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../types';
 import { getHighResImageUrl } from './imageUtils';
 import { decodeHTMLEntities } from './htmlDecode';
 
@@ -328,11 +328,10 @@ const calculateOverview = (
 const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, timeZone: string): TableData => {
     const headers = ["Image", "Product Name", "Variants", "Order ID", "Status", "Revenue", "Curren", "Cost", "FF Code", "Case", "Help", "Account", "Date", "Source", "Actions"];
 
-    // ✅ Filter out shipped/refund records - they are status updates, not separate orders
+    // ✅ Filter out refund records - they are status updates, not separate orders
     // Only show regular orders (Sales, etc.) with their updated status
     const orders = records.filter(r =>
         r.kind === 'order' &&
-        r.source !== 'Etsy_Shipped' &&
         r.source !== 'Etsy_Refunded'
     );
 
@@ -342,21 +341,14 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
     const caseMap = new Map(cases.map(c => [c.order_id, c.case_msg || 'Yes']));
     const helpMap = new Map(helps.map(h => [h.order_id, h.help_kind || 'Yes']));
 
-    // ✅ Get shipped/refund records to join (like case/help)
-    const shipped = records.filter(r => r.source === 'Etsy_Shipped');
+    // ✅ Get refund records to join (like case/help)
     const refunded = records.filter(r => r.source === 'Etsy_Refunded');
 
-    // Create status map from shipped/refund records
+    // Create status map from refund records
     const statusMap = new Map<string, { status: string, refund_details?: any }>();
 
-    // Shipped first
-    shipped.forEach(s => {
-        if (s.order_id) {
-            statusMap.set(s.order_id, { status: 'Shipped' });
-        }
-    });
 
-    // Refund takes priority (overwrites shipped)
+    // Refund takes priority
     refunded.forEach(r => {
         if (r.order_id) {
             statusMap.set(r.order_id, {
@@ -404,7 +396,7 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
         // Map Source
         const displaySource = formatSource(o.source);
 
-        // ✅ Get status from statusMap (joined from shipped/refund records, like case/help)
+        // ✅ Get status from statusMap (joined from refund records, like case/help)
         const statusInfo = o.order_id ? statusMap.get(o.order_id) : null;
         const status = statusInfo?.status || o.status || 'New';
 
@@ -435,7 +427,7 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
 const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sales', accountLabelMap: Map<string, string>, timeZone: string): TableData => {
     const headers = ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"];
 
-    // Source filter is enough - Etsy_Sales won't match Etsy_Shipped/Etsy_Refunded
+    // Source filter is enough - Etsy_Sales won't match Etsy_Refunded
     const platformRecords = records.filter(r =>
         r.source === source &&
         r.kind === 'order'
@@ -652,7 +644,7 @@ const calculateSummary = (
     // 1. Collect Valid Order IDs first (Sales orders in the current view)
     const validOrderIds = new Set<string>();
     records.forEach(r => {
-        const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded' || r.source === 'Etsy_Shipped';
+        const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded';
         if (r.kind === 'order' && r.order_id && !isStatusUpdate) {
             validOrderIds.add(r.order_id);
         }
@@ -662,7 +654,7 @@ const calculateSummary = (
     const validPreviousOrderIds = new Set<string>();
     if (previousRecords) {
         previousRecords.forEach(r => {
-            const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded' || r.source === 'Etsy_Shipped';
+            const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded';
             if (r.kind === 'order' && r.order_id && !isStatusUpdate) {
                 validPreviousOrderIds.add(r.order_id);
             }
@@ -692,7 +684,7 @@ const calculateSummary = (
         recordsToProcess.forEach(r => {
             const currency = r.currency || 'USD';
             if (r.kind === 'order') {
-                const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded' || r.source === 'Etsy_Shipped';
+                const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded';
 
                 if (r.order_id && !isStatusUpdate) {
                     raw.orderIds.add(r.order_id);
@@ -855,7 +847,7 @@ const calculateSummary = (
 
         const currency = r.currency || 'USD';
         if (r.kind === 'order') {
-            const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded' || r.source === 'Etsy_Shipped';
+            const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded';
 
             if (!isStatusUpdate) {
                 if (r.order_id) shopData[r.account].orders.add(r.order_id);

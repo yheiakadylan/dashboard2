@@ -322,7 +322,6 @@ const Header: React.FC = () => {
                 options={[
                   { value: 'All', label: 'All Statuses' },
                   { value: 'New', label: 'New' },
-                  { value: 'Shipped', label: 'Shipped' },
                   { value: 'Refunded', label: 'Refunded' }
                 ]}
                 className="w-32"
@@ -405,7 +404,6 @@ const Header: React.FC = () => {
                 options={[
                   { value: 'All', label: 'All' },
                   { value: 'New', label: 'New' },
-                  { value: 'Shipped', label: 'Ship' },
                   { value: 'Refunded', label: 'Ref' }
                 ]}
                 className="w-[85px]"
@@ -509,7 +507,6 @@ const Header: React.FC = () => {
                     options={[
                       { value: 'All', label: 'All Statuses' },
                       { value: 'New', label: 'New' },
-                      { value: 'Shipped', label: 'Shipped' },
                       { value: 'Refunded', label: 'Refunded' }
                     ]}
                   />

@@ -192,9 +192,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     const statusValue = String(cell || 'New').trim();
                     let badgeClass = 'px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap ';
 
-                    if (statusValue === 'Shipped') {
-                        badgeClass += 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800';
-                    } else if (statusValue === 'Refunded') {
+                    if (statusValue === 'Refunded') {
                         badgeClass += 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800';
                     } else {
                         // New or default

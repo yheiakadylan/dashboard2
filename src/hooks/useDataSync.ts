@@ -181,7 +181,7 @@ export const useDataSync = ({
             // Use validRecords for the rest of the function
 
             // OPTIMIZATION: Only fetch costs if syncing Sales rules or Full Sync ("Sale" keyword check)
-            // This prevents calling MZ/PW APIs when just updating Shipped/Refunded status
+            // This prevents calling MZ/PW APIs when just updating Refunded status
             const isSaleRuleSync = !ruleNames || ruleNames.some(name => name.includes('Sales'));
 
             let costMap: Map<string, CostData> = new Map();
@@ -202,7 +202,7 @@ export const useDataSync = ({
                 }
             } else {
                 // If not syncing sales, we skip cost fetching. 
-                // Any new records (e.g. Shipped emails) will be saved without cost data, which is fine as they are statuses.
+                // Any new records (e.g. Refunded emails) will be saved without cost data, which is fine as they are statuses.
             }
 
             if (signal?.aborted) return [];
@@ -540,7 +540,7 @@ export const useDataSync = ({
         abortAllOperations();
 
         // STEP 2: Reset data immediately for better UX 
-        setRecords([]); 
+        setRecords([]);
         setPreviousPeriodRecords(null);
 
         // STEP 3: Abort previous date range fetch controller

@@ -56,8 +56,8 @@ interface UIContextType {
     setDayFilter: React.Dispatch<React.SetStateAction<string | null>>;
     sourceFilter: 'All' | 'Ebay_Sales' | 'Etsy_Sales';
     setSourceFilter: React.Dispatch<React.SetStateAction<'All' | 'Ebay_Sales' | 'Etsy_Sales'>>;
-    statusFilter: 'All' | 'New' | 'Shipped' | 'Refunded';
-    setStatusFilter: React.Dispatch<React.SetStateAction<'All' | 'New' | 'Shipped' | 'Refunded'>>;
+    statusFilter: 'All' | 'New' | 'Refunded';
+    setStatusFilter: React.Dispatch<React.SetStateAction<'All' | 'New' | 'Refunded'>>;
     supportFilter: 'All' | 'Case' | 'Help';
     setSupportFilter: React.Dispatch<React.SetStateAction<'All' | 'Case' | 'Help'>>;
 
@@ -76,8 +76,6 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useLocalStorage<boolean>('sidebarCollapsed', false);
 
     // Tab Preferences
-    // Note: We need userUid/teamId for unique storage keys. If not provided (e.g. not logged in), 
-    // we might fallback to generic key or wait. Assuming they are available for authenticated UI.
     const prefKey = userUid && teamId ? `tabPreferences_${teamId}_${userUid}` : 'tabPreferences_guest';
     const [tabPreferences, setTabPreferences] = useLocalStorage<{ tabOrder: Tab[], hiddenTabs: Tab[] }>(
         prefKey,
@@ -131,14 +129,8 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
             const oldToday = getTodayInTimezone(prevTimeZone.current);
             const newToday = getTodayInTimezone(timeZone);
 
-            // If the user had "Today" selected in the old timezone, update it to "Today" in the new timezone
             if (filterDateRange.from === oldToday && filterDateRange.to === oldToday) {
-                console.log(`[UIContext] Timezone changed: updating "Today" from ${oldToday} to ${newToday}`);
                 setFilterDateRange({ from: newToday, to: newToday });
-
-                // Also update if they had "Yesterday" selected?
-                // Heuristic: Check if from==to==yesterday(oldTimeout). 
-                // For now, only implementing Today as requested.
             }
 
             prevTimeZone.current = timeZone;
@@ -150,7 +142,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const [dayFilter, setDayFilter] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [sourceFilter, setSourceFilter] = useState<'All' | 'Ebay_Sales' | 'Etsy_Sales'>('All');
-    const [statusFilter, setStatusFilter] = useState<'All' | 'New' | 'Shipped' | 'Refunded'>('All');
+    const [statusFilter, setStatusFilter] = useState<'All' | 'New' | 'Refunded'>('All');
     const [supportFilter, setSupportFilter] = useState<'All' | 'Case' | 'Help'>('All');
 
     // Modals

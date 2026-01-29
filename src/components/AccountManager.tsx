@@ -54,7 +54,7 @@ const ReSyncModal: React.FC<ReSyncModalProps> = ({ isOpen, onClose, account, onC
   // Grouping by "Order", "Funds", "Status" etc. might be nice.
   const groupedRules = RULES.reduce((acc, rule) => {
     const category = rule.kind === 'Funds' ? 'Funds' :
-      (rule.name.includes('Shipped') || rule.name.includes('Refunded')) ? 'Status' :
+      (rule.name.includes('Refunded')) ? 'Status' :
         rule.kind === 'case' ? 'Cases' :
           rule.kind === 'help' ? 'Help Requests' : 'Orders';
     if (!acc[category]) acc[category] = [];
@@ -216,7 +216,7 @@ const BulkQuickSyncModal: React.FC<BulkQuickSyncModalProps> = ({ isOpen, onClose
 
   const groupedRules = RULES.reduce((acc, rule) => {
     const category = rule.kind === 'Funds' ? 'Funds' :
-      (rule.name.includes('Shipped') || rule.name.includes('Refunded')) ? 'Status' :
+      (rule.name.includes('Refunded')) ? 'Status' :
         rule.kind === 'case' ? 'Cases' :
           rule.kind === 'help' ? 'Help Requests' : 'Orders';
     if (!acc[category]) acc[category] = [];

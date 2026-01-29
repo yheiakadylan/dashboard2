@@ -67,7 +67,7 @@ export interface Record {
   fulfill_date?: string; // Date of fulfillment from provider
   product_name?: string;
   details?: OrderDetails;
-  status?: 'New' | 'Shipped' | 'Refunded';
+  status?: 'New' | 'Refunded';
   refund_details?: RefundDetails;
 }
 

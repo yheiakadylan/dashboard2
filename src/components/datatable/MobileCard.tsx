@@ -111,8 +111,6 @@ const StatusBadge = ({ status }: { status: string }) => {
 
     if (s === 'new') {
         colorClass = "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800";
-    } else if (s === 'shipped') {
-        colorClass = "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800";
     } else if (s === 'refunded') {
         colorClass = "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800";
     }
