@@ -151,6 +151,43 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
                   />
                 )}
               </div>
+
+              {/* Exchange Rate List - Funds Card Style */}
+              {(value as KpiValue).conversionDetails && (() => {
+                const details = (value as KpiValue).conversionDetails!;
+                const activeRates = Object.entries(details.rates).filter(([curr]) =>
+                  curr !== 'USD' && (details.originalAmounts[curr] || 0) > 0
+                );
+
+                if (activeRates.length === 0) return null;
+
+                return (
+                  <div className="mt-3 space-y-2 border-t border-gray-100 dark:border-gray-700/50 pt-2">
+                    {activeRates.map(([curr, rate]) => (
+                      <div key={curr} className="flex justify-between items-center text-xs">
+                        <div className="flex items-center gap-1.5 px-1.5 py-0.5 bg-gray-50 dark:bg-gray-700/50 rounded font-semibold text-gray-600 dark:text-gray-300">
+                          {(() => {
+                            const code = getCountryCode(curr);
+                            return code ? (
+                              <img
+                                src={`https://flagcdn.com/20x15/${code}.png`}
+                                width="16" height="12"
+                                className="object-contain rounded-[1px]"
+                                alt={curr}
+                              />
+                            ) : null;
+                          })()}
+                          <span>{curr}</span>
+                        </div>
+                        <span className="font-mono text-gray-500 dark:text-gray-400">
+                          {Number(rate).toFixed(3)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
               {/* Refund info for simple value */}
               {refundInfo && typeof refundInfo === 'string' && (
                 <p className="text-xs text-red-600 dark:text-red-400 font-medium mt-0.5">
