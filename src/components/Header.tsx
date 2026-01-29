@@ -10,6 +10,8 @@ import Spinner from './Spinner';
 import ExportOptionsModal from './ExportOptionsModal';
 import ExportProgressBar from './ExportProgressBar';
 import NotificationCenter from './NotificationCenter';
+import FilterPopover from './FilterPopover';
+import ActiveFilterTags from './ActiveFilterTags';
 
 const CustomSelect: React.FC<{
   value: string;
@@ -304,29 +306,16 @@ const Header: React.FC = () => {
 
           {/* Combined Filter - Only for Order List */}
           {/* Updated Filter Dropdowns - Order List */}
+          {/* Filter Popover - Only for Order List */}
           {activeTab === 'Order List' && (
-            <div className="flex items-center gap-2">
-              <CustomSelect
-                value={sourceFilter}
-                onChange={(val) => setSourceFilter(val as any)}
-                options={[
-                  { value: 'All', label: 'All Sources' },
-                  { value: 'Etsy_Sales', label: 'Etsy' },
-                  { value: 'Ebay_Sales', label: 'eBay' }
-                ]}
-                className="w-32"
-              />
-              <CustomSelect
-                value={statusFilter}
-                onChange={(val) => setStatusFilter(val as any)}
-                options={[
-                  { value: 'All', label: 'All Statuses' },
-                  { value: 'New', label: 'New' },
-                  { value: 'Refunded', label: 'Refunded' }
-                ]}
-                className="w-32"
-              />
-            </div>
+            <FilterPopover
+              sourceFilter={sourceFilter}
+              statusFilter={statusFilter}
+              onApply={(source, status) => {
+                setSourceFilter(source as any);
+                setStatusFilter(status as any);
+              }}
+            />
           )}
 
           {/* Support Filter - Only for Support Tab */}
@@ -446,6 +435,20 @@ const Header: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Active Filters Bar */}
+      {activeTab === 'Order List' && (
+        <ActiveFilterTags
+          sourceFilter={sourceFilter}
+          statusFilter={statusFilter}
+          onRemoveSource={() => setSourceFilter('All')}
+          onRemoveStatus={() => setStatusFilter('All')}
+          onClearAll={() => {
+            setSourceFilter('All');
+            setStatusFilter('All');
+          }}
+        />
+      )}
 
       {/* Mobile Menu Content (Collapsible) */}
       <div className={`md:hidden transition-all duration-300 ease-in-out ${isMobileMenuOpen ? 'max-h-screen opacity-100 border-t border-gray-200 dark:border-gray-700 shadow-xl overflow-visible' : 'max-h-0 opacity-0 overflow-hidden'}`}>
