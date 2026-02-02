@@ -1,0 +1,90 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================
+    // HELPER FUNCTIONS
+    // =========================================================
+    
+    // Get current user's role document
+    function getUserRole() {
+      return get(/databases/$(database)/documents/user_roles/$(request.auth.uid)).data;
+    }
+    
+    // Check if user is owner
+    function isOwner() {
+      return getUserRole().role == 'owner';
+    }
+    
+    // Check if user has specific permission
+    function hasPermission(permission) {
+      return isOwner() || getUserRole().permissions[permission] == true;
+    }
+    
+    // Check if user is in the same team
+    function isSameTeam(teamId) {
+      return getUserRole().teamId == teamId;
+    }
+    
+    // Validate permissions object structure (prevent malicious updates)
+    // Updated to support NEW permission structure (no legacy required)
+    function isValidPermissions(perms) {
+      // All permissions must be boolean
+      return perms.size() <= 20  // Max 20 permissions
+          // Must contain at least one valid key to be a valid permission object
+          && perms.keys().hasAny(['viewOverviewTab', 'viewOrderListTab', 'viewKpiOrders', 'canManageUsers']);
+    }
+
+    // =========================================================
+    // 1. USER ROLES & PERMISSIONS
+    // =========================================================
+    
+    match /user_roles/{userId} {
+      // Read: Own role OR owner OR has canManageUsers permission
+      allow read: if request.auth.uid == userId 
+                  || isOwner()
+                  || hasPermission('canManageUsers');
+      
+      // Create: Owner OR has canManageUsers permission
+      allow create: if isOwner() 
+                    || hasPermission('canManageUsers');
+      
+      // Delete: Owner OR has canManageUsers permission
+      // BUT cannot delete yourself
+      allow delete: if (isOwner() || hasPermission('canManageUsers'))
+                    && request.auth.uid != userId;  // Prevent self-delete
+      
+      // Update: Complex logic
+      allow update: if 
+        // Case 1: Owner can update anything
+        isOwner()
+        
+        // Case 2: User with canManageUsers can update others
+        || (hasPermission('canManageUsers') 
+            && request.auth.uid != userId  // Cannot modify own permissions
+            && isValidPermissions(request.resource.data.permissions))
+        
+        // Case 3: User can update own notification settings only
+        || (request.auth.uid == userId 
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['notificationSettings', 'fcmTokens']));
+    }
+
+    // =========================================================
+    // 2. TEAM DATA
+    // =========================================================
+    
+    match /user/{teamId}/{documents=**} {
+      // Read: Must be in same team
+      allow read: if request.auth != null 
+                  && exists(/databases/$(database)/documents/user_roles/$(request.auth.uid))
+                  && isSameTeam(teamId);
+      
+      // Write: Must be in same team
+      allow write: if request.auth != null 
+                   && exists(/databases/$(database)/documents/user_roles/$(request.auth.uid))
+                   && isSameTeam(teamId);
+    }
+  }
+}

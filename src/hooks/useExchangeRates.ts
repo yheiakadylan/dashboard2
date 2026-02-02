@@ -105,10 +105,16 @@ export const useExchangeRates = () => {
     const updateRate = useCallback((currency: string, rate: number) => {
         setRates(prev => {
             if (!prev) return prev;
-            return {
+
+            const newRates = {
                 ...prev,
                 [currency]: rate
             };
+
+            // Save to localStorage to persist user's custom rates
+            saveCachedRates(newRates);
+
+            return newRates;
         });
     }, []);
 

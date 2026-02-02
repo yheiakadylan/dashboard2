@@ -964,7 +964,7 @@ const AccountManager: React.FC = () => {
             Notifications
           </button>
 
-          {role === 'owner' && (
+          {(role === 'owner' || permissions.canManageUsers) && (
             <>
               <button
                 onClick={() => setActiveTab('users')}

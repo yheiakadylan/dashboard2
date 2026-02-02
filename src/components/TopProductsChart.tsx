@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useDashboard } from '../contexts/DashboardContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TopProduct } from '../types';
 import useMediaQuery from '../hooks/useMediaQuery';
@@ -46,6 +47,7 @@ const CustomYAxisTick = ({ x, y, payload, data, onClick }: any) => {
 };
 
 const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = false }) => {
+  const { role, permissions } = useDashboard();
   // Add null safety check for data
   if (!data || typeof data !== 'object') {
     return null;
@@ -201,13 +203,15 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
             className="bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2" >
             {[10, 20, 50, 100, 200, 500].map(v => <option key={v} value={v}>Top {v}</option>)}
           </select>
-          <button
-            onClick={handleExportXLSX}
-            className="flex items-center justify-center p-2 bg-green-50 hover:bg-green-100 text-green-700 dark:bg-green-900/20 dark:hover:bg-green-900/40 dark:text-green-400 rounded-lg transition-colors border border-green-200 dark:border-green-800"
-            title="Export Excel"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-          </button>
+          {(role === 'owner' || permissions.canExportData) && (
+            <button
+              onClick={handleExportXLSX}
+              className="flex items-center justify-center p-2 bg-green-50 hover:bg-green-100 text-green-700 dark:bg-green-900/20 dark:hover:bg-green-900/40 dark:text-green-400 rounded-lg transition-colors border border-green-200 dark:border-green-800"
+              title="Export Excel"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+            </button>
+          )}
         </div>
       </div>
 

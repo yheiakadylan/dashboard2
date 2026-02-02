@@ -1,10 +1,9 @@
-
 // components/UserManager.tsx
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { db, auth } from '../services/firebaseService';
-import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, writeBatch, updateDoc } from 'firebase/firestore';
 import { Account } from '../types';
 import Spinner from './Spinner';
 import { KeyRound } from 'lucide-react';
@@ -16,10 +15,31 @@ interface UserRole {
   email: string;
   role: 'owner' | 'user';
   permissions: {
-    viewSales: boolean;
-    viewFunds: boolean;
-    viewFulfill: boolean;
-    canManageSettings: boolean;
+    // Legacy permissions (for backward compatibility)
+    viewSales?: boolean;
+    viewFunds?: boolean;
+    viewFulfill?: boolean;
+    canManageSettings?: boolean;
+
+    // Tab permissions
+    viewOverviewTab?: boolean;
+    viewOrderListTab?: boolean;
+    viewProductsTab?: boolean;
+    viewSupportTab?: boolean;
+    viewFulfillTab?: boolean;
+
+    // KPI permissions
+    viewKpiOrders?: boolean;
+    viewKpiShops?: boolean;
+    viewKpiRevenue?: boolean;
+    viewKpiFunds?: boolean;
+    viewKpiCost?: boolean;
+    viewKpiEarn?: boolean;
+
+    // Action permissions
+    canEditCost?: boolean;
+    canExportData?: boolean;
+    canManageUsers?: boolean;
   };
   allowedAccounts?: string[];
 }
@@ -151,7 +171,181 @@ const AccountSelectionModal: React.FC<AccountSelectionModalProps> = ({ user, all
     </div>
   );
 };
-// --- KẾT THÚC: Component Modal mới ---
+// --- KẾT THÚC: Component Modal chọn Account ---
+
+
+// --- BẮT ĐẦU: Component Modal Permissions ---
+interface PermissionModalProps {
+  user: UserRole;
+  onSave: (userId: string, permissions: UserRole['permissions']) => void;
+  onClose: () => void;
+}
+
+const PermissionModal: React.FC<PermissionModalProps> = ({ user, onSave, onClose }) => {
+  const [localPermissions, setLocalPermissions] = useState<UserRole['permissions']>(() => ({ ...user.permissions }));
+  const [activeTab, setActiveTab] = useState<'tabs' | 'kpis' | 'actions'>('tabs');
+
+  const permissionGroups = {
+    tabs: {
+      title: 'Tab Permissions',
+      description: 'Which tabs user can see in sidebar',
+      keys: ['viewOverviewTab', 'viewOrderListTab', 'viewProductsTab', 'viewSupportTab', 'viewFulfillTab'] as const,
+      labels: {
+        viewOverviewTab: 'Overview',
+        viewOrderListTab: 'Order List',
+        viewProductsTab: 'Products',
+        viewSupportTab: 'Support',
+        viewFulfillTab: 'Fulfill',
+      }
+    },
+    kpis: {
+      title: 'KPI Permissions',
+      description: 'Which KPI cards user can view',
+      keys: ['viewKpiOrders', 'viewKpiShops', 'viewKpiRevenue', 'viewKpiFunds', 'viewKpiCost', 'viewKpiEarn'] as const,
+      labels: {
+        viewKpiOrders: 'Total Orders',
+        viewKpiShops: 'Shops',
+        viewKpiRevenue: 'Revenue',
+        viewKpiFunds: 'Funds',
+        viewKpiCost: 'Cost',
+        viewKpiEarn: 'Earn',
+      }
+    },
+    actions: {
+      title: 'Action Permissions',
+      description: 'What user can do',
+      keys: ['canEditCost', 'canExportData', 'canManageUsers', 'canManageSettings'] as const,
+      labels: {
+        canEditCost: 'Edit Cost',
+        canExportData: 'Export Data',
+        canManageUsers: 'Manage Users',
+        canManageSettings: 'Mail Edit',
+      }
+    }
+  };
+
+  const handleTogglePermission = (key: string) => {
+    setLocalPermissions(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
+  const handleToggleAll = (keys: readonly string[], isChecked: boolean) => {
+    const updates = Object.fromEntries(keys.map(key => [key, isChecked]));
+    setLocalPermissions(prev => ({ ...prev, ...updates }));
+  };
+
+
+
+  const handleSave = () => {
+    onSave(user.id, localPermissions);
+    onClose();
+  };
+
+  const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
+
+  const currentGroup = permissionGroups[activeTab];
+  const allChecked = currentGroup.keys.every(key => localPermissions[key] === true);
+  const someChecked = currentGroup.keys.some(key => localPermissions[key] === true);
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl border border-gray-200 dark:border-gray-700 flex flex-col max-h-[85vh]" onClick={stopPropagation}>
+        {/* Header */}
+        <div className="flex justify-between items-start p-4 border-b border-gray-200 dark:border-gray-700">
+          <div>
+            <h3 className="font-semibold text-lg text-gray-900 dark:text-white">Manage Permissions</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-md">{user.email}</p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-full text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+
+
+
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => setActiveTab('tabs')}
+            className={`flex-1 py-3 px-4 text-sm font-semibold ${activeTab === 'tabs' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600' : 'text-gray-500 dark:text-gray-400'}`}
+          >
+            {permissionGroups.tabs.title}
+          </button>
+          <button
+            onClick={() => setActiveTab('kpis')}
+            className={`flex-1 py-3 px-4 text-sm font-semibold ${activeTab === 'kpis' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600' : 'text-gray-500 dark:text-gray-400'}`}
+          >
+            {permissionGroups.kpis.title}
+          </button>
+          <button
+            onClick={() => setActiveTab('actions')}
+            className={`flex-1 py-3 px-4 text-sm font-semibold ${activeTab === 'actions' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600' : 'text-gray-500 dark:text-gray-400'}`}
+          >
+            {permissionGroups.actions.title}
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-grow overflow-y-auto p-4">
+          <div className="mb-3 flex justify-between items-center">
+            <p className="text-sm text-gray-600 dark:text-gray-400">{currentGroup.description}</p>
+            <button
+              onClick={() => handleToggleAll(currentGroup.keys, !allChecked)}
+              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              {allChecked ? 'Uncheck All' : 'Check All'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {currentGroup.keys.map(key => (
+              <label
+                key={key}
+                className="flex items-center space-x-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={localPermissions[key] === true}
+                  onChange={() => handleTogglePermission(key)}
+                  className="rounded text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {currentGroup.labels[key]}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {Object.values(localPermissions).filter(Boolean).length} permissions enabled
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-600"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
+            >
+              Save Permissions
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+// --- KẾT THÚC: Component Modal Permissions ---
 
 
 const UserManager: React.FC = () => {
@@ -171,6 +365,7 @@ const UserManager: React.FC = () => {
 
   // --- State để quản lý modal ---
   const [editingAccountsForUser, setEditingAccountsForUser] = useState<UserRole | null>(null);
+  const [editingPermissionsForUser, setEditingPermissionsForUser] = useState<UserRole | null>(null);
 
   // --- State cho Delete User ---
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<UserRole | null>(null);
@@ -217,50 +412,9 @@ const UserManager: React.FC = () => {
     fetchUsers();
   }, [fetchUsers]);
 
-  // Auto-save with debounce when users change
-  useEffect(() => {
-    // Skip initial load or if no changes
-    if (users.length === 0) return;
 
-    // Debounce: wait 1.5s after last change
-    const timeoutId = setTimeout(() => {
-      // Auto-save changes
-      setSaving(true);
-      const batch = writeBatch(db);
 
-      users.forEach(user => {
-        if (user.role === 'user') {
-          const docRef = doc(db, 'user_roles', user.id);
-          batch.update(docRef, {
-            permissions: user.permissions,
-            allowedAccounts: user.allowedAccounts || []
-          });
-        }
-      });
 
-      batch.commit()
-        .catch((err: any) => {
-          console.error(err);
-          setError('Failed to save changes. Check Firestore rules.');
-        })
-        .finally(() => {
-          setSaving(false);
-        });
-    }, 1000);
-
-    return () => clearTimeout(timeoutId);
-  }, [users]);
-
-  // Hàm xử lý khi tick checkbox permission
-  const handlePermissionChange = (userId: string, key: string, value: boolean) => {
-    setUsers(prevUsers =>
-      prevUsers.map(u =>
-        u.id === userId
-          ? { ...u, permissions: { ...u.permissions, [key]: value } }
-          : u
-      )
-    );
-  };
 
   // --- THÊM: Các hàm xử lý modal ---
   const handleOpenAccountModal = (user: UserRole) => {
@@ -271,13 +425,30 @@ const UserManager: React.FC = () => {
     setEditingAccountsForUser(null);
   };
 
-  const handleSaveAllowedAccounts = (userId: string, newAllowedAccounts: string[]) => {
-    setUsers(prevUsers =>
-      prevUsers.map(user =>
-        user.id === userId ? { ...user, allowedAccounts: newAllowedAccounts } : user
-      )
-    );
+  const handleSaveAllowedAccounts = async (userId: string, newAllowedAccounts: string[]) => {
+    try {
+      const userRef = doc(db, 'user_roles', userId);
+      await updateDoc(userRef, { allowedAccounts: newAllowedAccounts });
+      addNotification('Allowed accounts updated successfully', 'success');
+      fetchUsers();
+    } catch (err: any) {
+      console.error('Error updating account access:', err);
+      addNotification(`Failed to update account access: ${err.message}`, 'error');
+    }
     handleCloseAccountModal();
+  };
+
+  // Handler for saving permissions from modal
+  const handleSavePermissions = async (userId: string, newPermissions: UserRole['permissions']) => {
+    try {
+      const userRef = doc(db, 'user_roles', userId);
+      await updateDoc(userRef, { permissions: newPermissions });
+      addNotification('Permissions updated successfully', 'success');
+      fetchUsers(); // Refresh user list
+    } catch (err: any) {
+      console.error('Error updating permissions:', err);
+      addNotification(`Failed to update permissions: ${err.message}`, 'error');
+    }
   };
 
   // Hàm Owner đổi pass cho User
@@ -407,13 +578,6 @@ const UserManager: React.FC = () => {
     return <div className="text-center p-4 text-red-500">{error}</div>;
   }
 
-  const permissionKeys: (keyof UserRole['permissions'])[] = [
-    'viewSales', 'viewFunds', 'viewFulfill', 'canManageSettings',
-  ];
-  const permissionLabels: { [key: string]: string } = {
-    viewSales: 'Sales', viewFunds: 'Funds', viewFulfill: 'Cost', canManageSettings: 'Mail Edit',
-  };
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex-grow overflow-y-auto pr-2">
@@ -451,27 +615,23 @@ const UserManager: React.FC = () => {
               </div>
 
               {user.role === 'user' && (
-                <div className="space-y-3">
-                  <div>
-                    <h4 className="text-sm font-medium mb-2 text-gray-600 dark:text-gray-300">Permissions</h4>
-                    <div className="grid grid-cols-4 gap-2">
-                      {permissionKeys.map(key => (
-                        <label key={key} className="flex items-center space-x-2 text-sm">
-                          <input type="checkbox" checked={user.permissions[key] || false} onChange={e => handlePermissionChange(user.id, key, e.target.checked)} className="rounded" />
-                          <span>{permissionLabels[key]}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
+                <div className="pt-3 border-t border-gray-200 dark:border-gray-600">
+                  <div className="flex gap-2">
+                    {/* Permissions */}
+                    <button
+                      onClick={() => setEditingPermissionsForUser(user)}
+                      className="flex-1 px-3 py-2 text-xs font-semibold bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                    >
+                      📋 Permissions ({Object.values(user.permissions).filter(Boolean).length})
+                    </button>
 
-                  {/* --- THAY ĐỔI: Thay thế list checkbox bằng nút mở Modal --- */}
-                  <div className="pt-3 border-t border-gray-200 dark:border-gray-600">
-                    <div className="flex justify-between items-center">
-                      <h4 className="text-sm font-medium text-gray-600 dark:text-gray-300">Allowed Mail Accounts</h4>
-                      <button onClick={() => handleOpenAccountModal(user)} className="px-3 py-1 text-xs font-semibold bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md hover:bg-gray-50 dark:hover:bg-gray-500">
-                        Manage ({user.allowedAccounts?.length || 0} selected)
-                      </button>
-                    </div>
+                    {/* Allowed Mail Accounts */}
+                    <button
+                      onClick={() => handleOpenAccountModal(user)}
+                      className="flex-1 px-3 py-2 text-xs font-semibold bg-white dark:bg-gray-600 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-500 rounded-md hover:bg-gray-50 dark:hover:bg-gray-500 transition-colors"
+                    >
+                      📧 Mail ({user.allowedAccounts?.length || 0})
+                    </button>
                   </div>
                 </div>
               )}
@@ -515,6 +675,15 @@ const UserManager: React.FC = () => {
           allMailAccounts={allMailAccounts}
           onSave={handleSaveAllowedAccounts}
           onClose={handleCloseAccountModal}
+        />
+      )}
+
+      {/* --- Permission Modal --- */}
+      {editingPermissionsForUser && (
+        <PermissionModal
+          user={editingPermissionsForUser}
+          onSave={handleSavePermissions}
+          onClose={() => setEditingPermissionsForUser(null)}
         />
       )}
 

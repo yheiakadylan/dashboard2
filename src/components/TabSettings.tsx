@@ -29,12 +29,15 @@ const TabSettings: React.FC = () => {
 
             switch (tab) {
                 case 'Overview':
+                    return permissions.viewOverviewTab === true;
                 case 'Order List':
+                    return permissions.viewOrderListTab === true;
                 case 'Support':
+                    return permissions.viewSupportTab === true;
                 case 'Products':
-                    return permissions.viewSales;
+                    return permissions.viewProductsTab === true;
                 case 'Fulfill':
-                    return permissions.viewFulfill;
+                    return permissions.viewFulfillTab === true;
 
                 default:
                     return false;

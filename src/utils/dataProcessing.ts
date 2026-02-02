@@ -117,11 +117,11 @@ export const processData = (
     const etsy = getPlatformRecords(uniqueRecords, 'Etsy_Sales', accountLabelMap, timeZone);
     const cases = getSupportRecords(uniqueRecords, 'case', accountLabelMap, timeZone);
     const help = getSupportRecords(uniqueRecords, 'help', accountLabelMap, timeZone);
-    const fulfill = (role === 'owner' || permissions.viewFulfill)
+    const fulfill = (role === 'owner' || permissions.viewFulfillTab)
         ? getFulfillRecords(uniqueRecords, accountLabelMap, timeZone, manualCosts, filterDateRange, exchangeRates)
         : { table: { headers: ['Fulfill'], rows: [["Permission Denied"]] }, merchizeChartData: [], printwayChartData: [], totalCost: 0 };
 
-    const { kpis: summaryKpis, table: summaryTable, chartData: summaryChartData, topProductsByShop } = (role === 'owner' || permissions.viewSales)
+    const { kpis: summaryKpis, table: summaryTable, chartData: summaryChartData, topProductsByShop } = (role === 'owner' || permissions.viewOverviewTab)
         ? calculateSummary(uniqueRecords, previousRecords, accountLabelMap, role, permissions, manualCosts, filterDateRange, exchangeRates)
         : { kpis: {}, table: { headers: ['Summary'], rows: [["Permission Denied"]] }, chartData: [], topProductsByShop: {} };
 
@@ -248,11 +248,11 @@ const calculateOverview = (
                 dailyDataForTable[dailyGroupKey].revenue[currency] = (dailyDataForTable[dailyGroupKey].revenue[currency] || 0) + r.amount;
                 allCurrenciesForTable.revenue.add(currency);
             }
-            if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
+            if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) {
                 dailyDataForTable[dailyGroupKey].cost['USD'] = (dailyDataForTable[dailyGroupKey].cost['USD'] || 0) + r.cost_total;
                 allCurrenciesForTable.cost.add('USD');
             }
-        } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewFunds)) {
+        } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewKpiFunds)) {
             dailyDataForTable[dailyGroupKey].funds[currency] = (dailyDataForTable[dailyGroupKey].funds[currency] || 0) + r.amount;
             allCurrenciesForTable.funds.add(currency);
         }
@@ -273,8 +273,8 @@ const calculateOverview = (
     const sortedCostCurrencies = Array.from(allCurrenciesForTable.cost).sort();
 
     const revenueHeaders = sortedRevenueCurrencies.map(c => `Revenue (${c})`);
-    const fundsHeaders = (role === 'owner' || permissions.viewFunds) ? sortedFundsCurrencies.map(c => `Funds (${c})`) : [];
-    const costHeaders = (role === 'owner' || permissions.viewFulfill) ? sortedCostCurrencies.map(c => `Cost (${c})`) : [];
+    const fundsHeaders = (role === 'owner' || permissions.viewKpiFunds) ? sortedFundsCurrencies.map(c => `Funds (${c})`) : [];
+    const costHeaders = (role === 'owner' || permissions.viewKpiCost) ? sortedCostCurrencies.map(c => `Cost (${c})`) : [];
 
     const headers = [
         "Date",
@@ -288,8 +288,8 @@ const calculateOverview = (
     const tableRows = Object.entries(dailyDataForTable)
         .map(([date, data]) => {
             const revenueValues = sortedRevenueCurrencies.map(c => data.revenue[c] || 0);
-            const fundsValues = (role === 'owner' || permissions.viewFunds) ? sortedFundsCurrencies.map(c => data.funds[c] || 0) : [];
-            const costValues = (role === 'owner' || permissions.viewFulfill) ? sortedCostCurrencies.map(c => data.cost[c] || 0) : [];
+            const fundsValues = (role === 'owner' || permissions.viewKpiFunds) ? sortedFundsCurrencies.map(c => data.funds[c] || 0) : [];
+            const costValues = (role === 'owner' || permissions.viewKpiCost) ? sortedCostCurrencies.map(c => data.cost[c] || 0) : [];
 
             return [
                 date,
@@ -694,7 +694,7 @@ const calculateSummary = (
                 if (r.amount > 0 && !isStatusUpdate) {
                     raw.revenueByCurrency[currency] = (raw.revenueByCurrency[currency] || 0) + r.amount;
                 }
-                if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
+                if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) {
                     raw.costByCurrency['USD'] = (raw.costByCurrency['USD'] || 0) + r.cost_total;
                 }
                 // Track refunds - ONLY if the order belongs to this period
@@ -704,7 +704,7 @@ const calculateSummary = (
                     const refundCurr = r.refund_details?.refundCurrency || currency;
                     raw.refundByCurrency[refundCurr] = (raw.refundByCurrency[refundCurr] || 0) + refundAmount;
                 }
-            } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewFunds)) {
+            } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewKpiFunds)) {
                 raw.fundsByCurrency[currency] = (raw.fundsByCurrency[currency] || 0) + r.amount;
             }
         });
@@ -718,7 +718,7 @@ const calculateSummary = (
         cost.date >= filterDateRange.from && cost.date <= filterDateRange.to
     );
 
-    if (role === 'owner' || permissions.viewFulfill) {
+    if (role === 'owner' || permissions.viewKpiCost) {
         filteredManualCosts.forEach(cost => {
             const currency = cost.currency || 'USD';
             currentRawKpis.costByCurrency[currency] = (currentRawKpis.costByCurrency[currency] || 0) + cost.cost;
@@ -752,6 +752,10 @@ const calculateSummary = (
         Array.from(allCurrencies).sort().forEach(c => {
             const current = currentData[c] || 0;
             const previous = previousData?.[c] || 0;
+
+            // Skip if both current and previous are effectively zero
+            if (Math.abs(current) < 0.01 && Math.abs(previous) < 0.01) return;
+
             const comparison = previousRawKpis ? calculatePercentageChange(current, previous) : {};
             financialKpis[c] = {
                 value: formatCurrency(current),
@@ -841,7 +845,7 @@ const calculateSummary = (
     }
 
     // Calculate Funds KPI with multi-currency + USD total
-    if (role === 'owner' || permissions.viewFunds) {
+    if (role === 'owner' || permissions.viewKpiFunds) {
         const fundsKpis = processFinancialKpi(currentRawKpis.fundsByCurrency, previousRawKpis?.fundsByCurrency || null);
         if (fundsKpis && exchangeRates) {
             kpis['Funds'] = addUSDTotalToKpi(fundsKpis, currentRawKpis.fundsByCurrency, exchangeRates);
@@ -852,7 +856,7 @@ const calculateSummary = (
         kpis['Funds'] = { value: '---' };
     }
 
-    if (role === 'owner' || permissions.viewFulfill) {
+    if (role === 'owner' || permissions.viewKpiCost) {
         const costKpis = processFinancialKpi(currentRawKpis.costByCurrency, previousRawKpis?.costByCurrency || null);
         kpis['Cost'] = costKpis || { value: '---' };
     } else {
@@ -860,7 +864,7 @@ const calculateSummary = (
     }
 
     // --- CALCULATE EARN (Net Profit) ---
-    if ((role === 'owner' || permissions.viewFunds) && (role === 'owner' || permissions.viewFulfill) && exchangeRates) {
+    if ((role === 'owner' || permissions.viewKpiFunds) && (role === 'owner' || permissions.viewKpiCost) && exchangeRates) {
         let totalFundsUSD = 0;
         let totalCostUSD = 0;
 
@@ -935,7 +939,7 @@ const calculateSummary = (
                     shopData[r.account].revenue[currency] = (shopData[r.account].revenue[currency] || 0) + r.amount;
                     allTableCurrencies.revenue.add(currency);
                 }
-                if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
+                if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) {
                     shopData[r.account].cost['USD'] = (shopData[r.account].cost['USD'] || 0) + r.cost_total;
                     allTableCurrencies.cost.add('USD');
                 }
@@ -968,14 +972,14 @@ const calculateSummary = (
                     });
                 }
             }
-        } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewFunds)) {
+        } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewKpiFunds)) {
             shopData[r.account].funds[currency] = (shopData[r.account].funds[currency] || 0) + r.amount;
             allTableCurrencies.funds.add(currency);
         }
     });
 
     const manualCostData: { cost: { [currency: string]: number } } = { cost: {} };
-    if ((role === 'owner' || permissions.viewFulfill) && filteredManualCosts.length > 0) {
+    if ((role === 'owner' || permissions.viewKpiCost) && filteredManualCosts.length > 0) {
         filteredManualCosts.forEach(cost => {
             const currency = cost.currency || 'USD';
             manualCostData.cost[currency] = (manualCostData.cost[currency] || 0) + cost.cost;
@@ -1003,8 +1007,8 @@ const calculateSummary = (
     };
 
     const tableHeaders = ["Shop", "Orders", "Revenue"];
-    if (role === 'owner' || permissions.viewFunds) tableHeaders.push("Funds");
-    if (role === 'owner' || permissions.viewFulfill) tableHeaders.push("Cost (USD)");
+    if (role === 'owner' || permissions.viewKpiFunds) tableHeaders.push("Funds");
+    if (role === 'owner' || permissions.viewKpiCost) tableHeaders.push("Cost (USD)");
 
     const sortedShopEntries = Object.entries(shopData).sort((a, b) => b[1].orders.size - a[1].orders.size);
 
@@ -1043,12 +1047,12 @@ const calculateSummary = (
             revenueCell
         ];
 
-        if (role === 'owner' || permissions.viewFunds) {
+        if (role === 'owner' || permissions.viewKpiFunds) {
             const funds = formatMixedCurrency(data.funds);
             row.push({ type: 'value_with_unit' as const, value: funds.value, display: funds.display });
         }
 
-        if (role === 'owner' || permissions.viewFulfill) {
+        if (role === 'owner' || permissions.viewKpiCost) {
             // Cost is default USD per user request, but we handle the map sum for valid display number
             let totalCost = 0;
             Object.values(data.cost).forEach(v => totalCost += v);
@@ -1058,7 +1062,7 @@ const calculateSummary = (
         return row;
     });
 
-    if ((role === 'owner' || permissions.viewFulfill) && Object.keys(manualCostData.cost).length > 0) {
+    if ((role === 'owner' || permissions.viewKpiCost) && Object.keys(manualCostData.cost).length > 0) {
         let totalManualCost = 0;
         Object.values(manualCostData.cost).forEach(v => totalManualCost += v);
 
@@ -1068,7 +1072,7 @@ const calculateSummary = (
             { type: 'value_with_unit' as const, value: 0, display: '--' } // Revenue
         ];
 
-        if (role === 'owner' || permissions.viewFunds) {
+        if (role === 'owner' || permissions.viewKpiFunds) {
             manualRow.push({ type: 'value_with_unit' as const, value: 0, display: '--' }); // Funds
         }
 

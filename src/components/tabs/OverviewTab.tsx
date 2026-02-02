@@ -1,5 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
+import { hasPermission } from '../../utils/permissionHelper';
 import KpiCard from '../KpiCard';
 import { KpiValue } from '../../types';
 import ChartErrorBoundary from '../ChartErrorBoundary';
@@ -18,20 +19,32 @@ interface OverviewTabProps {
 
 const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, handleViewDayDetails }) => {
     const { role, permissions } = useDashboard();
-    const isOwner = role === 'owner';
-    const canViewFunds = isOwner || permissions.viewFunds;
-    const canViewCost = isOwner || permissions.viewFulfill;
     const hiddenValue: KpiValue = { value: '---', direction: 'neutral' };
 
-    // Memoize KPI values to prevent recalculation
+    // Permission helper - checks new permissions with fallback to legacy
+    const can = (permission: keyof typeof permissions) => hasPermission(role, permissions, permission);
+
+    // Memoize KPI values with permission checks
     const kpiValues = React.useMemo(() => ({
-        orders: processedData.summary.kpis['Total Orders'] || { value: '---' },
-        shops: processedData.summary.kpis['Shops'] || { value: '---' },
-        revenue: processedData.summary.kpis['Revenue'] || { value: '---' },
-        funds: canViewFunds ? (processedData.summary.kpis['Funds'] || { value: '---' }) : hiddenValue,
-        cost: canViewCost ? (processedData.summary.kpis['Cost'] || { value: '---' }) : hiddenValue,
-        earn: (canViewFunds && canViewCost) ? (processedData.summary.kpis['Earn'] || { value: '---' }) : hiddenValue
-    }), [processedData.summary.kpis, canViewFunds, canViewCost, hiddenValue]);
+        orders: can('viewKpiOrders')
+            ? (processedData.summary.kpis['Total Orders'] || { value: '---' })
+            : hiddenValue,
+        shops: can('viewKpiShops')
+            ? (processedData.summary.kpis['Shops'] || { value: '---' })
+            : hiddenValue,
+        revenue: can('viewKpiRevenue')
+            ? (processedData.summary.kpis['Revenue'] || { value: '---' })
+            : hiddenValue,
+        funds: can('viewKpiFunds')
+            ? (processedData.summary.kpis['Funds'] || { value: '---' })
+            : hiddenValue,
+        cost: can('viewKpiCost')
+            ? (processedData.summary.kpis['Cost'] || { value: '---' })
+            : hiddenValue,
+        earn: can('viewKpiEarn')
+            ? (processedData.summary.kpis['Earn'] || { value: '---' })
+            : hiddenValue
+    }), [processedData.summary.kpis, role, permissions]);
 
     // Extract refund info from KPIs
     const getRefundInfo = (kpi: any) => {
@@ -51,14 +64,26 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
 
     return (
         <div className="p-2 md:p-6">
-            {/* 1. KPIs Section (Merged from Summary) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 md:gap-6 mb-6">
-                <KpiCard title="Total Orders" value={kpiValues.orders} refundInfo={getRefundInfo(kpiValues.orders)} />
-                <KpiCard title="Shops" value={kpiValues.shops} />
-                <KpiCard title="Revenue" value={kpiValues.revenue} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
-                <KpiCard title="Funds" value={kpiValues.funds} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
-                <KpiCard title="Cost" value={kpiValues.cost} />
-                <KpiCard title="Earn" value={kpiValues.earn} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
+            {/* 1. KPIs Section - Conditionally render based on permissions */}
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-4 md:gap-6 mb-6">
+                {can('viewKpiOrders') && (
+                    <KpiCard title="Total Orders" value={kpiValues.orders} refundInfo={getRefundInfo(kpiValues.orders)} />
+                )}
+                {can('viewKpiShops') && (
+                    <KpiCard title="Shops" value={kpiValues.shops} />
+                )}
+                {can('viewKpiRevenue') && (
+                    <KpiCard title="Revenue" value={kpiValues.revenue} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
+                )}
+                {can('viewKpiFunds') && (
+                    <KpiCard title="Funds" value={kpiValues.funds} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
+                )}
+                {can('viewKpiCost') && (
+                    <KpiCard title="Cost" value={kpiValues.cost} />
+                )}
+                {can('viewKpiEarn') && (
+                    <KpiCard title="Earn" value={kpiValues.earn} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
+                )}
             </div>
 
             {/* 2. Charts Section */}
@@ -73,7 +98,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                     <SummaryChart
                         data={processedData.summary.chartData}
                         hideTitle={true}
-                        hideFunds={!canViewFunds}
+                        hideFunds={!can('viewKpiFunds')}
                     />
                 </ChartErrorBoundary>
             </div>

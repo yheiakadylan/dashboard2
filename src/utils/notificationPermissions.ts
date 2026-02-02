@@ -19,14 +19,16 @@ export const canViewNotificationType = (
 
     switch (type) {
         case 'NEW_ORDER':
+            return permissions.viewOrderListTab === true;
+
         case 'SUMMARY':
+            return permissions.viewOverviewTab === true;
+
         case 'CASE_HELP':
-            // Requires view sales permission
-            return permissions.viewSales === true;
+            return permissions.viewSupportTab === true;
 
         case 'FUND':
-            // Requires view funds permission
-            return permissions.viewFunds === true;
+            return permissions.viewKpiFunds === true;
 
         case 'LOGIN':
             // Only owners can see login notifications (security)
@@ -98,11 +100,7 @@ export const shouldShowNotification = (
     return true;
 };
 
-// Extend UserProfile locally if needed, but ideally it should match the one in useAuthLogic
-// We assume UserProfile passed here has the email field we added
-interface ExtendedUserProfile extends UserProfile {
-    email?: string;
-}
+
 
 /**
  * Filter an array of notifications based on user permissions
@@ -123,15 +121,6 @@ export const filterNotificationsByPermissions = (
             }
 
             return shouldShowNotification(notification, userProfile);
-        })
-        .map(notification => {
-            // For SUMMARY notifications, we DON'T filter shops here
-            // because NotificationDetailModal will handle the filtering
-            // Otherwise we'd be filtering twice and losing data!
-
-            // Just return the notification as-is
-            // The modal will filter shops based on userProfile.allowedAccounts
-            return notification;
         });
 };
 

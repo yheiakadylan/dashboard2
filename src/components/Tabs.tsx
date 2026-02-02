@@ -26,18 +26,18 @@ const Tabs: React.FC = () => {
         return true; // Owner sees all
       }
 
-      // User role - check permissions
+      // User role - check granular permissions
       switch (tab) {
         case 'Overview':
+          return permissions.viewOverviewTab === true;
         case 'Order List':
+          return permissions.viewOrderListTab === true;
         case 'Products':
+          return permissions.viewProductsTab === true;
         case 'Support':
-          return permissions.viewSales;
-
+          return permissions.viewSupportTab === true;
         case 'Fulfill':
-          return permissions.viewFulfill;
-
-
+          return permissions.viewFulfillTab === true;
 
         default:
           return false;

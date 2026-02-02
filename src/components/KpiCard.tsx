@@ -205,9 +205,9 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
             </div>
           ) : (
             <div className="mt-2 space-y-2.5">
-              {/* Regular currencies (exclude USD_TOTAL) */}
               {Object.entries(value as { [currency: string]: KpiValue })
                 .filter(([currency]) => currency !== 'USD_TOTAL')
+                .filter(([_, kpiVal]) => kpiVal.value !== '$0.00')
                 .map(([currency, kpiVal]) => {
                   const formatUSD = (amount: number) => new Intl.NumberFormat('en-US', {
                     style: 'currency',
@@ -277,8 +277,8 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
                     <div className="border-t-2 border-gray-200 dark:border-gray-600 my-2"></div>
                     <div
                       className={`flex justify-end items-center py-1 px-2 rounded-lg group ${usdTotal.conversionDetails
-                          ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all'
-                          : ''
+                        ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all'
+                        : ''
                         }`}
                       onClick={handleUSDTotalClick}
                       title={usdTotal.conversionDetails ? "Click to view conversion details" : ""}

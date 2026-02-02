@@ -154,7 +154,7 @@ const NotificationSettings: React.FC = () => {
         </h3>
 
         {/* New Orders - Requires viewSales */}
-        {(role === 'owner' || permissions.viewSales) && (
+        {(role === 'owner' || permissions.viewOrderListTab) && (
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium text-gray-800 dark:text-gray-200">New Orders</p>
@@ -174,7 +174,7 @@ const NotificationSettings: React.FC = () => {
         )}
 
         {/* Funds Received - Requires viewFunds */}
-        {(role === 'owner' || permissions.viewFunds) && (
+        {(role === 'owner' || permissions.viewKpiFunds) && (
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium text-gray-800 dark:text-gray-200">Funds Received</p>
@@ -195,14 +195,14 @@ const NotificationSettings: React.FC = () => {
 
 
         {/* Daily Summary - Requires viewSales */}
-        {(role === 'owner' || permissions.viewSales) && (
+        {(role === 'owner' || permissions.viewOverviewTab) && (
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium text-gray-800 dark:text-gray-200">Daily Summary</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Receive a daily report at 00:30 UTC-7.
-                {!permissions.viewFunds && role !== 'owner' && (
-                  <span className="block mt-0.5 text-amber-600 dark:text-amber-400">Note: Funds data excluded (no viewFunds permission)</span>
+                {!permissions.viewKpiFunds && role !== 'owner' && (
+                  <span className="block mt-0.5 text-amber-600 dark:text-amber-400">Note: Funds data excluded (no viewKpiFunds permission)</span>
                 )}
               </p>
             </div>
@@ -242,7 +242,7 @@ const NotificationSettings: React.FC = () => {
 
 
         {/* Support Cases - Requires viewSales */}
-        {(role === 'owner' || permissions.viewSales) && (
+        {(role === 'owner' || permissions.viewSupportTab) && (
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium text-gray-800 dark:text-gray-200">Support Cases</p>
