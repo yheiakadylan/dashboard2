@@ -79,6 +79,14 @@ const getIcon = (title: string) => {
   };
 }
 
+// Helper to format currency values
+const formatCurrency = (value: number): string => {
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+};
+
 const renderComparison = (kpiValue: KpiValue) => {
   if (typeof kpiValue.change !== 'number' || !kpiValue.direction || kpiValue.direction === 'neutral') {
     return null;
@@ -197,43 +205,109 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
             </div>
           ) : (
             <div className="mt-2 space-y-2.5">
-              {Object.entries(value as { [currency: string]: KpiValue }).map(([currency, kpiVal]) => (
-                <div key={currency} className="flex flex-col gap-0.5">
-                  <div className="flex justify-between items-center border-b border-gray-50 dark:border-gray-700/50 pb-1">
-                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded flex items-center gap-1.5">
-                      {(() => {
-                        const code = getCountryCode(currency);
-                        return code ? (
-                          <img
-                            src={`https://flagcdn.com/24x18/${code}.png`}
-                            srcSet={`https://flagcdn.com/w40/${code}.png 2x`}
-                            width="14"
-                            height="10"
-                            alt={currency}
-                            className="object-contain rounded-[1px]"
-                          />
-                        ) : null;
-                      })()}
-                      {currency}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-base font-bold text-gray-900 dark:text-white">{kpiVal.value}</span>
-                      {/* Simplified trend for multi-currency to save space */}
-                      {kpiVal.direction && kpiVal.direction !== 'neutral' && (
-                        <span className={`text-[10px] ${kpiVal.direction === 'up' ? 'text-green-500' : 'text-red-500'}`}>
-                          {kpiVal.direction === 'up' ? '▲' : '▼'}
+              {/* Regular currencies (exclude USD_TOTAL) */}
+              {Object.entries(value as { [currency: string]: KpiValue })
+                .filter(([currency]) => currency !== 'USD_TOTAL')
+                .map(([currency, kpiVal]) => {
+                  const formatUSD = (amount: number) => new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  }).format(amount);
+
+                  return (
+                    <div key={currency} className="flex flex-col gap-1">
+                      <div className="flex justify-between items-center border-b border-gray-50 dark:border-gray-700/50 pb-1">
+                        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded flex items-center gap-1.5">
+                          {(() => {
+                            const code = getCountryCode(currency);
+                            return code ? (
+                              <img
+                                src={`https://flagcdn.com/24x18/${code}.png`}
+                                srcSet={`https://flagcdn.com/w40/${code}.png 2x`}
+                                width="14"
+                                height="10"
+                                alt={currency}
+                                className="object-contain rounded-[1px]"
+                              />
+                            ) : null;
+                          })()}
+                          {currency}
                         </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-base font-bold text-gray-900 dark:text-white">{kpiVal.value}</span>
+                          {/* Simplified trend for multi-currency to save space */}
+                          {kpiVal.direction && kpiVal.direction !== 'neutral' && (
+                            <span className={`text-[10px] ${kpiVal.direction === 'up' ? 'text-green-500' : 'text-red-500'}`}>
+                              {kpiVal.direction === 'up' ? '▲' : '▼'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {/* Refund info for multi-currency with conversion */}
+                      {(kpiVal.refundOriginal || (refundInfo && typeof refundInfo === 'object' && refundInfo[currency])) && (
+                        <div className="pl-1 text-[11px] text-red-600 dark:text-red-400 font-medium flex items-center gap-1.5">
+                          <span>↩</span>
+                          {kpiVal.refundOriginal && kpiVal.refundUSD !== undefined ? (
+                            <span>{currency} {formatCurrency(kpiVal.refundOriginal)}</span>
+                          ) : (
+                            <span>{refundInfo && typeof refundInfo === 'object' ? refundInfo[currency] : ''}</span>
+                          )}
+                        </div>
                       )}
                     </div>
-                  </div>
-                  {/* Refund info for multi-currency */}
-                  {refundInfo && typeof refundInfo === 'object' && refundInfo[currency] && (
-                    <p className="text-[11px] text-red-600 dark:text-red-400 font-medium pl-1">
-                      ↩ {refundInfo[currency]}
-                    </p>
-                  )}
-                </div>
-              ))}
+                  );
+                })}
+
+              {/* USD_TOTAL section - Clickable */}
+              {(() => {
+                const usdTotal = (value as { [currency: string]: KpiValue })['USD_TOTAL'];
+                if (!usdTotal) return null;
+
+                const handleUSDTotalClick = (e: React.MouseEvent) => {
+                  if (usdTotal.conversionDetails) {
+                    e.stopPropagation();
+                    setIsModalOpen(true);
+                  }
+                };
+
+                return (
+                  <>
+                    <div className="border-t-2 border-gray-200 dark:border-gray-600 my-2"></div>
+                    <div
+                      className={`flex justify-end items-center py-1 px-2 rounded-lg group ${usdTotal.conversionDetails
+                          ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all'
+                          : ''
+                        }`}
+                      onClick={handleUSDTotalClick}
+                      title={usdTotal.conversionDetails ? "Click to view conversion details" : ""}
+                    >
+
+                      <span className="text-2xl font-black text-blue-600 dark:text-blue-400 tracking-tight">
+                        {usdTotal.value}
+                      </span>
+                    </div>
+                    {usdTotal.refundInfo && (
+                      <p className="text-xs text-red-600 dark:text-red-400 font-medium text-right pr-2 -mt-1">
+                        ↩ {usdTotal.refundInfo}
+                      </p>
+                    )}
+
+                    {/* Conversion Modal */}
+                    {usdTotal.conversionDetails && (
+                      <ConversionModal
+                        isOpen={isModalOpen}
+                        onClose={() => setIsModalOpen(false)}
+                        conversionDetails={usdTotal.conversionDetails}
+                        onRateUpdate={onRateUpdate}
+                        onRefresh={onRefresh}
+                        onReset={onReset}
+                      />
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>

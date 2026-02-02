@@ -99,6 +99,11 @@ export interface KpiValue {
     originalAmounts: { [currency: string]: number };
     rates: { [currency: string]: number };
   };
+  // Fields for inline currency conversion display
+  conversionRate?: number; // Exchange rate to USD
+  usdValue?: number; // Converted value in USD
+  refundOriginal?: number; // Refund amount in original currency
+  refundUSD?: number; // Refund amount in USD
 }
 
 export interface KpiData {

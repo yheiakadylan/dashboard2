@@ -55,8 +55,8 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 md:gap-6 mb-6">
                 <KpiCard title="Total Orders" value={kpiValues.orders} refundInfo={getRefundInfo(kpiValues.orders)} />
                 <KpiCard title="Shops" value={kpiValues.shops} />
-                <KpiCard title="Revenue" value={kpiValues.revenue} refundInfo={getRefundInfo(kpiValues.revenue)} />
-                <KpiCard title="Funds" value={kpiValues.funds} />
+                <KpiCard title="Revenue" value={kpiValues.revenue} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
+                <KpiCard title="Funds" value={kpiValues.funds} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
                 <KpiCard title="Cost" value={kpiValues.cost} />
                 <KpiCard title="Earn" value={kpiValues.earn} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
             </div>

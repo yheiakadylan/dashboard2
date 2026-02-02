@@ -160,7 +160,7 @@ export const ConversionModal: React.FC<ConversionModalProps> = ({
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50">
             <div
                 ref={modalRef}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+                className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[95vh] flex flex-col"
             >
                 {/* Header */}
                 <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -189,7 +189,7 @@ export const ConversionModal: React.FC<ConversionModalProps> = ({
                 </div>
 
                 {/* Table */}
-                <div className="flex-1 overflow-auto px-6 py-4">
+                <div className="flex-1 overflow-auto px-6 py-4 min-h-[400px]">
                     <table className="w-full text-sm">
                         <thead className="sticky top-0 bg-gray-50 dark:bg-gray-700/50 z-10">
                             <tr className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">

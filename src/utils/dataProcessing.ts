@@ -762,12 +762,92 @@ const calculateSummary = (
         return financialKpis;
     }
 
-    const revenueKpis = processFinancialKpi(currentRawKpis.revenueByCurrency, previousRawKpis?.revenueByCurrency || null, currentRawKpis.refundByCurrency);
-    kpis['Revenue'] = revenueKpis || { value: '---' };
+    /**
+     * Add USD total to multi-currency KPI with conversionDetails
+     * Also inject rates and refund data into each currency for inline display
+     */
+    const addUSDTotalToKpi = (
+        multiCurrencyKpi: { [currency: string]: KpiValue },
+        currencyData: { [c: string]: number },
+        exchangeRates: { [c: string]: number } | null,
+        refundData?: { [c: string]: number }
+    ): { [currency: string]: KpiValue } => {
+        if (!exchangeRates || Object.keys(currencyData).length === 0) {
+            return multiCurrencyKpi;
+        }
 
+        // Inject exchange rates and refund data into each currency KpiValue
+        const enhancedKpis: { [currency: string]: KpiValue } = {};
+        Object.entries(multiCurrencyKpi).forEach(([currency, kpiVal]) => {
+            const rate = exchangeRates[currency] || (currency === 'USD' ? 1 : 0);
+            const originalAmount = currencyData[currency] || 0;
+            const usdValue = originalAmount * rate;
+
+            // Get refund for this currency
+            const refundAmount = refundData?.[currency] || 0;
+            const refundUSD = refundAmount * rate;
+
+            enhancedKpis[currency] = {
+                ...kpiVal,
+                // Store conversion info for inline display
+                conversionRate: rate,
+                usdValue: usdValue,
+                // Store refund with conversion
+                refundOriginal: refundAmount > 0 ? refundAmount : undefined,
+                refundUSD: refundUSD > 0 ? refundUSD : undefined,
+            };
+        });
+
+        // Calculate USD total
+        let totalUSD = 0;
+        Object.entries(currencyData).forEach(([currency, amount]) => {
+            const rate = exchangeRates[currency] || (currency === 'USD' ? 1 : 0);
+            totalUSD += amount * rate;
+        });
+
+        // Calculate total refund in USD if refund data exists
+        let refundInfo: string | undefined;
+        if (refundData && Object.keys(refundData).length > 0) {
+            let totalRefundUSD = 0;
+            Object.entries(refundData).forEach(([currency, amount]) => {
+                const rate = exchangeRates[currency] || (currency === 'USD' ? 1 : 0);
+                totalRefundUSD += amount * rate;
+            });
+            if (totalRefundUSD > 0) {
+                refundInfo = `${formatCurrency(totalRefundUSD)} refunded`;
+            }
+        }
+
+        // Add USD_TOTAL as a special currency key
+        return {
+            ...enhancedKpis,
+            'USD_TOTAL': {
+                value: formatCurrency(totalUSD),
+                conversionDetails: {
+                    originalAmounts: { ...currencyData },
+                    rates: exchangeRates
+                },
+                refundInfo
+            }
+        };
+    };
+
+    // Calculate Revenue KPI with multi-currency + USD total
+    const revenueKpis = processFinancialKpi(currentRawKpis.revenueByCurrency, previousRawKpis?.revenueByCurrency || null, currentRawKpis.refundByCurrency);
+    if (revenueKpis && exchangeRates) {
+        kpis['Revenue'] = addUSDTotalToKpi(revenueKpis, currentRawKpis.revenueByCurrency, exchangeRates, currentRawKpis.refundByCurrency);
+    } else {
+        kpis['Revenue'] = revenueKpis || { value: '---' };
+    }
+
+    // Calculate Funds KPI with multi-currency + USD total
     if (role === 'owner' || permissions.viewFunds) {
         const fundsKpis = processFinancialKpi(currentRawKpis.fundsByCurrency, previousRawKpis?.fundsByCurrency || null);
-        kpis['Funds'] = fundsKpis || { value: '---' };
+        if (fundsKpis && exchangeRates) {
+            kpis['Funds'] = addUSDTotalToKpi(fundsKpis, currentRawKpis.fundsByCurrency, exchangeRates);
+        } else {
+            kpis['Funds'] = fundsKpis || { value: '---' };
+        }
     } else {
         kpis['Funds'] = { value: '---' };
     }
