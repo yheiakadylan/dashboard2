@@ -3,6 +3,10 @@ import { getCountryCode } from '../utils/currencyUtils';
 
 import { KpiValue } from '../types';
 import { ConversionModal } from './ConversionModal';
+import { useUI } from '../contexts/UIContext';
+import { useDashboard } from '../contexts/DashboardContext';
+import { useNotification } from '../contexts/NotificationContext';
+import { hasPermission } from '../utils/permissionHelper';
 
 interface KpiCardProps {
   title: string;
@@ -113,6 +117,21 @@ const renderComparison = (kpiValue: KpiValue) => {
 const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdate, onRefresh, onReset }) => {
   const { icon, bg, text } = getIcon(title);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const { setActiveTab, setStatusFilter } = useUI();
+  const { role, permissions } = useDashboard(); // Check role/permissions
+  const { addNotification } = useNotification();
+
+  const handleRefundClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    // Check permission View Order List
+    if (hasPermission(role, permissions, 'viewOrderListTab')) {
+      setStatusFilter('Refunded');
+      setActiveTab('Order List');
+    } else {
+      addNotification('You do not have permission to view order list.', 'error');
+    }
+  };
 
   const handleValueClick = useCallback((e: React.MouseEvent) => {
     if ('conversionDetails' in value && value.conversionDetails) {
@@ -198,7 +217,11 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
 
               {/* Refund info for simple value */}
               {refundInfo && typeof refundInfo === 'string' && (
-                <p className="text-xs text-red-600 dark:text-red-400 font-medium mt-0.5">
+                <p
+                  className="text-xs text-red-600 dark:text-red-400 font-medium mt-0.5 cursor-pointer hover:underline decoration-dotted"
+                  onClick={handleRefundClick}
+                  title="Click to view refunded orders"
+                >
                   ↩ {refundInfo}
                 </p>
               )}
