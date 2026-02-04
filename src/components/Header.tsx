@@ -243,7 +243,7 @@ const Header: React.FC = () => {
 
         {/* Left: Logo, Title, Sync Status */}
         <div className="flex items-center gap-3 min-w-0">
-          {role === 'owner' ? (
+          {role === 'owner' && (
             <div className="relative mr-4" ref={boardDropdownRef}>
               <button
                 onClick={() => setIsBoardDropdownOpen(!isBoardDropdownOpen)}
@@ -308,10 +308,6 @@ const Header: React.FC = () => {
                 </div>
               )}
             </div>
-          ) : (
-            <h1 className="hidden sm:block text-xl font-bold text-gray-800 dark:text-white truncate">
-              Sales Dashboard
-            </h1>
           )}
 
           {/* Activity Indicator (Desktop/Tablet) */}
