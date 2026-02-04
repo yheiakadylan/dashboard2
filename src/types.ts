@@ -164,6 +164,7 @@ export interface ProcessedData {
   products: TableData; // New field for detailed products table
 }
 
+
 export interface ManualCost {
   id: string;
   providerName: string;
@@ -172,4 +173,16 @@ export interface ManualCost {
   timeZone?: string;
   currency?: string;
   createdAt?: any; // Firestore Timestamp
+}
+
+export interface UserProfile {
+  uid?: string; // Added for convenience when fetching from Firestore
+  teamId: string;
+  role: 'owner' | 'user';
+  permissions: { [key: string]: boolean };
+  allowedAccounts?: string[];
+  email?: string;
+  displayName?: string; // Optional display name
+  photoURL?: string;
+  [key: string]: any;
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, createContext } from 'react';
-import { Record, Account, ProcessedData, ManualCost } from '../types';
+import { Record, Account, ProcessedData, ManualCost, UserProfile } from '../types';
 import {
   saveAccountsToFirebase,
   deleteRecordsForAccounts,
@@ -49,6 +49,13 @@ interface DashboardContextType {
   isExporting: boolean;
   showExportOptions: boolean;
   setShowExportOptions: React.Dispatch<React.SetStateAction<boolean>>;
+
+  // Board Selection (Owner Only)
+  boards: UserProfile[];
+  selectedBoardId: string | null;
+  setSelectedBoardId: React.Dispatch<React.SetStateAction<string | null>>;
+  refreshBoards: () => Promise<void>;
+
 
 
 
@@ -216,15 +223,41 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   // --- 4. Logic Functions ---
 
+  // Board Logic
+  const [boards, setBoards] = useState<UserProfile[]>([]);
+  const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
 
+  const refreshBoards = React.useCallback(async () => {
+    if (role === 'owner' && teamId) {
+      const { getTeamMembers } = await import('../services/firebaseService');
+      const fetchedBoards = await getTeamMembers(teamId);
+      setBoards(fetchedBoards);
+    }
+  }, [role, teamId]);
 
+  useEffect(() => {
+    refreshBoards();
+  }, [refreshBoards]);
 
   // Computed Visible Accounts (for data display)
   const visibleAccounts = useMemo(() => {
-    if (role === 'owner') return allAccounts;
+    // Owner Logic
+    if (role === 'owner') {
+      // If a board is selected, filter by that board's allowedAccounts
+      if (selectedBoardId) {
+        const selectedBoard = boards.find(b => b.uid === selectedBoardId);
+        if (selectedBoard && selectedBoard.allowedAccounts && selectedBoard.allowedAccounts.length > 0) {
+          return allAccounts.filter(acc => selectedBoard.allowedAccounts!.includes(acc.email));
+        }
+        return [];
+      }
+      return allAccounts;
+    }
+
+    // Regular User Logic
     if (!allowedAccounts || allowedAccounts.length === 0) return [];
     return allAccounts.filter(acc => allowedAccounts.includes(acc.email));
-  }, [allAccounts, role, allowedAccounts]);
+  }, [allAccounts, role, allowedAccounts, selectedBoardId, boards]);
 
   // Computed Management Accounts (for MailManager - users with canManageSettings see ALL)
   const managementAccounts = useMemo(() => {
@@ -724,9 +757,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       updateRate,
       resetRates,
       refreshRates,
-      nextUpdateTime
+      nextUpdateTime,
 
-
+      boards,
+      selectedBoardId,
+      setSelectedBoardId,
+      refreshBoards
     }}>
       {children}
     </DashboardContext.Provider>

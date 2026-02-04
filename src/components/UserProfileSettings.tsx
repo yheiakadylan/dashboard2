@@ -3,18 +3,20 @@ import { updateProfile, updatePassword, reauthenticateWithCredential, EmailAuthP
 import { useAuthLogic } from '../hooks/useAuthLogic';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useNotification } from '../contexts/NotificationContext';
-import { uploadAvatar } from '../services/firebaseService';
-import { saveImageToDB, getImageFromDB } from '../utils/indexedDB';
+import { uploadDashboardAvatar, updateUserRoleProfile } from '../services/firebaseService';
+import { saveImageToDB, getImageFromDB } from '../utils/indexedDB'; // Keep for cache/fallback if needed
 import Spinner from './Spinner';
 import { User as UserIcon, Camera, Save, Sparkles, Mail, Link as LinkIcon, ShieldCheck, Upload, Info, LockKeyhole, X, KeyRound, BadgeCheck, ArrowLeft, ChevronRight, AlertCircle, Globe, Laptop, Clock, Monitor } from 'lucide-react';
 
 const UserProfileSettings: React.FC = () => {
     const { user, userProfile } = useAuthLogic();
     const { addNotification } = useNotification();
+    const { refreshBoards } = useDashboard(); // Add refreshBoards
 
     // Local state
     const [displayName, setDisplayName] = useState(user?.displayName || '');
     const [photoURL, setPhotoURL] = useState(user?.photoURL || '');
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const tooltipRef = useRef<HTMLDivElement>(null);
@@ -99,11 +101,44 @@ const UserProfileSettings: React.FC = () => {
 
         setIsLoading(true);
         try {
-            await updateProfile(user, {
-                displayName: displayName.trim(),
-                photoURL: photoURL.trim() || null
+            let finalPhotoURL = photoURL;
+
+            // 1. Upload Avatar if selected
+            if (selectedFile) {
+                // Upload to "avatars_dashboard/{uid}" (overwrite)
+                const url = await uploadDashboardAvatar(selectedFile, user.uid);
+                finalPhotoURL = url;
+
+                // Also update local view immediately just in case
+                setPhotoURL(url);
+
+                // Optional: Save to IndexedDB for offline cache matching Sidebar
+                saveImageToDB(user.uid, selectedFile).catch(console.error);
+            }
+
+            const cleanDisplayName = displayName.trim();
+            const cleanPhotoURL = finalPhotoURL?.trim() || null;
+
+            // 2. Update Firestore (User Role) - PRIMARY SOURCE
+            await updateUserRoleProfile(user.uid, {
+                displayName: cleanDisplayName,
+                photoURL: cleanPhotoURL || ''
             });
+
+            // 3. Update Firebase Auth Profile (Sync)
+            await updateProfile(user, {
+                displayName: cleanDisplayName,
+                photoURL: cleanPhotoURL
+            });
+
+            // Trigger global refresh for sidebar boards
+            await refreshBoards();
+
             addNotification('Profile updated successfully!', 'success');
+
+            // Clear file selection
+            setSelectedFile(null);
+
         } catch (error: any) {
             console.error("Error updating profile:", error);
             addNotification(`Failed to update profile: ${error.message} `, 'error');
@@ -162,7 +197,7 @@ const UserProfileSettings: React.FC = () => {
         }
     };
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !user) return;
 
@@ -176,23 +211,12 @@ const UserProfileSettings: React.FC = () => {
             return;
         }
 
-        setIsUploading(true);
-        setIsUploading(true);
-        try {
-            // Save to IndexedDB (Local override)
-            await saveImageToDB(user.uid, file);
+        // Set file for upload
+        setSelectedFile(file);
 
-            // Create local preview
-            const localUrl = URL.createObjectURL(file);
-            setPhotoURL(localUrl);
-
-            addNotification('Image saved locally! Remember to Save Profile.', 'success');
-        } catch (error: any) {
-            console.error("Save failed:", error);
-            addNotification(`Save failed: ${error.message} `, 'error');
-        } finally {
-            setIsUploading(false);
-        }
+        // Create local preview
+        const localUrl = URL.createObjectURL(file);
+        setPhotoURL(localUrl);
     };
 
     // Derived initials

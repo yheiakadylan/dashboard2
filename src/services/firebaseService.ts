@@ -20,7 +20,7 @@ import {
 import { getAuth } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getMessaging, isSupported } from "firebase/messaging";
-import { Account, Record } from '../types';
+import { Account, Record, UserProfile } from '../types';
 
 // Firebase configuration - uses VITE_ prefix for client-side access
 const firebaseConfig = {
@@ -59,6 +59,21 @@ export const uploadAvatar = async (file: File, userId: string): Promise<string> 
   const storageRef = ref(storage, `avatars/${userId}/${file.name}`);
   const snapshot = await uploadBytes(storageRef, file);
   return await getDownloadURL(snapshot.ref);
+};
+
+// === [NEW] Dashboard Avatar Upload (Overwrite strategy) ===
+export const uploadDashboardAvatar = async (file: File, userId: string): Promise<string> => {
+  // Save to fixed path "avatars_dashboard/{uid}" to ensure overwrite
+  const storageRef = ref(storage, `avatars_dashboard/${userId}`);
+  const snapshot = await uploadBytes(storageRef, file);
+  return await getDownloadURL(snapshot.ref);
+};
+
+// === [NEW] Update User Role Profile ===
+export const updateUserRoleProfile = async (userId: string, data: { displayName?: string; photoURL?: string }) => {
+  const userRef = doc(db, 'user_roles', userId);
+  // Using set with merge true in case document is missing (though it should exist)
+  await setDoc(userRef, data, { merge: true });
 };
 
 // HÀM QUAN TRỌNG: Khởi tạo messaging an toàn
@@ -516,5 +531,17 @@ export const listenForSettings = (teamId: string, callback: (settings: TeamSetti
   });
 
   return unsubscribe;
+};
+
+export const getTeamMembers = async (teamId: string): Promise<UserProfile[]> => {
+  try {
+    const rolesRef = collection(db, 'user_roles');
+    const q = query(rolesRef, where('teamId', '==', teamId), where('role', '==', 'user'));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ ...(doc.data() as UserProfile), uid: doc.id }));
+  } catch (error) {
+    console.error("Error getting team members:", error);
+    return [];
+  }
 };
 

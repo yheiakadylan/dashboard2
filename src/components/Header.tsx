@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useUI } from '../contexts/UIContext';
+import { LayoutDashboard, Users, ChevronDown, Check } from 'lucide-react';
 
 import { timezones } from '../utils/timezones';
 import ThemeToggle from './ThemeToggle';
@@ -100,6 +101,9 @@ const Header: React.FC = () => {
     allowedAccounts, // For notification filtering by shop
     performGlobalSearch, // Global Search Function
     clearGlobalSearch, // Clear Global Search
+    boards,
+    selectedBoardId,
+    setSelectedBoardId,
   } = useDashboard();
 
   const {
@@ -132,6 +136,19 @@ const Header: React.FC = () => {
     allowedAccounts,
     email: useDashboard().user?.email // Include email for soft delete
   } : null;
+
+  const [isBoardDropdownOpen, setIsBoardDropdownOpen] = useState(false);
+  const boardDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (boardDropdownRef.current && !boardDropdownRef.current.contains(event.target as Node)) {
+        setIsBoardDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -226,13 +243,76 @@ const Header: React.FC = () => {
 
         {/* Left: Logo, Title, Sync Status */}
         <div className="flex items-center gap-3 min-w-0">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-600 dark:text-blue-500 flex-shrink-0" aria-hidden="true">
-            <path d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z" fill="currentColor" />
-            <path d="M4 15L9 9L14 13L20 8" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="dark:stroke-gray-900" />
-          </svg>
-          <h1 className="hidden sm:block text-xl font-bold text-gray-800 dark:text-white truncate">
-            Sales Dashboard
-          </h1>
+          {role === 'owner' ? (
+            <div className="relative mr-4" ref={boardDropdownRef}>
+              <button
+                onClick={() => setIsBoardDropdownOpen(!isBoardDropdownOpen)}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors text-gray-800 dark:text-white"
+              >
+                <div className="flex items-center gap-2">
+                  {selectedBoardId ? (
+                    boards.find(b => b.uid === selectedBoardId)?.photoURL ? (
+                      <img src={boards.find(b => b.uid === selectedBoardId)?.photoURL} className="w-5 h-5 rounded-full object-cover" alt="" />
+                    ) : (
+                      <Users className="w-4 h-4 text-gray-500" />
+                    )
+                  ) : (
+                    <LayoutDashboard className="w-4 h-4 text-gray-500" />
+                  )}
+                  <span className="truncate max-w-[150px]">
+                    {selectedBoardId
+                      ? (boards.find(b => b.uid === selectedBoardId)?.displayName || 'Team')
+                      : 'All Teams'}
+                  </span>
+                </div>
+                <ChevronDown className="w-4 h-4 text-gray-500" />
+              </button>
+
+              {isBoardDropdownOpen && (
+                <div className="absolute top-full left-0 mt-2 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 p-1">
+                  <button
+                    onClick={() => { setSelectedBoardId(null); setIsBoardDropdownOpen(false); }}
+                    className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-3 rounded-lg transition-colors ${!selectedBoardId ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'}`}
+                  >
+                    <div className={`p-1.5 rounded-md flex-shrink-0 ${!selectedBoardId ? 'bg-blue-100 dark:bg-blue-800' : 'bg-gray-100 dark:bg-gray-700'}`}>
+                      <LayoutDashboard className="h-4 w-4" />
+                    </div>
+                    <span className="font-medium">All Teams</span>
+                    {!selectedBoardId && <Check className="ml-auto w-4 h-4 text-blue-600 dark:text-blue-400" />}
+                  </button>
+
+                  <div className="my-1 border-t border-gray-100 dark:border-gray-700/50" />
+
+                  <div className="max-h-[300px] overflow-y-auto space-y-0.5 scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
+                    {boards.map(board => (
+                      <button
+                        key={board.uid}
+                        onClick={() => { setSelectedBoardId(board.uid || null); setIsBoardDropdownOpen(false); }}
+                        className={`w-full text-left px-3 py-2 text-sm flex items-center gap-3 rounded-lg transition-colors ${selectedBoardId === board.uid ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'}`}
+                      >
+                        {board.photoURL ? (
+                          <img src={board.photoURL} alt="" className="w-7 h-7 rounded-full object-cover border border-gray-200 dark:border-gray-600 flex-shrink-0" />
+                        ) : (
+                          <div className={`p-1.5 rounded-md flex-shrink-0 ${selectedBoardId === board.uid ? 'bg-blue-100 dark:bg-blue-800' : 'bg-gray-100 dark:bg-gray-700'}`}>
+                            <Users className="h-4 w-4" />
+                          </div>
+                        )}
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-medium truncate">{board.displayName || 'Team'}</span>
+                          <span className="text-xs text-gray-500 truncate">{board.email}</span>
+                        </div>
+                        {selectedBoardId === board.uid && <Check className="ml-auto w-4 h-4 text-blue-600 dark:text-blue-400" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <h1 className="hidden sm:block text-xl font-bold text-gray-800 dark:text-white truncate">
+              Sales Dashboard
+            </h1>
+          )}
 
           {/* Activity Indicator (Desktop/Tablet) */}
           {syncState && (

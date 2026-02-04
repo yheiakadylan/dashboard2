@@ -14,7 +14,9 @@ import {
     SlidersHorizontal,
     Settings,
     LogOut,
-    FileSpreadsheet
+    FileSpreadsheet,
+    LayoutDashboard,
+    Users
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -23,7 +25,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
-    const { role, permissions, handleLogout, user } = useDashboard();
+    const { role, permissions, handleLogout, user, boards, selectedBoardId, setSelectedBoardId } = useDashboard();
     const {
         activeTab,
         handleTabClick,
@@ -36,6 +38,21 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
     } = useUI();
 
     const [localPhotoURL, setLocalPhotoURL] = useState(user?.photoURL || '');
+
+    // --- Custom Dropdown State ---
+    const [isBoardDropdownOpen, setIsBoardDropdownOpen] = useState(false);
+    const boardDropdownRef = React.useRef<HTMLDivElement>(null);
+
+    // Click outside handler for board dropdown
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (boardDropdownRef.current && !boardDropdownRef.current.contains(event.target as Node)) {
+                setIsBoardDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     // Load avatar (prefer local IndexedDB if available)
     useEffect(() => {
@@ -80,45 +97,29 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
         >
             <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                 <div
-                    onClick={() => setIsAccountManagerOpen(true)}
-                    className={`flex items-center gap-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg p-1 transition-colors ${isCollapsed ? 'hidden' : 'flex'}`}
-                    title="Edit Profile"
+                    className={`flex items-center gap-3 min-w-0 ${isCollapsed ? 'justify-center w-full cursor-pointer' : ''}`}
+                    onClick={isCollapsed ? toggleSidebar : undefined}
+                    title={isCollapsed ? "Expand Sidebar" : undefined}
                 >
-                    <div className="relative flex-shrink-0">
-                        {localPhotoURL ? (
-                            <img
-                                src={localPhotoURL}
-                                alt="User Avatar"
-                                className="w-8 h-8 rounded-full object-cover border border-gray-200 dark:border-gray-600 shadow-sm"
-                            />
-                        ) : (
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold shadow-sm">
-                                {user?.displayName ? user.displayName.charAt(0).toUpperCase() : (user?.email?.charAt(0).toUpperCase() || 'U')}
-                            </div>
-                        )}
-                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full"></span>
-                    </div>
-
-                    <div className="flex-1 min-w-0 overflow-hidden max-w-[140px]">
-                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
-                            {user?.displayName || 'Anonymous'}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                            {user?.email}
-                        </p>
-                    </div>
-                </div>
-                <button
-                    onClick={toggleSidebar}
-                    className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 focus:outline-none ml-auto"
-                    title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-                >
-                    {isCollapsed ? (
-                        <ChevronRight className="h-5 w-5" />
-                    ) : (
-                        <ChevronLeft className="h-5 w-5" />
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-600 dark:text-blue-500 flex-shrink-0" aria-hidden="true">
+                        <path d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z" fill="currentColor" />
+                        <path d="M4 15L9 9L14 13L20 8" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="dark:stroke-gray-900" />
+                    </svg>
+                    {!isCollapsed && (
+                        <h1 className="text-xl font-bold text-gray-800 dark:text-white truncate">
+                            Dashboard
+                        </h1>
                     )}
-                </button>
+                </div>
+                {!isCollapsed && (
+                    <button
+                        onClick={toggleSidebar}
+                        className="p-1 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none ml-auto"
+                        title="Collapse Sidebar"
+                    >
+                        <ChevronLeft className="h-5 w-5" />
+                    </button>
+                )}
             </div>
 
             <nav className="flex-1 overflow-y-auto overflow-x-hidden py-4">
@@ -170,7 +171,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
                 </ul>
             </nav>
 
-            <div className={`border-t border-gray-200 dark:border-gray-700 space-y-2 ${isCollapsed ? 'p-2' : 'p-4'}`}>
+            <div className={`border-t border-gray-200 dark:border-gray-700 space-y-2 ${isCollapsed ? 'p-2' : 'p-2'}`}>
 
 
                 {/* Sync to Sheet Button - Added here */}
@@ -259,32 +260,65 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
                     )}
                 </button>
 
-                <button
-                    onClick={handleLogout}
-                    className={`
-                w-full flex items-center py-2.5 rounded-lg transition-colors group relative
-                ${isCollapsed ? 'justify-center px-0' : 'px-3'}
-                text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-700 dark:hover:text-red-400
-            `}
-                    title={isCollapsed ? "Logout" : undefined}
-                >
-                    <div className="flex-shrink-0">
-                        <LogOut className="h-5 w-5" />
-                    </div>
-                    <span
-                        className={`
-                  font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300
-                  ${isCollapsed ? 'opacity-0 max-w-0 ml-0' : 'opacity-100 max-w-[150px] ml-3'}
-                `}
-                    >
-                        Logout
-                    </span>
-                    {isCollapsed && (
-                        <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 shadow-lg">
-                            Logout
+
+
+
+                {/* Profile & Logout Section (Card Style) */}
+                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                    <div className={`
+                        flex items-center justify-between 
+                         ${isCollapsed ? 'flex-col gap-4' : ''}
+                    `}>
+                        {/* Avatar & Info - Click to Settings */}
+                        <div
+                            onClick={() => setIsAccountManagerOpen(true)}
+                            className={`
+                                flex items-center gap-3 cursor-pointer 
+                                hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg p-2 transition-colors
+                                ${isCollapsed ? 'justify-center p-1' : 'flex-1 min-w-0'}
+                            `}
+                            title="Profile Settings"
+                        >
+                            <div className="relative flex-shrink-0">
+                                {localPhotoURL ? (
+                                    <img
+                                        src={localPhotoURL}
+                                        alt="User"
+                                        className="w-9 h-9 rounded-full object-cover border border-gray-200 dark:border-gray-600"
+                                    />
+                                ) : (
+                                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">
+                                        {user?.displayName ? user.displayName.charAt(0).toUpperCase() : (user?.email?.charAt(0).toUpperCase() || 'U')}
+                                    </div>
+                                )}
+                                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full"></span>
+                            </div>
+
+                            {!isCollapsed && (
+                                <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                                        {user?.displayName || 'User'}
+                                    </p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                        {role === 'owner' ? 'Owner' : 'Staff'}
+                                    </p>
+                                </div>
+                            )}
                         </div>
-                    )}
-                </button>
+
+                        {/* Separate Logout Button */}
+                        <button
+                            onClick={handleLogout}
+                            className={`
+                                flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors
+                                ${isCollapsed ? '' : 'px-2'}
+                            `}
+                            title="Logout"
+                        >
+                            <LogOut className="h-5 w-5" />
+                        </button>
+                    </div>
+                </div>
             </div>
         </aside>
     );

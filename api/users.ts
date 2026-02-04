@@ -125,14 +125,46 @@ async function handleCreateUser(req: VercelRequest, res: VercelResponse) {
             return res.status(403).json({ message: 'Forbidden. Only owners can create users.' });
         }
 
-        // 3. Create user in Firebase Authentication
-        const newUserRecord = await adminAuth.createUser({
-            email,
-            password,
-            emailVerified: true,
-        });
+        // 3. Create OR Recover user in Firebase Authentication
+        let newUserUid: string;
 
-        const newUserUid = newUserRecord.uid;
+        try {
+            const newUserRecord = await adminAuth.createUser({
+                email,
+                password,
+                emailVerified: true,
+            });
+            newUserUid = newUserRecord.uid;
+        } catch (createError: any) {
+            if (createError.code === 'auth/email-already-exists') {
+                // Handle "Ghost User" case: Exists in Auth but maybe not in DB?
+                try {
+                    const existingUser = await adminAuth.getUserByEmail(email);
+                    newUserUid = existingUser.uid;
+
+                    // Check if they really exist in DB
+                    const existingRoleDoc = await adminDb.collection('user_roles').doc(newUserUid).get();
+                    if (existingRoleDoc.exists) {
+                        // Real duplicate
+                        return res.status(409).json({ message: 'This email is already fully registered.' });
+                    }
+
+                    // Ghost Account detected (Auth yes, DB no). Recover it!
+                    console.log(`[handleCreateUser] Recovering ghost account for ${email} (${newUserUid})`);
+                    await adminAuth.updateUser(newUserUid, {
+                        password,
+                        emailVerified: true
+                    });
+
+                    // Proceed to create DB doc below...
+                } catch (lookupError) {
+                    console.error("Error looking up existing user:", lookupError);
+                    throw createError; // Throw original error
+                }
+            } else {
+                throw createError;
+            }
+        }
 
         // 4. Create user_roles document
         const newUserRoleDoc: any = {
@@ -239,8 +271,12 @@ async function handleDeleteUser(req: VercelRequest, res: VercelResponse) {
         try {
             await adminAuth.deleteUser(userId);
         } catch (authError: any) {
-            console.warn("Auth deletion warning:", authError);
-            // Continue even if auth delete fails (user might not exist in auth)
+            if (authError.code === 'auth/user-not-found') {
+                console.warn("User not found in Auth (already deleted?), proceeding to delete role doc.");
+            } else {
+                console.error("Failed to delete user from Auth:", authError);
+                throw new Error(`Failed to delete Auth capability: ${authError.message}`);
+            }
         }
 
         // 8. Delete user_roles document
