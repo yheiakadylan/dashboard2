@@ -21,6 +21,8 @@ export const getPermittedTabs = (
                 return hasPermission(role, permissions, 'viewSupportTab');
             case 'Fulfill':
                 return hasPermission(role, permissions, 'viewFulfillTab');
+            case 'Listing':
+                return true; // All users can view Listing tab
             default:
                 return false;
         }

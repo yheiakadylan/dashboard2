@@ -563,7 +563,84 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // =====================================================================
-  // 🔴 LARK WEBHOOK LOGIC (Code gốc xử lý Lark)
+  // � HIJACK 3: LOGIN NOTIFICATION (Migrated from api/lark-login-notify.ts)
+  // Gọi bằng: /api/lark-events?action=login-notify
+  // =====================================================================
+  if (action === 'login-notify') {
+    if (req.method !== 'POST') {
+      return res.status(405).json({ message: 'Only POST requests are allowed.' });
+    }
+
+    const { email, role, teamId } = req.body;
+
+    // 1. Chỉ gửi nếu là 'user'
+    if (role !== 'user') {
+      return res.status(200).json({ message: 'Notification skipped for owner.' });
+    }
+
+    // 2. Lấy URL bí mật từ server environment
+    const LARK_URL = process.env.LARK_LOGIN_WEBHOOK_URL;
+
+    // 3. Chuẩn bị nội dung
+    const userEmail = email || 'Không rõ email';
+    const content = `🔔 User Login: Tài khoản ${userEmail} vừa đăng nhập vào dashboard.`;
+
+    const payload = {
+      msg_type: "text",
+      content: { text: content },
+    };
+
+    // 4. Gửi Lark notification
+    if (LARK_URL) {
+      try {
+        await fetch(LARK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch (err: any) {
+        console.error('[lark-events/login-notify] Failed to send Lark notification:', err);
+      }
+    }
+
+    // 5. Gửi FCM Push Notification
+    try {
+      if (teamId) {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
+
+        const { createNotificationDocument } = await import('./_lib/notificationHelper.js');
+        const notificationId = await createNotificationDocument({
+          teamId,
+          type: 'LOGIN',
+          title: 'Team Member Login',
+          content: `${userEmail} logged into the dashboard`,
+          metadata: {
+            login_info: {
+              user_email: userEmail,
+              user_role: role,
+              timestamp: new Date().toISOString(),
+            },
+          },
+        });
+
+        await sendPushNotificationToUsers(teamId, 'login', {
+          title: '🔔 User Login',
+          body: `${userEmail} đã đăng nhập vào dashboard`,
+          url: `${appUrl}?notification=${notificationId}` // Deep link to notification detail
+        });
+        console.log('[lark-events/login-notify] FCM notification sent successfully');
+      } else {
+        console.warn('[lark-events/login-notify] No teamId provided, skipping FCM notification');
+      }
+    } catch (err: any) {
+      console.error('[lark-events/login-notify] Failed to send FCM notification:', err);
+    }
+
+    return res.status(200).json({ message: 'Notifications sent.' });
+  }
+
+  // =====================================================================
+  // �🔴 LARK WEBHOOK LOGIC (Code gốc xử lý Lark)
   // =====================================================================
 
   console.log('[lark-events] Received body:', JSON.stringify(req.body, null, 2));
@@ -620,3 +697,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).send('OK (Error handled)');
   }
 }
+

@@ -25,6 +25,8 @@ interface DashboardContextType {
   role: 'owner' | 'user';
   permissions: { [key: string]: boolean };
   allowedAccounts?: string[]; // For shop-level access control
+  filterDateRange: { from: string; to: string };
+  timeZone: string;
 
   // Data State (from useDataSync)
   accounts: Account[]; // Filtered accounts for data display
@@ -733,7 +735,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   return (
     <DashboardContext.Provider value={{
-      user, teamId, role, permissions, allowedAccounts,
+      user, teamId, role, permissions, allowedAccounts, filterDateRange, timeZone,
       accounts: visibleAccounts, // Filtered for data display
       allAccounts, // All accounts (unfiltered)
       managementAccounts, // For MailManager - respects canManageSettings

@@ -13,6 +13,19 @@ export interface Account {
   scan_start_date?: string; // Ngày bắt đầu của lịch sử email, được tìm thấy bởi giai đoạn dò tìm
   lastKnownHistoryId?: string; // ID cuối cùng mà webhook đã xử lý
   platforms?: string[]; // 'etsy', 'ebay'
+
+  // Listing Tracker fields
+  listing_tracking_enabled?: boolean; // Enable/disable crawling for this shop
+  total_listings?: number; // Current total active listings
+  last_listing_crawl?: Date; // Last crawl timestamp
+  last_crawl_stats?: {
+    added: number;
+    removed: number;
+    total: number;
+    timestamp: string;
+  };
+  last_crawl_error?: string; // ✅ Error message if last crawl failed
+  last_crawl_error_at?: Date; // ✅ Timestamp of last error
 }
 
 export interface OrderItem {
@@ -69,6 +82,7 @@ export interface Record {
   details?: OrderDetails;
   status?: 'New' | 'Refunded';
   refund_details?: RefundDetails;
+  listing_id?: string; // Mapped from listing tracker based on image
 }
 
 export interface RefundDetails {
@@ -89,7 +103,7 @@ export interface CostData {
   product_name?: string;
 }
 
-export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill';
+export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill' | 'Listing';
 export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%

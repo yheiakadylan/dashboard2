@@ -14,6 +14,7 @@ import ProductsTab from './tabs/ProductsTab';
 import OrderListTab from './tabs/OrderListTab';
 import FulfillTab from './tabs/FulfillTab';
 import SupportTab from './tabs/SupportTab';
+import ListingTab from './tabs/ListingTab';
 
 interface MainContentProps {
     onViewOrderDetails: (recordId: string) => void;
@@ -132,6 +133,9 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
 
                 case 'Fulfill':
                     return <FulfillTab processedData={processedData} />;
+
+                case 'Listing':
+                    return <ListingTab />;
 
                 default:
                     return <div className="p-8 text-center text-gray-500">Selected tab content not available.</div>;

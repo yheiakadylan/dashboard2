@@ -20,6 +20,7 @@ import { splitDateRange } from '../utils/dateChunking';
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { fetchCostsForRecords } from '../services/fulfillmentService';
 import { User } from 'firebase/auth';
+import { getImageMapFromManifests, findListingIdForRecord } from '../services/listingService';
 
 interface UseDataSyncProps {
     user: User | null;
@@ -233,7 +234,27 @@ export const useDataSync = ({
 
             if (signal?.aborted) return [];
 
-            const addedRecords = await saveRecordsToFirebase(teamId, newRecordsWithCost);
+            let finalNewRecords = newRecordsWithCost;
+            if (finalNewRecords.length > 0) {
+                try {
+                    // Optimized: Only fetch map if we have items to map
+                    // Could check if any record has details.items first
+                    const hasItems = finalNewRecords.some(r => r.details?.items && r.details.items.length > 0);
+                    if (hasItems) {
+                        const imageMap = await getImageMapFromManifests(teamId);
+                        if (imageMap.size > 0) {
+                            finalNewRecords = finalNewRecords.map(record => {
+                                const listingId = findListingIdForRecord(record, imageMap);
+                                return listingId ? { ...record, listing_id: listingId } : record;
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.error('Auto-mapping listing IDs failed:', e);
+                }
+            }
+
+            const addedRecords = await saveRecordsToFirebase(teamId, finalNewRecords);
 
             if (signal?.aborted) return [];
 

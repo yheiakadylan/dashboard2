@@ -16,7 +16,8 @@ import {
     LogOut,
     FileSpreadsheet,
     LayoutDashboard,
-    Users
+    Users,
+    Package
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -77,11 +78,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
         switch (tab) {
             case 'Overview': return <Home className={className} />;
             case 'Order List': return <FileText className={className} />;
-
             case 'Support': return <HelpCircle className={className} />;
             case 'Fulfill': return <Truck className={className} />;
-
             case 'Products': return <Tag className={className} />;
+            case 'Listing': return <Package className={className} />;
             default: return <Home className={className} />;
         }
     };

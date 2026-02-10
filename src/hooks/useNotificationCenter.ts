@@ -110,7 +110,6 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                             return;
                         }
 
-                        console.log('[NotificationCenter] New notification from Firestore:', firestoreNotification);
 
                         // Add to state and ensuring sorting
                         setNotifications((prev) => {

@@ -98,7 +98,21 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Order #{order_id}</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Order #{order_id}</h2>
+              {record.listing_id && (
+                <a
+                  href={`https://www.etsy.com/listing/${record.listing_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded hover:bg-indigo-200 transition-colors flex items-center gap-1"
+                  title="View Linked Listing on Etsy"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+                  Listing: {record.listing_id}
+                </a>
+              )}
+            </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {formattedDate} • Shop: {shopName}
             </p>

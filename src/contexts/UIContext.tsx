@@ -4,7 +4,7 @@ import { Tab } from '../types';
 import { useNotification } from './NotificationContext';
 
 // Constants moved here or imported? For now, defining strict types/constants.
-const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Support', 'Fulfill'];
+const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Support', 'Fulfill', 'Listing'];
 
 interface UIContextType {
     // Layout
@@ -83,9 +83,18 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     );
 
     const [tabOrder, setLocalTabOrder] = useState<Tab[]>(() => {
-        // Filter out any tabs that are no longer in DEFAULT_TABS (handles stale local storage)
+        // Merge logic: Add any new tabs from DEFAULT_TABS that aren't in saved preferences
+        const savedTabs = new Set(tabPreferences.tabOrder);
         const validTabs = new Set(DEFAULT_TABS);
-        return tabPreferences.tabOrder.filter(tab => validTabs.has(tab));
+
+        // Filter out invalid tabs from saved preferences
+        const filteredSaved = tabPreferences.tabOrder.filter(tab => validTabs.has(tab));
+
+        // Find new tabs in DEFAULT_TABS that aren't in saved preferences
+        const newTabs = DEFAULT_TABS.filter(tab => !savedTabs.has(tab));
+
+        // Merge: Keep saved order + append new tabs at the end
+        return [...filteredSaved, ...newTabs];
     });
     // Convert array back to Set for internal logic
     const [hiddenTabs, setHiddenTabs] = useState<Set<Tab>>(new Set(tabPreferences.hiddenTabs));

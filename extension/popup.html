@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #1e293b;
+      --border: #e2e8f0;
+    }
+
+    body {
+      width: 350px;
+      margin: 0;
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+      padding: 16px;
+      color: white;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .app-icon {
+      width: 32px;
+      height: 32px;
+      background: white;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary);
+    }
+
+    .app-title {
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      background: white;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab {
+      flex: 1;
+      text-align: center;
+      padding: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #64748b;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+
+    .tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    /* Content */
+    .content {
+      padding: 16px;
+      display: none;
+    }
+
+    .content.active {
+      display: block;
+    }
+
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .label {
+      font-size: 12px;
+      color: #64748b;
+      font-weight: 500;
+    }
+
+    .val {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .input-group {
+      margin-bottom: 12px;
+    }
+
+    .input-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      margin-bottom: 4px;
+      color: #475569;
+    }
+
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: inherit;
+      box-sizing: border-box;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 13px;
+      transition: 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      opacity: 0.9;
+    }
+
+    .btn-outline {
+      background: white;
+      border: 1px solid var(--border);
+      color: #475569;
+      margin-top: 8px;
+    }
+
+    .shop-list {
+      max-height: 150px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px;
+      background: #f9fafb;
+    }
+
+    .shop-item {
+      display: flex;
+      align-items: center;
+      padding: 6px;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 13px;
+    }
+
+    .shop-item:last-child {
+      border-bottom: none;
+    }
+
+    .shop-item input {
+      margin-right: 8px;
+    }
+
+    .status-badge {
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #dcfce7;
+      color: #166534;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      background: currentColor;
+      border-radius: 50%;
+    }
+
+    .status-badge.inactive {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <div class="app-icon">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path
+          d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      </svg>
+    </div>
+    <div class="app-title">Crawler Config</div>
+  </div>
+
+  <!-- LOGIN SCREEN -->
+  <div id="login-screen" style="padding: 20px;">
+    <div style="text-align:center; margin-bottom:20px;">
+      <h3 style="margin:0; font-size:18px;">Welcome Back</h3>
+      <p style="margin:5px 0 0; font-size:12px; color:#64748b;">Sign in to manage your crawler</p>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Email</label>
+      <input type="text" id="loginEmail" placeholder="your@email.com">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Password</label>
+      <input type="password" id="loginPass" placeholder="••••••••"
+        style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
+    </div>
+    <div class="input-group">
+      <label class="input-label">App URL (Optional)</label>
+      <input type="text" id="loginAppUrl" value="https://dashboardvikcom.vercel.app">
+    </div>
+
+    <button id="loginBtn" class="btn-primary" style="margin-top:10px;">Sign In</button>
+    <div id="loginError" style="color:red; font-size:12px; margin-top:10px; text-align:center;"></div>
+  </div>
+
+  <!-- MAIN APP (Hidden by default) -->
+  <div id="main-app" style="display:none;">
+    <div class="tabs">
+      <div class="tab active" data-tab="status">Status</div>
+      <div class="tab" data-tab="settings">Settings</div>
+    </div>
+
+    <!-- STATUS TAB -->
+    <div id="status" class="content active">
+      <div class="card">
+        <div class="row">
+          <span class="label">Status</span>
+          <div class="status-badge" id="serviceStatus">
+            <div class="dot"></div> <span id="statusText">Active</span>
+          </div>
+        </div>
+        <div class="row">
+          <span class="label">Last Run</span>
+          <span class="val" id="lastRun">Never</span>
+        </div>
+        <div class="row">
+          <span class="label">Next Run</span>
+          <span class="val" id="nextRun">--:--</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <span class="label">Shops</span>
+          <span class="val" id="totalShops">0</span>
+        </div>
+        <div class="row">
+          <span class="label">Listings Scraped</span>
+          <span class="val" id="totalListings">0</span>
+        </div>
+      </div>
+
+      <button class="btn-outline" id="runNowBtn">▶ Run Now</button>
+      <button class="btn-outline" id="stopCrawlBtn"
+        style="margin-top:8px; background:#fee; border-color:#fcc; color:#c00; display:none;">⏸ Stop Crawl</button>
+      <button class="btn-outline" id="logoutBtn" style="margin-top:20px; color:red; border-color: #fca5a5;">Log
+        Out</button>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div id="settings" class="content">
+      <div class="input-group">
+        <label class="input-label">App URL</label>
+        <input type="text" id="appUrl" placeholder="https://..." value="https://dashboardvikcom.vercel.app">
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Team ID (Required)</label>
+        <input type="text" id="teamId" placeholder="Paste your Team ID here" value="jwnm5emo8mdG3gjIlh7CctiVvQO2">
+      </div>
+
+      <button id="fetchShopsBtn" class="btn-outline" style="margin-bottom: 12px;">Fetch Shops from Dashboard</button>
+
+      <div class="input-group">
+        <label class="input-label">Select Shops to Crawl</label>
+        <div class="shop-list" id="shopListContainer">
+          <div style="padding:10px; color:#94a3b8; text-align:center; font-size:12px;">No shops loaded. Enter Team ID
+            and
+            click Fetch.</div>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Crawl Mode</label>
+        <div style="display:flex; gap:16px; margin-bottom:8px;">
+          <label style="display:flex; align-items:center; cursor:pointer;">
+            <input type="radio" name="crawlMode" value="interval" checked> Interval
+          </label>
+          <label style="display:flex; align-items:center; cursor:pointer;">
+            <input type="radio" name="crawlMode" value="daily"> Daily Time
+          </label>
+        </div>
+      </div>
+
+      <div class="input-group" id="groupInterval">
+        <label class="input-label">Interval (Hours)</label>
+        <input type="number" id="intervalHours" value="6" min="1">
+      </div>
+
+      <div class="input-group" id="groupDaily" style="display:none;">
+        <label class="input-label">Run at (Daily)</label>
+        <input type="time" id="dailyTime" value="06:00">
+      </div>
+
+      <div class="row" style="margin-top:20px;">
+        <span class="label">Auto-Crawl</span>
+        <label style="display:flex; align-items:center; cursor:pointer;">
+          <input type="checkbox" id="autoCrawlEnable" checked style="margin-right:6px;"> Enable
+        </label>
+      </div>
+
+      <button id="saveConfigBtn" class="btn-primary" style="margin-top:10px;">Save Configuration</button>
+      <div id="saveMsg"
+        style="text-align:center; font-size:12px; color:green; margin-top:8px; opacity:0; transition:0.3s;">Saved!</div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>
