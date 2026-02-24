@@ -395,7 +395,7 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
                         </p>
                     </div>
 
-                    <div className="flex gap-2 items-center w-full md:w-auto overflow-x-auto pb-2 md:pb-0 no-scrollbar">
+                    <div className="flex gap-2 items-center w-full md:w-auto overflow-x-auto pb-2 md:pb-0 no-scrollbar overscroll-x-contain touch-pan-x">
 
                         {/* Mobile: Scrollable horizontal list of actions */}
                         <div className="flex items-center gap-2 flex-nowrap min-w-min">

@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, Check, Trash2, X, Inbox } from 'lucide-react';
 import { useNotificationCenter } from '../hooks/useNotificationCenter';
 import NotificationItem from './NotificationItem';
@@ -341,7 +342,7 @@ const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDe
             )}
 
             {/* Clear All Confirmation Modal */}
-            {showClearConfirm && (
+            {showClearConfirm && createPortal(
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowClearConfirm(false)}>
                     <div
                         className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 max-w-sm w-full p-6 animate-fade-in-up"
@@ -379,7 +380,8 @@ const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDe
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </>
     );

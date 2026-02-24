@@ -97,10 +97,10 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
     // NOW safe to do early returns
     if (loading && data.length === 0) {
         return (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
-                <div className="flex justify-center items-center py-8">
-                    <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                    <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">Loading chart...</span>
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 transition-all hover:shadow-md h-full flex flex-col min-h-[450px]">
+                <div className="flex justify-center items-center h-full flex-1">
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <span className="ml-3 text-sm text-gray-500 dark:text-gray-400">Loading chart...</span>
                 </div>
             </div>
         );
@@ -108,14 +108,14 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
 
     if (displayedData.length === 0 && !loading && data.length > 0) {
         return (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 transition-all hover:shadow-md h-full flex flex-col">
                 <ChartHeader
                     totalNew={totalNew}
                     totalRemoved={totalRemoved}
                     duration={duration}
                     setDuration={setNewListingDuration}
                 />
-                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                <div className="text-center flex flex-col flex-1 justify-center items-center py-8 text-gray-500 dark:text-gray-400 min-h-[450px]">
                     <TrendingUp className="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
                     No listing activity in the last {duration} hours.
                 </div>
@@ -124,7 +124,7 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
     }
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 transition-all hover:shadow-md h-full flex flex-col">
             <ChartHeader
                 totalNew={totalNew}
                 totalRemoved={totalRemoved}
@@ -132,19 +132,19 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
                 setDuration={setNewListingDuration}
             />
 
-            {/* Desktop View: Vertical Bars - Scrollable */}
-            <div className={`hidden md:block w-full overflow-x-auto custom-scrollbar ${isCompact ? 'pb-32' : 'pb-12'}`}>
+            {/* Desktop View: Vertical Bars */}
+            <div className={`hidden md:block w-full flex-1 min-h-[450px] ${isCompact ? 'pb-24' : 'pb-8'}`}>
                 <div
-                    className={`flex relative items-stretch justify-center gap-1 sm:gap-2 ${isCompact ? 'px-2' : 'px-4'}`}
-                    style={{ height: '450px', minWidth: '100%' }}
+                    className="flex relative items-stretch justify-around gap-1 h-full px-2"
+                    style={{ width: '100%' }}
                 >
                     <div className="absolute top-1/2 left-0 right-0 border-t border-gray-300 dark:border-gray-700 w-full z-0 pointer-events-none"></div>
 
                     {displayedData.map((item) => (
                         <div
                             key={item.accountId}
-                            className={`relative z-10 flex flex-col items-center flex-1 group cursor-pointer ${isCompact ? 'max-w-[40px]' : 'max-w-[100px]'}`}
-                            style={{ minWidth: isCompact ? '32px' : '50px', flexShrink: 0 }}
+                            className="relative z-10 flex flex-col items-center flex-1 group cursor-pointer max-w-[80px]"
+                            style={{ minWidth: 0, flexShrink: 1 }}
                             title={`${item.label}\nNew: +${item.newCount}\nRemoved: -${item.removedCount}`}
                         >
                             <div
@@ -153,7 +153,7 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
                             >
                                 {item.newCount > 0 && (
                                     <>
-                                        <span className="mb-1 text-[10px] sm:text-xs font-bold text-green-600 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                        <span className="mb-1 text-[10px] sm:text-xs font-bold text-green-600 dark:text-green-400 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                                             +{item.newCount}
                                         </span>
                                         <div
@@ -178,7 +178,7 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
                                                 height: `${Math.max((item.removedCount / maxVal) * 100, 2)}%`,
                                             }}
                                         />
-                                        <span className="mt-1 text-[10px] sm:text-xs font-bold text-red-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                        <span className="mt-1 text-[10px] sm:text-xs font-bold text-red-500 dark:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                                             -{item.removedCount}
                                         </span>
                                     </>
@@ -191,7 +191,7 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
                             >
                                 <span
                                     className={`
-                                    text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors
+                                    text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-300 group-hover:text-blue-600 dark:group-hover:text-blue-300 transition-colors
                                     ${isCompact
                                             ? 'origin-top -rotate-90 translate-y-2'
                                             : 'text-center truncate px-1 w-full block'
@@ -207,7 +207,7 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
             </div>
 
             {/* Mobile View: Horizontal Bars (List) for better scalability */}
-            <div className="md:hidden flex flex-col gap-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+            <div className="md:hidden flex flex-col gap-3 pr-2 mb-2">
                 {displayedData.map((item) => (
                     <div key={item.accountId} className="flex flex-col gap-1 border-b border-gray-50 dark:border-gray-700 last:border-0 pb-2 last:pb-0">
                         <div className="flex justify-between items-center text-xs mb-1">

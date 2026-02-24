@@ -8,6 +8,7 @@ import GoogleSheetModal from '../GoogleSheetModal';
 import OrderSelectorModal from '../OrderSelectorModal';
 import PreviewSyncModal from '../PreviewSyncModal';
 import { useUI } from '../../contexts/UIContext';
+import useMediaQuery from '../../hooks/useMediaQuery';
 
 interface OrderListTabProps {
     processedData: ProcessedData;
@@ -34,6 +35,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     const [showGoogleSheetModal, setShowGoogleSheetModal] = useState(false);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [selectedRecords, setSelectedRecords] = useState<Record[]>([]);
+    const isDesktop = useMediaQuery('(min-width: 768px)');
 
     // Identify Variants and Source column indices dynamically
     const variantsIndex = processedData.orders.headers.findIndex(h => h === 'Variants');
@@ -86,7 +88,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     return (
         <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] relative">
             <div className="p-2 md:p-6">
-                <div style={{ height: 'calc(100vh - 120px)' }}>
+                <div style={isDesktop ? { height: 'calc(100vh - 120px)' } : {}}>
                     <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
                         <DataTable
                             headers={displayHeaders}
@@ -94,7 +96,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
                             onViewOrderDetails={handleViewOrderDetails}
                             onResyncOrder={handleResyncOrder}
                             mobileRowHeight={390}
-                            autoHeight={false}
+                            autoHeight={!isDesktop}
                         />
                     </Suspense>
                 </div>

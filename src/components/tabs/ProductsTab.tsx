@@ -3,6 +3,7 @@ import ChartErrorBoundary from '../ChartErrorBoundary';
 import LoadingSpinner from '../LoadingSpinner';
 import { ProcessedData } from '../../types';
 import DataTable from '../DataTable';
+import useMediaQuery from '../../hooks/useMediaQuery';
 
 import TopProductsChart from '../TopProductsChart';
 
@@ -11,6 +12,7 @@ interface ProductsTabProps {
 }
 
 const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
+    const isDesktop = useMediaQuery('(min-width: 768px)');
     return (
         <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
             <div className="p-2 md:p-6 pb-0">
@@ -27,12 +29,12 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                     <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Product Details</h3>
                     {/* Fixed height container for Table to fill viewport after scroll */}
-                    <div style={{ height: 'calc(100vh - 140px)' }}>
+                    <div style={isDesktop ? { height: 'calc(100vh - 140px)' } : {}}>
                         <Suspense fallback={<LoadingSpinner variant="table-row" count={10} />}>
                             <DataTable
                                 headers={processedData.products.headers}
                                 data={processedData.products.rows}
-                                autoHeight={false} // Internal scroll
+                                autoHeight={!isDesktop} // Internal scroll only on desktop
                                 mobileRowHeight={200}
                             />
                         </Suspense>

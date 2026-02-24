@@ -55,8 +55,9 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
                 : null;
 
             // Get total count
+            const accessibleShopIds = accounts.map(a => a.id);
             const count = isAllShops
-                ? await getAllListingsCount(teamId, activeTab, timeFilter)
+                ? await getAllListingsCount(teamId, activeTab, timeFilter, accessibleShopIds)
                 : await getListingCount(teamId, accountId, activeTab, timeFilter);
             setTotalCount(count);
 
@@ -82,8 +83,9 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
                 ? new Date(Date.now() - newListingDuration * 60 * 60 * 1000)
                 : null;
 
+            const accessibleShopIds = accounts.map(a => a.id);
             const result = isAllShops
-                ? await getAllListingsPaginated(teamId, ITEMS_PER_PAGE, cursor, activeTab, timeFilter)
+                ? await getAllListingsPaginated(teamId, ITEMS_PER_PAGE, cursor, activeTab, timeFilter, accessibleShopIds)
                 : await getListingsForAccount(
                     teamId,
                     accountId,
@@ -225,7 +227,7 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
             {/* Tabs & Pagination Header */}
             {/* Tabs & Pagination Header */}
             <div className="flex flex-col md:flex-row items-stretch md:items-end justify-between border-b border-gray-200 mb-6 gap-4">
-                <nav className="-mb-px flex space-x-6 overflow-x-auto pb-1 no-scrollbar w-full md:w-auto">
+                <nav className="-mb-px flex space-x-6 overflow-x-auto pb-1 no-scrollbar w-full md:w-auto overscroll-x-contain touch-pan-x">
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Record } from '../types';
 import { syncRecordsToGoogleSheet, getNewAndExistingOrders } from '../services/googleSheetService';
 import { getGoogleAccessToken } from '../services/authService';
@@ -180,9 +181,9 @@ const PreviewSyncModal: React.FC<PreviewSyncModalProps> = ({
 
     if (!isOpen) return null;
 
-    return (
+    return createPortal(
         <div
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
             onClick={onClose}
         >
             <div
@@ -372,7 +373,8 @@ const PreviewSyncModal: React.FC<PreviewSyncModalProps> = ({
                     )}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

@@ -64,12 +64,12 @@ const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
                             Total: {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(processedData.fulfill.totalCost || 0)}
                         </span>
                     </h3>
-                    <div style={{ height: 'calc(100vh - 140px)' }}>
+                    <div style={isDesktop ? { height: 'calc(100vh - 140px)' } : {}}>
                         <Suspense fallback={<LoadingSpinner />}>
                             <DataTable
                                 headers={processedData.fulfill.table.headers}
                                 data={processedData.fulfill.table.rows}
-                                autoHeight={false}
+                                autoHeight={!isDesktop}
                             />
                         </Suspense>
                     </div>

@@ -98,18 +98,23 @@ export const getAllListingsPaginated = async (
     limitCount: number = 50,
     lastDoc?: any,
     status?: string,
-    timeFilter?: Date | null
+    timeFilter?: Date | null,
+    accessibleAccountIds?: string[]
 ): Promise<{ listings: Listing[], lastDoc: any }> => {
     try {
         // 1. Get Accounts
         const accountsRef = collection(db, 'user', teamId, 'accounts');
         const accountsSnap = await getDocs(accountsRef);
-        const shops = accountsSnap.docs
+        let shops = accountsSnap.docs
             .filter(d => {
                 const data = d.data();
                 return data.platforms?.includes('etsy'); // Only Etsy shops
             })
             .map(d => ({ id: d.id, ...d.data() }));
+
+        if (accessibleAccountIds && accessibleAccountIds.length > 0) {
+            shops = shops.filter(shop => accessibleAccountIds.includes(shop.id));
+        }
 
         if (shops.length === 0) return { listings: [], lastDoc: null };
 
@@ -181,11 +186,20 @@ export const getAllListingsPaginated = async (
     }
 };
 
-export const getAllListingsCount = async (teamId: string, status?: string, timeFilter?: Date | null): Promise<number> => {
+export const getAllListingsCount = async (
+    teamId: string,
+    status?: string,
+    timeFilter?: Date | null,
+    accessibleAccountIds?: string[]
+): Promise<number> => {
     try {
         const accountsRef = collection(db, 'user', teamId, 'accounts');
         const accountsSnap = await getDocs(accountsRef);
-        const shops = accountsSnap.docs.filter(d => d.data().platforms?.includes('etsy'));
+        let shops = accountsSnap.docs.filter(d => d.data().platforms?.includes('etsy'));
+
+        if (accessibleAccountIds && accessibleAccountIds.length > 0) {
+            shops = shops.filter(shop => accessibleAccountIds.includes(shop.id));
+        }
 
         const promises = shops.map(async (doc) => {
             const listingsRef = collection(db, 'user', teamId, 'accounts', doc.id, 'listings');
@@ -365,7 +379,8 @@ export const getRemovedListingsCount = async (teamId: string, accountId: string,
 
 export const getDailyStats = async (
     teamId: string,
-    days: number = 7
+    days: number = 7,
+    accessibleAccountIds?: string[]
 ): Promise<DailyStats[]> => {
     const stats: DailyStats[] = [];
     const today = new Date();
@@ -403,7 +418,38 @@ export const getDailyStats = async (
 
     const results = await Promise.all(promises);
     const validStats = results.filter(Boolean) as DailyStats[];
-    stats.push(...validStats);
+
+    // Filter snapshots based on accessible accounts
+    const filteredStats = validStats.map(stat => {
+        if (!accessibleAccountIds || accessibleAccountIds.length === 0) return stat;
+
+        let filteredNew = 0;
+        let filteredRemoved = 0;
+        let filteredTotal = 0;
+        let filteredShops: any = {};
+
+        if (stat.shops) {
+            Object.entries(stat.shops).forEach(([shopId, shopStat]: [string, any]) => {
+                if (accessibleAccountIds.includes(shopId)) {
+                    filteredNew += shopStat.new || 0;
+                    filteredRemoved += shopStat.removed || 0;
+                    filteredTotal += shopStat.total || 0;
+                    filteredShops[shopId] = shopStat;
+                }
+            });
+        }
+
+        return {
+            ...stat,
+            new_listings: filteredNew,
+            removed_listings: filteredRemoved,
+            total_listings: filteredTotal,
+            shops: filteredShops,
+            shops_crawled: Object.keys(filteredShops).length
+        };
+    });
+
+    stats.push(...filteredStats);
 
     // 3. Calculate "Today's" Stats (Realtime)
     try {
@@ -426,6 +472,8 @@ export const getDailyStats = async (
             // Parallel
             await Promise.all(accountsSnap.docs.map(async (doc) => {
                 const shopId = doc.id;
+                if (accessibleAccountIds && accessibleAccountIds.length > 0 && !accessibleAccountIds.includes(shopId)) return;
+
                 const data = doc.data();
                 if (!data.platforms?.includes('etsy')) return;
 

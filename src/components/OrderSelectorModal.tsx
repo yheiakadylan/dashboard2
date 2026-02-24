@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Record } from '../types';
 import { useDashboard } from '../contexts/DashboardContext';
 
@@ -82,9 +83,9 @@ const OrderSelectorModal: React.FC<OrderSelectorModalProps> = ({
 
     if (!isOpen) return null;
 
-    return (
+    return createPortal(
         <div
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
             onClick={onClose}
         >
             <div
@@ -230,7 +231,8 @@ const OrderSelectorModal: React.FC<OrderSelectorModalProps> = ({
                     </div>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

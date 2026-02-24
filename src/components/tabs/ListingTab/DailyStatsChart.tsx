@@ -153,7 +153,8 @@ const DailyStatsChart: React.FC<DailyStatsChartProps> = ({ teamId, days = 7, acc
             if (!teamId) return;
             try {
                 setLoading(true);
-                const data = await getDailyStats(teamId, selectedDays);
+                const accessibleAccounts = accounts.map(a => a.id);
+                const data = await getDailyStats(teamId, selectedDays, accessibleAccounts);
                 // Transform data for chart
                 const processed = data.map(item => {
                     const net = item.new_listings - item.removed_listings;
@@ -183,14 +184,14 @@ const DailyStatsChart: React.FC<DailyStatsChartProps> = ({ teamId, days = 7, acc
 
     if (loading) {
         return (
-            <div className="h-[300px] flex items-center justify-center bg-gray-50/50 dark:bg-gray-800/50 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
+            <div className="h-full min-h-[450px] flex items-center justify-center bg-gray-50/50 dark:bg-gray-800/50 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
                 <Loader2 className="w-8 h-8 animate-spin text-gray-300 dark:text-gray-600" />
             </div>
         );
     }
 
     return (
-        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 transition-all hover:shadow-md">
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 transition-all hover:shadow-md h-full flex flex-col">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-3">
                 {/* Title */}
                 <div>
@@ -231,7 +232,7 @@ const DailyStatsChart: React.FC<DailyStatsChartProps> = ({ teamId, days = 7, acc
                 </div>
             </div>
 
-            <div className="h-[280px] w-full">
+            <div className="flex-1 w-full min-h-[450px]">
                 <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart
                         data={chartData}

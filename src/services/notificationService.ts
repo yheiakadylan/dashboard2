@@ -53,7 +53,7 @@ export const sendLarkLoginNotification = (
   if (role !== 'user') {
     return;
   }
-  fetch('/api/lark-login-notify', {
+  fetch('/api/lark-events?action=login-notify', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

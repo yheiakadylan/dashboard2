@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { getHighResImageUrl } from '../utils/imageUtils';
 
 interface ImagePreviewModalProps {
@@ -49,9 +50,9 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, product
 
     if (!imageUrl) return null;
 
-    return (
+    return createPortal(
         <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8 bg-black/90 backdrop-blur-sm animate-modal-backdrop"
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4 md:p-8 bg-black/90 backdrop-blur-sm animate-modal-backdrop"
             onClick={onClose}
         >
             {/* Wrapper for Image + Caption + Close Button */}
@@ -109,7 +110,8 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, product
                     </div>
                 )}
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

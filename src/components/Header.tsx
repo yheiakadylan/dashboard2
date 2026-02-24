@@ -247,7 +247,7 @@ const Header: React.FC = () => {
             <div className="relative mr-4" ref={boardDropdownRef}>
               <button
                 onClick={() => setIsBoardDropdownOpen(!isBoardDropdownOpen)}
-                className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors text-gray-800 dark:text-white"
+                className="flex items-center gap-2 px-3 h-9 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors text-gray-800 dark:text-white border border-transparent"
               >
                 <div className="flex items-center gap-2">
                   {selectedBoardId ? (
@@ -463,7 +463,7 @@ const Header: React.FC = () => {
                   { value: 'Ebay_Sales', label: 'eBay' }
                 ]}
                 className="w-[85px]"
-                triggerClassName="pl-2 pr-1"
+                triggerClassName="h-9 py-0 pl-2 pr-1"
               />
               <CustomSelect
                 value={statusFilter}
@@ -474,7 +474,7 @@ const Header: React.FC = () => {
                   { value: 'Refunded', label: 'Ref' }
                 ]}
                 className="w-[85px]"
-                triggerClassName="pl-2 pr-1"
+                triggerClassName="h-9 py-0 pl-2 pr-1"
                 align="right"
               />
             </div>
@@ -490,6 +490,7 @@ const Header: React.FC = () => {
                 { value: 'Help', label: 'Help' }
               ]}
               className="w-32"
+              triggerClassName="h-9 py-0"
             />
           )}
 
