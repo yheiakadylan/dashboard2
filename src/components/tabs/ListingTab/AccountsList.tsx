@@ -40,9 +40,9 @@ interface AccountRowProps {
 
 const AccountRow = React.memo(({ account, status, newCount, isCrawling, onSelectAccount, onToggleTracking }: AccountRowProps) => {
     return (
-        <tr className="hover:bg-gray-50">
+        <tr className="hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
             <td className="px-6 py-4 whitespace-nowrap">
-                <div className="text-sm font-medium text-gray-900">{account.label}</div>
+                <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{account.label}</div>
                 <button
                     onClick={() => window.open(`https://www.etsy.com/shop/${account.label}`, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes')}
                     className="text-xs text-blue-500 hover:underline bg-transparent border-0 p-0 cursor-pointer text-left font-normal"
@@ -136,10 +136,10 @@ const AccountRow = React.memo(({ account, status, newCount, isCrawling, onSelect
 
 const MobileAccountCard = React.memo(({ account, status, newCount, isCrawling, onSelectAccount, onToggleTracking }: AccountRowProps) => {
     return (
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 space-y-3">
+        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
             <div className="flex justify-between items-start">
                 <div>
-                    <h3 className="font-medium text-gray-900">{account.label}</h3>
+                    <h3 className="font-medium text-gray-900 dark:text-gray-100">{account.label}</h3>
                     <button
                         onClick={() => window.open(`https://www.etsy.com/shop/${account.label}`, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes')}
                         className="text-xs text-blue-500 hover:underline"
@@ -165,7 +165,7 @@ const MobileAccountCard = React.memo(({ account, status, newCount, isCrawling, o
             </div>
 
             {/* Status Section */}
-            <div className="pt-2 border-t border-gray-50 flex justify-between items-center">
+            <div className="pt-2 border-t border-gray-50 dark:border-gray-700 flex justify-between items-center">
                 <div className="flex flex-col text-xs">
                     {status ? (
                         <>
@@ -195,7 +195,7 @@ const MobileAccountCard = React.memo(({ account, status, newCount, isCrawling, o
 
                 <button
                     onClick={() => onSelectAccount(account.id)}
-                    className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded text-xs font-medium hover:bg-blue-100"
+                    className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50"
                 >
                     View Listings
                 </button>
@@ -386,11 +386,11 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
             <div className="p-2 md:p-6">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div>
-                        <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                        <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2 text-gray-900 dark:text-gray-100">
                             <Package className="w-6 h-6 md:w-7 md:h-7" />
                             Etsy Listing Tracker
                         </h1>
-                        <p className="text-sm md:text-base text-gray-600 mt-1">
+                        <p className="text-sm md:text-base text-gray-600 dark:text-gray-400 mt-1">
                             Manage and track your Etsy shop listings
                         </p>
                     </div>
@@ -443,7 +443,7 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
                             <button
                                 onClick={() => onSelectAccount('all_shops')}
                                 disabled={isCrawling}
-                                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 text-sm whitespace-nowrap"
+                                className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 text-sm whitespace-nowrap"
                             >
                                 <Store className="w-4 h-4" />
                                 <span className="hidden sm:inline">All Listings</span>
@@ -495,20 +495,20 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
 
                 {
                     etsyAccounts.length === 0 ? (
-                        <div className="text-center py-12 bg-gray-50 rounded-lg">
-                            <Package className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-                            <h3 className="text-lg font-medium text-gray-900 mb-2">No Etsy Accounts Found</h3>
-                            <p className="text-gray-600">
+                        <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+                            <Package className="w-16 h-16 mx-auto text-gray-400 dark:text-gray-500 mb-4" />
+                            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">No Etsy Accounts Found</h3>
+                            <p className="text-gray-600 dark:text-gray-400">
                                 Add an account with platform 'etsy' in Account Manager to start tracking listings.
                             </p>
                         </div>
                     ) : (
                         <>
-                            <div className="bg-white rounded-lg shadow overflow-hidden hidden md:block">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
+                            <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden hidden md:block">
+                                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 border-collapse">
+                                    <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
                                         <tr>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                                 Shop Name
                                             </th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -555,12 +555,12 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
                                                     </label>
                                                 </div>
                                             </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                                 Actions
                                             </th>
                                         </tr>
                                     </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
+                                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                                         {etsyAccounts.map((account) => (
                                             <AccountRow
                                                 key={account.id}

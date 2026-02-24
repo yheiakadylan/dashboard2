@@ -97,10 +97,10 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
     // NOW safe to do early returns
     if (loading && data.length === 0) {
         return (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
                 <div className="flex justify-center items-center py-8">
                     <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                    <span className="ml-2 text-sm text-gray-500">Loading chart...</span>
+                    <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">Loading chart...</span>
                 </div>
             </div>
         );
@@ -108,15 +108,15 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
 
     if (displayedData.length === 0 && !loading && data.length > 0) {
         return (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
                 <ChartHeader
                     totalNew={totalNew}
                     totalRemoved={totalRemoved}
                     duration={duration}
                     setDuration={setNewListingDuration}
                 />
-                <div className="text-center py-8 text-gray-500">
-                    <TrendingUp className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <TrendingUp className="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
                     No listing activity in the last {duration} hours.
                 </div>
             </div>
@@ -124,7 +124,7 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
     }
 
     return (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
             <ChartHeader
                 totalNew={totalNew}
                 totalRemoved={totalRemoved}
@@ -138,7 +138,7 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
                     className={`flex relative items-stretch justify-center gap-1 sm:gap-2 ${isCompact ? 'px-2' : 'px-4'}`}
                     style={{ height: '450px', minWidth: '100%' }}
                 >
-                    <div className="absolute top-1/2 left-0 right-0 border-t border-gray-300 w-full z-0 pointer-events-none"></div>
+                    <div className="absolute top-1/2 left-0 right-0 border-t border-gray-300 dark:border-gray-700 w-full z-0 pointer-events-none"></div>
 
                     {displayedData.map((item) => (
                         <div
@@ -191,7 +191,7 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
                             >
                                 <span
                                     className={`
-                                    text-[10px] sm:text-xs font-medium text-gray-600 group-hover:text-blue-600 transition-colors
+                                    text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors
                                     ${isCompact
                                             ? 'origin-top -rotate-90 translate-y-2'
                                             : 'text-center truncate px-1 w-full block'
@@ -209,9 +209,9 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
             {/* Mobile View: Horizontal Bars (List) for better scalability */}
             <div className="md:hidden flex flex-col gap-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                 {displayedData.map((item) => (
-                    <div key={item.accountId} className="flex flex-col gap-1 border-b border-gray-50 last:border-0 pb-2 last:pb-0">
+                    <div key={item.accountId} className="flex flex-col gap-1 border-b border-gray-50 dark:border-gray-700 last:border-0 pb-2 last:pb-0">
                         <div className="flex justify-between items-center text-xs mb-1">
-                            <span className="font-medium text-gray-800 truncate max-w-[150px]" title={item.label}>
+                            <span className="font-medium text-gray-800 dark:text-gray-200 truncate max-w-[150px]" title={item.label}>
                                 {item.label}
                             </span>
                         </div>
@@ -228,7 +228,7 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
                             )}
 
                             {/* Spacer line or separator if both exist */}
-                            {item.newCount > 0 && item.removedCount > 0 && <div className="w-[1px] h-4 bg-gray-200"></div>}
+                            {item.newCount > 0 && item.removedCount > 0 && <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700"></div>}
 
                             {/* Removed (Red) Bar */}
                             {item.removedCount > 0 && (
@@ -262,13 +262,13 @@ function ChartHeader({ totalNew, totalRemoved, duration, setDuration }: ChartHea
     return (
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-3">
             <div className="flex items-center gap-3 w-full md:w-auto">
-                <div className="p-2 bg-green-100 rounded-lg shrink-0">
-                    <TrendingUp className="w-5 h-5 text-green-600" />
+                <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg shrink-0">
+                    <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-400" />
                 </div>
                 <div>
-                    <h3 className="font-semibold text-gray-900 text-sm md:text-base">Activity Monitor</h3>
-                    <p className="text-xs md:text-sm text-green-600 font-medium">
-                        +{totalNew} new, <span className="text-red-500">-{totalRemoved} rem</span> ({duration}h)
+                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm md:text-base">Activity Monitor</h3>
+                    <p className="text-xs md:text-sm text-green-600 dark:text-green-400 font-medium">
+                        +{totalNew} new, <span className="text-red-500 dark:text-red-400">-{totalRemoved} rem</span> ({duration}h)
                     </p>
                 </div>
             </div>
@@ -284,13 +284,13 @@ function ChartHeader({ totalNew, totalRemoved, duration, setDuration }: ChartHea
                         { label: '24 Hours', value: 24 },
                     ]}
                     renderTrigger={() => (
-                        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm hover:border-blue-300 hover:ring-2 hover:ring-blue-50 transition-all cursor-pointer group w-full">
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm hover:border-blue-300 dark:hover:border-blue-500 hover:ring-2 hover:ring-blue-50 dark:hover:ring-blue-900/30 transition-all cursor-pointer group w-full">
                             <div className="flex items-center gap-2">
-                                <Clock className="w-3.5 h-3.5 text-gray-400 group-hover:text-blue-500" />
-                                <span className="text-xs font-medium text-gray-600">Period:</span>
-                                <span className="text-xs font-bold text-blue-600">{duration} Hours</span>
+                                <Clock className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-hover:text-blue-500 dark:group-hover:text-blue-400" />
+                                <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Period:</span>
+                                <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{duration} Hours</span>
                             </div>
-                            <ChevronDown className="w-3 h-3 text-gray-300 group-hover:text-blue-400" />
+                            <ChevronDown className="w-3 h-3 text-gray-300 dark:text-gray-600 group-hover:text-blue-400 dark:group-hover:text-blue-300" />
                         </div>
                     )}
                     className="relative w-full"

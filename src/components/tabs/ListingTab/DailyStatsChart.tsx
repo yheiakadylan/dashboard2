@@ -43,35 +43,35 @@ const CustomTooltip = ({ active, payload, label, accounts, visible, coordinate, 
         return (
             <div
                 id="custom-tooltip-content"
-                className="bg-white p-3 border border-gray-100 shadow-xl rounded-xl text-xs z-50 min-w-[380px]"
+                className="bg-white dark:bg-gray-800 p-3 border border-gray-100 dark:border-gray-700 shadow-xl rounded-xl text-xs z-50 min-w-[380px]"
                 style={{
                     transform: isRightSide ? 'translateX(-100%) translateX(-20px)' : 'translateX(20px)',
                     transition: 'transform 0.1s ease-out'
                 }}
             >
-                <p className="font-bold mb-3 text-gray-800 border-b border-gray-100 pb-2">
+                <p className="font-bold mb-3 text-gray-800 dark:text-gray-100 border-b border-gray-100 dark:border-gray-700 pb-2">
                     {new Date(label).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'numeric', year: 'numeric' })}
                 </p>
 
                 {/* Summary Section - Grid Layout */}
-                <div className="grid grid-cols-4 gap-2 mb-3 pb-3 border-b border-gray-100 text-center">
+                <div className="grid grid-cols-4 gap-2 mb-3 pb-3 border-b border-gray-100 dark:border-gray-700 text-center">
                     <div className="flex flex-col">
-                        <span className="text-gray-400 text-[9px] uppercase font-bold">New</span>
-                        <span className="text-emerald-600 font-bold text-sm">+{data.new_listings}</span>
+                        <span className="text-gray-400 dark:text-gray-500 text-[9px] uppercase font-bold">New</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold text-sm">+{data.new_listings}</span>
                     </div>
-                    <div className="flex flex-col border-l border-gray-50">
-                        <span className="text-gray-400 text-[9px] uppercase font-bold">Removed</span>
-                        <span className="text-rose-500 font-bold text-sm">-{data.removed_listings}</span>
+                    <div className="flex flex-col border-l border-gray-50 dark:border-gray-700">
+                        <span className="text-gray-400 dark:text-gray-500 text-[9px] uppercase font-bold">Removed</span>
+                        <span className="text-rose-500 dark:text-rose-400 font-bold text-sm">-{data.removed_listings}</span>
                     </div>
-                    <div className="flex flex-col border-l border-gray-50 bg-gray-50/50 rounded-r">
-                        <span className="text-gray-400 text-[9px] uppercase font-bold">Net</span>
-                        <span className={`${data.net >= 0 ? 'text-emerald-600' : 'text-rose-500'} font-bold text-sm`}>
+                    <div className="flex flex-col border-l border-gray-50 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-700/50 rounded-r">
+                        <span className="text-gray-400 dark:text-gray-500 text-[9px] uppercase font-bold">Net</span>
+                        <span className={`${data.net >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'} font-bold text-sm`}>
                             {data.net > 0 ? '+' : ''}{data.net}
                         </span>
                     </div>
-                    <div className="flex flex-col border-l border-gray-50">
+                    <div className="flex flex-col border-l border-gray-50 dark:border-gray-700">
                         <span className="text-blue-400 text-[9px] uppercase font-bold">Total</span>
-                        <span className="text-blue-600 font-bold text-sm">{data.total_listings > 0 ? (data.total_listings / 1000).toFixed(1) + 'k' : '-'}</span>
+                        <span className="text-blue-600 dark:text-blue-400 font-bold text-sm">{data.total_listings > 0 ? (data.total_listings / 1000).toFixed(1) + 'k' : '-'}</span>
                     </div>
                 </div>
 
@@ -79,7 +79,7 @@ const CustomTooltip = ({ active, payload, label, accounts, visible, coordinate, 
                     {activeShops.length > 0 ? (
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="text-gray-400 border-b border-gray-50 text-[10px] uppercase">
+                                <tr className="text-gray-400 dark:text-gray-500 border-b border-gray-50 dark:border-gray-700 text-[10px] uppercase">
                                     <th className="font-semibold py-1 pl-1">Shop</th>
                                     <th className="font-semibold py-1 text-right">New</th>
                                     <th className="font-semibold py-1 text-right">Removed</th>
@@ -92,20 +92,20 @@ const CustomTooltip = ({ active, payload, label, accounts, visible, coordinate, 
                                     const shopLabel = accounts.find(a => a.id === shopId)?.label || shopId;
                                     const net = (stats.new || 0) - (stats.removed || 0);
                                     return (
-                                        <tr key={shopId} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 group">
-                                            <td className="py-1.5 pl-1 truncate max-w-[140px] font-medium text-gray-600 group-hover:text-gray-900" title={shopLabel}>
+                                        <tr key={shopId} className="border-b border-gray-50 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 group">
+                                            <td className="py-1.5 pl-1 truncate max-w-[140px] font-medium text-gray-600 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100" title={shopLabel}>
                                                 {shopLabel}
                                             </td>
-                                            <td className="py-1.5 text-right font-mono text-emerald-600 font-medium text-[11px]">
+                                            <td className="py-1.5 text-right font-mono text-emerald-600 dark:text-emerald-400 font-medium text-[11px]">
                                                 {stats.new > 0 ? `+${stats.new}` : '-'}
                                             </td>
-                                            <td className="py-1.5 text-right font-mono text-rose-500 font-medium text-[11px]">
+                                            <td className="py-1.5 text-right font-mono text-rose-500 dark:text-rose-400 font-medium text-[11px]">
                                                 {stats.removed > 0 ? `-${stats.removed}` : '-'}
                                             </td>
-                                            <td className={`py-1.5 text-right px-2 font-mono font-bold text-[11px] ${net > 0 ? 'text-emerald-600' : (net < 0 ? 'text-rose-500' : 'text-gray-400')}`}>
+                                            <td className={`py-1.5 text-right px-2 font-mono font-bold text-[11px] ${net > 0 ? 'text-emerald-600 dark:text-emerald-400' : (net < 0 ? 'text-rose-500 dark:text-rose-400' : 'text-gray-400 dark:text-gray-500')}`}>
                                                 {net > 0 ? `+${net}` : net}
                                             </td>
-                                            <td className="py-1.5 text-right pr-1 font-mono text-blue-600 font-medium text-[11px]">
+                                            <td className="py-1.5 text-right pr-1 font-mono text-blue-600 dark:text-blue-400 font-medium text-[11px]">
                                                 {stats.total ? (stats.total >= 1000 ? (stats.total / 1000).toFixed(1) + 'k' : stats.total) : '-'}
                                             </td>
                                         </tr>
@@ -183,24 +183,24 @@ const DailyStatsChart: React.FC<DailyStatsChartProps> = ({ teamId, days = 7, acc
 
     if (loading) {
         return (
-            <div className="h-[300px] flex items-center justify-center bg-gray-50/50 rounded-xl border border-dashed border-gray-200">
-                <Loader2 className="w-8 h-8 animate-spin text-gray-300" />
+            <div className="h-[300px] flex items-center justify-center bg-gray-50/50 dark:bg-gray-800/50 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
+                <Loader2 className="w-8 h-8 animate-spin text-gray-300 dark:text-gray-600" />
             </div>
         );
     }
 
     return (
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 transition-all hover:shadow-md">
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 transition-all hover:shadow-md">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-3">
                 {/* Title */}
                 <div>
-                    <h3 className="text-lg font-bold text-gray-800">Listing Activity</h3>
+                    <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100">Listing Activity</h3>
                     <p className="text-xs text-gray-400 font-medium">Last {selectedDays} days</p>
                 </div>
 
                 {/* Controls: Unified Legend + Select */}
                 <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end mt-2 md:mt-0">
-                    <div className="flex gap-2 text-[10px] md:text-xs font-medium bg-gray-50 px-2 md:px-3 py-1.5 rounded-lg text-gray-600 shrink-0">
+                    <div className="flex gap-2 text-[10px] md:text-xs font-medium bg-gray-50 dark:bg-gray-900/50 px-2 md:px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-400 shrink-0">
                         <div className="flex items-center gap-1 md:gap-1.5">
                             <span className="w-2 h-2 md:w-2.5 md:h-2.5 rounded bg-emerald-500 block"></span>
                             <span>New</span>
@@ -222,9 +222,9 @@ const DailyStatsChart: React.FC<DailyStatsChartProps> = ({ teamId, days = 7, acc
                         ]}
                         width="w-auto md:w-36"
                         renderTrigger={(value, label) => (
-                            <button type="button" className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg shadow-sm text-xs font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all whitespace-nowrap">
+                            <button type="button" className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all whitespace-nowrap">
                                 <span>{label}</span>
-                                <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                                <ChevronDown className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
                             </button>
                         )}
                     />
@@ -250,7 +250,7 @@ const DailyStatsChart: React.FC<DailyStatsChartProps> = ({ teamId, days = 7, acc
                             </linearGradient>
                         </defs>
 
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" className="text-gray-200 dark:text-gray-700" />
 
                         <XAxis
                             dataKey="date"

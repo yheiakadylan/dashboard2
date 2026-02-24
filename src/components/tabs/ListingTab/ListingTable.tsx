@@ -162,7 +162,7 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
                     <ArrowLeft className="w-5 h-5 text-gray-600" />
                 </button>
                 <div>
-                    <h2 className="text-xl font-bold flex items-center gap-2">
+                    <h2 className="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-gray-100">
                         {isAllShops ? (
                             <>
                                 <Store className="w-6 h-6" />
@@ -171,7 +171,7 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
                         ) : (
                             <>
                                 {account?.label || 'Unknown Shop'}
-                                <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                                <span className="text-sm font-normal text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
                                     {account?.total_listings || 0} items
                                 </span>
                             </>
@@ -195,11 +195,11 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
                                 { label: '3 Days', value: 72 },
                             ]}
                             renderTrigger={() => (
-                                <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-full shadow-sm hover:border-blue-300 hover:ring-2 hover:ring-blue-50 transition-all cursor-pointer group">
-                                    <Clock className="w-3.5 h-3.5 text-gray-400 group-hover:text-blue-500" />
-                                    <span className="text-xs font-medium text-gray-600">New:</span>
-                                    <span className="text-xs font-bold text-blue-600">{newListingDuration}h</span>
-                                    <ChevronDown className="w-3 h-3 text-gray-300 group-hover:text-blue-400" />
+                                <div className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full shadow-sm hover:border-blue-300 dark:hover:border-blue-500 hover:ring-2 hover:ring-blue-50 dark:hover:ring-blue-900/30 transition-all cursor-pointer group">
+                                    <Clock className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-hover:text-blue-500 dark:group-hover:text-blue-400" />
+                                    <span className="text-xs font-medium text-gray-600 dark:text-gray-300">New:</span>
+                                    <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{newListingDuration}h</span>
+                                    <ChevronDown className="w-3 h-3 text-gray-300 dark:text-gray-600 group-hover:text-blue-400 dark:group-hover:text-blue-300" />
                                 </div>
                             )}
                             className="relative"
@@ -217,7 +217,7 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
                         placeholder="Search by title or ID..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full md:w-80"
+                        className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full md:w-80"
                     />
                 </div>
             </div>
@@ -233,8 +233,8 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
                             className={`
                 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors
                 ${activeTab === tab.id
-                                    ? 'border-blue-500 text-blue-600'
-                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
                                 }
               `}
                         >
@@ -259,10 +259,10 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
                                 { label: '3d', value: 72 },
                             ]}
                             renderTrigger={() => (
-                                <div className="flex items-center gap-1.5 px-2 py-1.5 bg-white border border-gray-200 rounded-lg shadow-sm">
-                                    <Clock className="w-3 h-3 text-gray-400" />
-                                    <span className="text-[10px] font-bold text-blue-600">{newListingDuration}h</span>
-                                    <ChevronDown className="w-3 h-3 text-gray-300" />
+                                <div className="flex items-center gap-1.5 px-2 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
+                                    <Clock className="w-3 h-3 text-gray-400 dark:text-gray-500" />
+                                    <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">{newListingDuration}h</span>
+                                    <ChevronDown className="w-3 h-3 text-gray-300 dark:text-gray-600" />
                                 </div>
                             )}
                             className="relative"
@@ -302,11 +302,11 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
             {loading && listings.length === 0 ? (
                 <div className="text-center py-12">
                     <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-                    <p className="mt-4 text-gray-600">Loading listings...</p>
+                    <p className="mt-4 text-gray-600 dark:text-gray-400">Loading listings...</p>
                 </div>
             ) : filteredListings.length === 0 ? (
-                <div className="text-center py-12 bg-gray-50 rounded-lg">
-                    <p className="text-gray-600">No listings found on this page</p>
+                <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <p className="text-gray-600 dark:text-gray-400">No listings found on this page</p>
                 </div>
             ) : (
                 <>
@@ -314,7 +314,7 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
                         {filteredListings.map((listing) => (
                             <div
                                 key={listing.listing_id}
-                                className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow overflow-hidden flex flex-col h-full"
+                                className="bg-white dark:bg-gray-800 border border-transparent dark:border-gray-700 rounded-lg shadow hover:shadow-lg transition-shadow overflow-hidden flex flex-col h-full"
                             >
                                 {/* Image */}
                                 <div className="relative flex-shrink-0">
@@ -340,22 +340,22 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
                                 {/* Content */}
                                 <div className="p-2 md:p-4 flex flex-col flex-grow">
                                     <h3
-                                        className="font-medium text-gray-900 line-clamp-2 mb-2 min-h-[2.5rem]"
+                                        className="font-medium text-gray-900 dark:text-gray-100 line-clamp-2 mb-2 min-h-[2.5rem]"
                                         title={listing.title}
                                     >
                                         {listing.title}
                                     </h3>
 
-                                    <div className="text-sm text-gray-500 mb-2 md:mb-4">
+                                    <div className="text-sm text-gray-500 dark:text-gray-400 mb-2 md:mb-4">
                                         <div className="flex flex-col gap-0.5 mb-2">
-                                            <p className="text-[10px] md:text-xs text-gray-400 font-mono">#{listing.listing_id}</p>
+                                            <p className="text-[10px] md:text-xs text-gray-400 dark:text-gray-500 font-mono">#{listing.listing_id}</p>
                                             {isAllShops && (
-                                                <span className="text-[10px] md:text-xs font-semibold text-blue-600 w-fit max-w-full truncate" title={accounts.find(a => a.id === listing.account_id)?.label}>
+                                                <span className="text-[10px] md:text-xs font-semibold text-blue-600 dark:text-blue-400 w-fit max-w-full truncate" title={accounts.find(a => a.id === listing.account_id)?.label}>
                                                     {accounts.find(a => a.id === listing.account_id)?.label || 'Unknown'}
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="flex justify-between text-[10px] md:text-xs text-gray-400">
+                                        <div className="flex justify-between text-[10px] md:text-xs text-gray-400 dark:text-gray-500">
                                             <span>{formatTimeAgo(listing.createdAt)}</span>
                                         </div>
                                     </div>
