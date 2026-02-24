@@ -6,126 +6,195 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --primary: #4f46e5;
+      --primary: #0f172a;
+      /* Slate 900 */
+      --primary-hover: #334155;
+      /* Slate 700 */
       --bg: #f8fafc;
+      /* Slate 50 */
       --card: #ffffff;
-      --text: #1e293b;
+      --text: #0f172a;
+      --text-muted: #64748b;
       --border: #e2e8f0;
+      /* Slate 200 */
+      --ring: #cbd5e1;
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
 
     body {
-      width: 350px;
-      margin: 0;
+      width: 360px;
       font-family: 'Inter', sans-serif;
       background: var(--bg);
       color: var(--text);
+      -webkit-font-smoothing: antialiased;
     }
 
     /* Header */
     .header {
-      background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
-      padding: 16px;
-      color: white;
+      background: var(--card);
+      padding: 14px 20px;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
     }
 
     .app-icon {
-      width: 32px;
-      height: 32px;
-      background: white;
-      border-radius: 8px;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: var(--primary);
+      overflow: hidden;
+    }
+
+    .app-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
     }
 
     .app-title {
-      font-weight: 700;
+      font-weight: 600;
       font-size: 15px;
+      letter-spacing: -0.01em;
     }
 
     /* Tabs */
     .tabs {
       display: flex;
-      background: white;
+      background: var(--card);
       border-bottom: 1px solid var(--border);
+      padding: 0 10px;
     }
 
     .tab {
       flex: 1;
       text-align: center;
-      padding: 12px;
+      padding: 12px 16px;
       font-size: 13px;
-      font-weight: 600;
-      color: #64748b;
+      font-weight: 500;
+      color: var(--text-muted);
       cursor: pointer;
       border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tab:hover {
+      color: var(--text);
     }
 
     .tab.active {
       color: var(--primary);
       border-bottom-color: var(--primary);
+      font-weight: 600;
     }
 
     /* Content */
     .content {
-      padding: 16px;
+      padding: 16px 20px 24px;
       display: none;
     }
 
     .content.active {
       display: block;
+      animation: fadeIn 0.2s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(4px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     .card {
-      background: white;
-      border-radius: 8px;
-      padding: 12px;
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 16px;
       border: 1px solid var(--border);
-      margin-bottom: 12px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
     }
 
     .row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 8px;
+      margin-bottom: 12px;
+    }
+
+    .row:last-child {
+      margin-bottom: 0;
     }
 
     .label {
-      font-size: 12px;
-      color: #64748b;
+      font-size: 13px;
+      color: var(--text-muted);
       font-weight: 500;
     }
 
     .val {
       font-weight: 600;
-      font-size: 14px;
+      font-size: 13px;
     }
 
+    /* Form Elements */
     .input-group {
-      margin-bottom: 12px;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
     .input-label {
       display: block;
       font-size: 12px;
       font-weight: 500;
-      margin-bottom: 4px;
-      color: #475569;
+      margin-bottom: 6px;
+      color: var(--text);
     }
 
     input[type="text"],
-    input[type="number"] {
+    input[type="password"],
+    input[type="number"],
+    input[type="time"],
+    input[type="date"] {
       width: 100%;
-      padding: 8px;
+      padding: 8px 12px;
       border: 1px solid var(--border);
       border-radius: 6px;
       font-family: inherit;
-      box-sizing: border-box;
+      font-size: 13px;
+      color: var(--text);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.1);
     }
 
     button {
@@ -133,63 +202,98 @@
       padding: 10px;
       border: none;
       border-radius: 6px;
-      font-weight: 600;
+      font-weight: 500;
       cursor: pointer;
       font-size: 13px;
-      transition: 0.2s;
+      transition: all 0.2s;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
     }
 
     .btn-primary {
       background: var(--primary);
       color: white;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
     }
 
     .btn-primary:hover {
-      opacity: 0.9;
+      background: var(--primary-hover);
     }
 
     .btn-outline {
-      background: white;
+      background: var(--card);
       border: 1px solid var(--border);
-      color: #475569;
-      margin-top: 8px;
+      color: var(--text);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     }
 
+    .btn-outline:hover {
+      background: #f1f5f9;
+    }
+
+    .btn-danger {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #ef4444;
+    }
+
+    .btn-danger:hover {
+      background: #fee2e2;
+    }
+
+    /* Shops List */
     .shop-list {
-      max-height: 150px;
+      max-height: 140px;
       overflow-y: auto;
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 4px;
-      background: #f9fafb;
+      background: var(--card);
+    }
+
+    .shop-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .shop-list::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 3px;
     }
 
     .shop-item {
       display: flex;
       align-items: center;
-      padding: 6px;
-      border-bottom: 1px solid #f1f5f9;
+      padding: 8px;
+      border-radius: 4px;
       font-size: 13px;
+      cursor: pointer;
     }
 
-    .shop-item:last-child {
-      border-bottom: none;
+    .shop-item:hover {
+      background: #f1f5f9;
     }
 
-    .shop-item input {
-      margin-right: 8px;
+    .shop-item input[type="checkbox"] {
+      margin-right: 10px;
+      cursor: pointer;
+      width: auto;
     }
 
+    /* Status Badge */
     .status-badge {
-      padding: 4px 8px;
+      padding: 4px 10px;
       border-radius: 12px;
       font-size: 11px;
       font-weight: 600;
-      background: #dcfce7;
-      color: #166534;
+      background: #ecfdf5;
+      color: #059669;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 6px;
+      border: 1px solid #a7f3d0;
     }
 
     .dot {
@@ -201,7 +305,51 @@
 
     .status-badge.inactive {
       background: #f1f5f9;
-      color: #64748b;
+      color: var(--text-muted);
+      border-color: #e2e8f0;
+    }
+
+    /* Radio Group */
+    .radio-group {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .radio-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    /* Utilities */
+    .mt-4 {
+      margin-top: 16px;
+    }
+
+    .mb-4 {
+      margin-bottom: 16px;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .flex-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .flex-1 {
+      flex: 1;
+    }
+
+    hr {
+      border: 0;
+      border-top: 1px solid var(--border);
+      margin: 20px 0;
     }
   </style>
 </head>
@@ -209,19 +357,16 @@
 <body>
   <div class="header">
     <div class="app-icon">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path
-          d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-      </svg>
+      <img src="icon.jpg" alt="Icon">
     </div>
-    <div class="app-title">Crawler Config</div>
+    <div class="app-title">Dashboard Config</div>
   </div>
 
   <!-- LOGIN SCREEN -->
-  <div id="login-screen" style="padding: 20px;">
-    <div style="text-align:center; margin-bottom:20px;">
-      <h3 style="margin:0; font-size:18px;">Welcome Back</h3>
-      <p style="margin:5px 0 0; font-size:12px; color:#64748b;">Sign in to manage your crawler</p>
+  <div id="login-screen" style="padding: 24px 20px;">
+    <div class="text-center mb-4">
+      <h3 style="font-size:18px; font-weight:600;">Welcome Back</h3>
+      <p style="font-size:13px; color:var(--text-muted); margin-top:4px;">Sign in to your dashboard account</p>
     </div>
 
     <div class="input-group">
@@ -230,95 +375,149 @@
     </div>
     <div class="input-group">
       <label class="input-label">Password</label>
-      <input type="password" id="loginPass" placeholder="••••••••"
-        style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
+      <input type="password" id="loginPass" placeholder="••••••••">
     </div>
-    <div class="input-group">
+    <div class="input-group" style="display: none;">
       <label class="input-label">App URL (Optional)</label>
       <input type="text" id="loginAppUrl" value="https://dashboardvikcom.vercel.app">
     </div>
 
-    <button id="loginBtn" class="btn-primary" style="margin-top:10px;">Sign In</button>
-    <div id="loginError" style="color:red; font-size:12px; margin-top:10px; text-align:center;"></div>
+    <button id="loginBtn" class="btn-primary mt-4">Sign In</button>
+    <div id="loginError" style="color:#ef4444; font-size:12px; margin-top:12px; text-align:center;"></div>
   </div>
 
   <!-- MAIN APP (Hidden by default) -->
   <div id="main-app" style="display:none;">
     <div class="tabs">
-      <div class="tab active" data-tab="status">Status</div>
-      <div class="tab" data-tab="settings">Settings</div>
+      <div class="tab active" data-tab="status">Status & Controls</div>
+      <div class="tab" data-tab="settings">Config</div>
     </div>
 
     <!-- STATUS TAB -->
     <div id="status" class="content active">
+
+      <div class="section-title">Overview</div>
       <div class="card">
         <div class="row">
-          <span class="label">Status</span>
+          <span class="label">Service</span>
           <div class="status-badge" id="serviceStatus">
             <div class="dot"></div> <span id="statusText">Active</span>
           </div>
         </div>
         <div class="row">
-          <span class="label">Last Run</span>
+          <span class="label">Last Sync</span>
           <span class="val" id="lastRun">Never</span>
         </div>
         <div class="row">
-          <span class="label">Next Run</span>
+          <span class="label">Next Sync</span>
           <span class="val" id="nextRun">--:--</span>
         </div>
       </div>
 
       <div class="card">
         <div class="row">
-          <span class="label">Shops</span>
+          <span class="label">Active Shops</span>
           <span class="val" id="totalShops">0</span>
         </div>
         <div class="row">
-          <span class="label">Listings Scraped</span>
+          <span class="label">Total Listings</span>
           <span class="val" id="totalListings">0</span>
         </div>
       </div>
 
-      <button class="btn-outline" id="runNowBtn">▶ Run Now</button>
-      <button class="btn-outline" id="stopCrawlBtn"
-        style="margin-top:8px; background:#fee; border-color:#fcc; color:#c00; display:none;">⏸ Stop Crawl</button>
-      <button class="btn-outline" id="logoutBtn" style="margin-top:20px; color:red; border-color: #fca5a5;">Log
-        Out</button>
+      <div class="mt-4">
+        <button class="btn-primary" id="runNowBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          Run Crawl Now
+        </button>
+        <button class="btn-danger" id="stopCrawlBtn" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <rect x="6" y="4" width="4" height="16"></rect>
+            <rect x="14" y="4" width="4" height="16"></rect>
+          </svg>
+          Stop Crawl
+        </button>
+      </div>
+
+      <hr>
+
+      <div class="section-title">Manual Data Sync</div>
+      <button id="forceSnapshotBtn" class="btn-outline mb-4">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+          <circle cx="12" cy="13" r="4"></circle>
+        </svg>
+        Snapshot (Yesterday)
+      </button>
+
+      <div class="card" style="background:var(--bg); border:1px solid var(--border); box-shadow:none;">
+        <div style="font-size:12px; font-weight:600; margin-bottom:10px;">Backfill Snapshots</div>
+        <div class="flex-row">
+          <div class="flex-1">
+            <label class="input-label" style="font-size:11px;">From</label>
+            <input type="date" id="backfillStart" style="padding:6px; font-size:12px;">
+          </div>
+          <div class="flex-1">
+            <label class="input-label" style="font-size:11px;">To</label>
+            <input type="date" id="backfillEnd" style="padding:6px; font-size:12px;">
+          </div>
+        </div>
+        <button id="runBackfillBtn" class="btn-primary" style="margin-top:12px; padding:8px;">Execute Backfill</button>
+        <div id="backfillMsg" style="text-align:center; font-size:11px; margin-top:8px; display:none; font-weight:500;">
+        </div>
+      </div>
+
     </div>
 
     <!-- SETTINGS TAB -->
     <div id="settings" class="content">
-      <div class="input-group">
-        <label class="input-label">App URL</label>
-        <input type="text" id="appUrl" placeholder="https://..." value="https://dashboardvikcom.vercel.app">
+
+      <div style="display: none;">
+        <div class="section-title">Connectivity</div>
+        <div class="input-group">
+          <label class="input-label">App URL</label>
+          <input type="text" id="appUrl" placeholder="https://..." value="https://dashboardvikcom.vercel.app">
+        </div>
+
+        <div class="input-group">
+          <label class="input-label">Team ID</label>
+          <input type="text" id="teamId" placeholder="Team ID" value="jwnm5emo8mdG3gjIlh7CctiVvQO2">
+        </div>
+
+        <hr>
+      </div>
+
+      <div class="section-title" style="justify-content: space-between;">
+        Shops Target
+        <button id="fetchShopsBtn" class="btn-outline"
+          style="width:auto; padding:4px 10px; font-size:11px; margin:0;">Refresh</button>
       </div>
 
       <div class="input-group">
-        <label class="input-label">Team ID (Required)</label>
-        <input type="text" id="teamId" placeholder="Paste your Team ID here" value="jwnm5emo8mdG3gjIlh7CctiVvQO2">
-      </div>
-
-      <button id="fetchShopsBtn" class="btn-outline" style="margin-bottom: 12px;">Fetch Shops from Dashboard</button>
-
-      <div class="input-group">
-        <label class="input-label">Select Shops to Crawl</label>
         <div class="shop-list" id="shopListContainer">
-          <div style="padding:10px; color:#94a3b8; text-align:center; font-size:12px;">No shops loaded. Enter Team ID
-            and
-            click Fetch.</div>
+          <div style="padding:16px; color:var(--text-muted); text-align:center; font-size:12px;">No shops loaded</div>
         </div>
       </div>
 
-      <div class="input-group">
-        <label class="input-label">Crawl Mode</label>
-        <div style="display:flex; gap:16px; margin-bottom:8px;">
-          <label style="display:flex; align-items:center; cursor:pointer;">
-            <input type="radio" name="crawlMode" value="interval" checked> Interval
-          </label>
-          <label style="display:flex; align-items:center; cursor:pointer;">
-            <input type="radio" name="crawlMode" value="daily"> Daily Time
-          </label>
-        </div>
+      <hr>
+
+      <div class="section-title" style="justify-content: space-between;">
+        Auto-Crawl Schedule
+        <label style="display:flex; align-items:center; cursor:pointer; font-weight:normal; font-size:12px;">
+          <input type="checkbox" id="autoCrawlEnable" checked
+            style="margin-right:6px; width:auto; accent-color:var(--primary);"> Enable
+        </label>
+      </div>
+
+      <div class="radio-group">
+        <label class="radio-label">
+          <input type="radio" name="crawlMode" value="interval" checked style="accent-color:var(--primary);"> Interval
+        </label>
+        <label class="radio-label">
+          <input type="radio" name="crawlMode" value="daily" style="accent-color:var(--primary);"> Fixed Time
+        </label>
       </div>
 
       <div class="input-group" id="groupInterval">
@@ -327,23 +526,24 @@
       </div>
 
       <div class="input-group" id="groupDaily" style="display:none;">
-        <label class="input-label">Run at (Daily)</label>
+        <label class="input-label">Run at Time</label>
         <input type="time" id="dailyTime" value="06:00">
       </div>
 
-      <div class="row" style="margin-top:20px;">
-        <span class="label">Auto-Crawl</span>
-        <label style="display:flex; align-items:center; cursor:pointer;">
-          <input type="checkbox" id="autoCrawlEnable" checked style="margin-right:6px;"> Enable
-        </label>
+      <div class="mt-4 pt-4" style="border-top:1px solid var(--border);">
+        <button id="saveConfigBtn" class="btn-primary">Save Configuration</button>
+        <div id="saveMsg"
+          style="text-align:center; font-size:12px; color:#059669; margin-top:10px; opacity:0; transition:0.3s; font-weight:500;">
+          Settings Saved!</div>
       </div>
 
-      <button id="saveConfigBtn" class="btn-primary" style="margin-top:10px;">Save Configuration</button>
-      <div id="saveMsg"
-        style="text-align:center; font-size:12px; color:green; margin-top:8px; opacity:0; transition:0.3s;">Saved!</div>
+      <button class="btn-outline mt-4" id="logoutBtn" style="color:#ef4444; border-color:#fecaca;">Logout from
+        Extension</button>
     </div>
 
-    <script src="popup.js"></script>
+  </div>
+
+  <script src="popup.js"></script>
 </body>
 
 </html>

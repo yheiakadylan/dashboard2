@@ -4,6 +4,38 @@ let pendingCrawls = new Map(); // shopName -> { tabId, resolve, reject, accumula
 
 // Unified handler for both Internal (Popup) and External (Web) messages
 const handleMessage = (request, sender, sendResponse) => {
+    // 0. FORCE SNAPSHOT
+    if (request.type === 'FORCE_SNAPSHOT') {
+        console.log('[Background] Force snapshot requested.');
+        triggerDailySnapshot(request.config, true);
+        sendResponse({ success: true, message: 'Daily Snapshot check started.' });
+        return true;
+    }
+
+    // 0.5 RUN BACKFILL
+    if (request.type === 'RUN_BACKFILL') {
+        console.log(`[Background] RUN_BACKFILL requested from ${request.startDate} to ${request.endDate}`);
+        (async () => {
+            try {
+                const start = new Date(request.startDate + 'T00:00:00Z');
+                const end = new Date(request.endDate + 'T00:00:00Z');
+                let cur = new Date(start);
+
+                while (cur <= end) {
+                    const dateStr = cur.toISOString().split('T')[0];
+                    console.log(`[Background] Backfilling... ${dateStr}`);
+                    await triggerDailySnapshot(request.config, true, dateStr);
+                    cur.setDate(cur.getDate() + 1);
+                }
+                console.log(`[Background] Backfill complete.`);
+                sendResponse({ success: true, message: 'Backfill complete.' });
+            } catch (err) {
+                sendResponse({ success: false, error: err.message });
+            }
+        })();
+        return true; // Keep channel open for async sendResponse
+    }
+
     // 1. PING
     if (request.type === 'PING') {
         sendResponse({ status: 'ok', version: '1.1.0' });
@@ -314,6 +346,75 @@ async function performAutoCrawl(force = false) {
     await notifyDashboard('EXTENSION_CRAWL_COMPLETE', { stats: finalStats });
 
     console.log('[Background] Auto-crawl batch complete:', finalStats);
+
+    // ✅ NEW: Trigger Daily Snapshot
+    await triggerDailySnapshot(config);
+}
+
+// ✅ Trigger Daily Snapshot API
+async function triggerDailySnapshot(providedConfig, force = false, specificDateStr = null) {
+    let config = providedConfig;
+    if (!config) {
+        const res = await chrome.storage.local.get('config');
+        config = res.config;
+    }
+
+    if (!config || !config.teamId) {
+        console.log('[Background] Skipping Snapshot: No config/teamId found.');
+        return;
+    }
+
+    // Calculate YESTERDAY (since we run past midnight to close the previous day)
+    let targetDateStr = specificDateStr;
+    if (!targetDateStr) {
+        const date = new Date();
+        date.setDate(date.getDate() - 1);
+        targetDateStr = date.toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+    }
+
+    // Check if we already ran for this date to avoid duplicates (unless forced)
+    const { stats } = await chrome.storage.local.get('stats');
+    if (!force && stats && stats.lastSnapshotDate === targetDateStr) {
+        console.log(`[Background] Snapshot for ${targetDateStr} already created. Skipping.`);
+        return;
+    }
+
+    const baseUrl = config.appUrl || 'http://localhost:3000';
+    // Remove trailing slash if any
+    const cleanUrl = baseUrl.replace(/\/$/, '');
+    const endpoint = `${cleanUrl}/api/listing`;
+
+    console.log(`[Background] 📸 Triggering Daily Snapshot for ${targetDateStr} at ${endpoint}...`);
+
+    try {
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'daily_snapshot',
+                teamId: config.teamId,
+                date: targetDateStr
+            })
+        });
+
+        if (!res.ok) {
+            const txt = await res.text();
+            throw new Error(`Server returned ${res.status}: ${txt}`);
+        }
+
+        const json = await res.json();
+        console.log('[Background] ✅ Daily Snapshot triggered successfully:', json);
+
+        // Save state only if it was an automatic daily snapshot, not a custom backfill
+        if (stats && !specificDateStr) {
+            stats.lastSnapshotDate = targetDateStr;
+            await chrome.storage.local.set({ stats });
+        }
+
+    } catch (e) {
+        console.error('[Background] ❌ Failed to trigger snapshot:', e);
+        throw e;
+    }
 }
 
 // ✅ Helper function to notify Dashboard

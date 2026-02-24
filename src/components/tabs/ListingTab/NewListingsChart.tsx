@@ -132,75 +132,120 @@ export default function NewListingsChart({ accounts, onSelectAccount }: NewListi
                 setDuration={setNewListingDuration}
             />
 
-            <div className={`relative w-full flex justify-center items-stretch gap-1 sm:gap-2 ${isCompact ? 'px-2' : 'px-4'}`} style={{ height: '450px' }}>
-                <div className="absolute top-1/2 left-0 right-0 border-t border-gray-300 w-full z-0 pointer-events-none"></div>
+            {/* Desktop View: Vertical Bars - Scrollable */}
+            <div className={`hidden md:block w-full overflow-x-auto custom-scrollbar ${isCompact ? 'pb-32' : 'pb-12'}`}>
+                <div
+                    className={`flex relative items-stretch justify-center gap-1 sm:gap-2 ${isCompact ? 'px-2' : 'px-4'}`}
+                    style={{ height: '450px', minWidth: '100%' }}
+                >
+                    <div className="absolute top-1/2 left-0 right-0 border-t border-gray-300 w-full z-0 pointer-events-none"></div>
 
-                {displayedData.map((item) => (
-                    <div
-                        key={item.accountId}
-                        className={`relative z-10 flex flex-col items-center flex-1 group cursor-pointer ${isCompact ? 'max-w-[40px]' : 'max-w-[100px]'}`}
-                        style={{ minWidth: isCompact ? '20px' : '50px' }}
-                        title={`${item.label}\nNew: +${item.newCount}\nRemoved: -${item.removedCount}`}
-                    >
+                    {displayedData.map((item) => (
                         <div
-                            className="flex-1 w-full flex flex-col justify-end items-center pb-[1px]"
-                            onClick={() => onSelectAccount(item.accountId, 'new')}
+                            key={item.accountId}
+                            className={`relative z-10 flex flex-col items-center flex-1 group cursor-pointer ${isCompact ? 'max-w-[40px]' : 'max-w-[100px]'}`}
+                            style={{ minWidth: isCompact ? '32px' : '50px', flexShrink: 0 }}
+                            title={`${item.label}\nNew: +${item.newCount}\nRemoved: -${item.removedCount}`}
                         >
-                            {item.newCount > 0 && (
-                                <>
-                                    <span className="mb-1 text-[10px] sm:text-xs font-bold text-green-600 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                                        +{item.newCount}
-                                    </span>
-                                    <div
-                                        className="w-full bg-green-500 rounded-t-sm opacity-90 group-hover:opacity-100 transition-all shadow-sm hover:shadow-md"
-                                        style={{
-                                            height: `${Math.max((item.newCount / maxVal) * 100, 2)}%`,
-                                        }}
-                                    />
-                                </>
-                            )}
-                        </div>
+                            <div
+                                className="flex-1 w-full flex flex-col justify-end items-center pb-[1px]"
+                                onClick={() => onSelectAccount(item.accountId, 'new')}
+                            >
+                                {item.newCount > 0 && (
+                                    <>
+                                        <span className="mb-1 text-[10px] sm:text-xs font-bold text-green-600 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                            +{item.newCount}
+                                        </span>
+                                        <div
+                                            className="w-full bg-green-500 rounded-t-sm opacity-90 group-hover:opacity-100 transition-all shadow-sm hover:shadow-md"
+                                            style={{
+                                                height: `${Math.max((item.newCount / maxVal) * 100, 2)}%`,
+                                            }}
+                                        />
+                                    </>
+                                )}
+                            </div>
 
-                        <div
-                            className="flex-1 w-full flex flex-col justify-start items-center pt-[1px]"
-                            onClick={() => onSelectAccount(item.accountId, 'inactive')}
-                        >
-                            {item.removedCount > 0 && (
-                                <>
-                                    <div
-                                        className="w-full bg-red-400 rounded-b-sm opacity-90 group-hover:opacity-100 transition-all shadow-sm hover:shadow-md"
-                                        style={{
-                                            height: `${Math.max((item.removedCount / maxVal) * 100, 2)}%`,
-                                        }}
-                                    />
-                                    <span className="mt-1 text-[10px] sm:text-xs font-bold text-red-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                                        -{item.removedCount}
-                                    </span>
-                                </>
-                            )}
-                        </div>
+                            <div
+                                className="flex-1 w-full flex flex-col justify-start items-center pt-[1px]"
+                                onClick={() => onSelectAccount(item.accountId, 'inactive')}
+                            >
+                                {item.removedCount > 0 && (
+                                    <>
+                                        <div
+                                            className="w-full bg-red-400 rounded-b-sm opacity-90 group-hover:opacity-100 transition-all shadow-sm hover:shadow-md"
+                                            style={{
+                                                height: `${Math.max((item.removedCount / maxVal) * 100, 2)}%`,
+                                            }}
+                                        />
+                                        <span className="mt-1 text-[10px] sm:text-xs font-bold text-red-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                            -{item.removedCount}
+                                        </span>
+                                    </>
+                                )}
+                            </div>
 
-                        <div
-                            className={`absolute top-full pt-3 flex justify-center pointer-events-auto ${isCompact ? 'w-32' : 'w-full'}`}
-                            onClick={() => onSelectAccount(item.accountId, 'new')}
-                        >
-                            <span
-                                className={`
+                            <div
+                                className={`absolute top-full pt-3 flex justify-center pointer-events-auto ${isCompact ? 'w-32' : 'w-full'}`}
+                                onClick={() => onSelectAccount(item.accountId, 'new')}
+                            >
+                                <span
+                                    className={`
                                     text-[10px] sm:text-xs font-medium text-gray-600 group-hover:text-blue-600 transition-colors
                                     ${isCompact
-                                        ? 'origin-top -rotate-90 translate-y-2'
-                                        : 'text-center truncate px-1 w-full block'
-                                    }
+                                            ? 'origin-top -rotate-90 translate-y-2'
+                                            : 'text-center truncate px-1 w-full block'
+                                        }
                                 `}
-                            >
+                                >
+                                    {item.label}
+                                </span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Mobile View: Horizontal Bars (List) for better scalability */}
+            <div className="md:hidden flex flex-col gap-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                {displayedData.map((item) => (
+                    <div key={item.accountId} className="flex flex-col gap-1 border-b border-gray-50 last:border-0 pb-2 last:pb-0">
+                        <div className="flex justify-between items-center text-xs mb-1">
+                            <span className="font-medium text-gray-800 truncate max-w-[150px]" title={item.label}>
                                 {item.label}
                             </span>
+                        </div>
+                        <div className="flex items-center gap-2 h-6">
+                            {/* New (Green) Bar */}
+                            {item.newCount > 0 && (
+                                <div
+                                    className="h-full bg-green-500/90 rounded-r-md flex items-center justify-end px-1.5 transition-all text-[10px] font-bold text-white min-w-[24px]"
+                                    style={{ width: `${Math.max((item.newCount / maxVal) * 100 * 0.5, 10)}%` }} // Scale to 50% width max to share space
+                                    onClick={() => onSelectAccount(item.accountId, 'new')}
+                                >
+                                    +{item.newCount}
+                                </div>
+                            )}
+
+                            {/* Spacer line or separator if both exist */}
+                            {item.newCount > 0 && item.removedCount > 0 && <div className="w-[1px] h-4 bg-gray-200"></div>}
+
+                            {/* Removed (Red) Bar */}
+                            {item.removedCount > 0 && (
+                                <div
+                                    className="h-full bg-red-400/90 rounded-r-md flex items-center justify-end px-1.5 transition-all text-[10px] font-bold text-white min-w-[24px]"
+                                    style={{ width: `${Math.max((item.removedCount / maxVal) * 100 * 0.5, 10)}%` }}
+                                    onClick={() => onSelectAccount(item.accountId, 'inactive')}
+                                >
+                                    -{item.removedCount}
+                                </div>
+                            )}
                         </div>
                     </div>
                 ))}
             </div>
 
-            <div className={`${isCompact ? 'h-32' : 'h-12'}`}></div>
+
         </div>
     );
 }
@@ -215,20 +260,20 @@ interface ChartHeaderProps {
 
 function ChartHeader({ totalNew, totalRemoved, duration, setDuration }: ChartHeaderProps) {
     return (
-        <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-3">
-                <div className="p-2 bg-green-100 rounded-lg">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-3">
+            <div className="flex items-center gap-3 w-full md:w-auto">
+                <div className="p-2 bg-green-100 rounded-lg shrink-0">
                     <TrendingUp className="w-5 h-5 text-green-600" />
                 </div>
                 <div>
-                    <h3 className="font-semibold text-gray-900">Activity Monitor</h3>
-                    <p className="text-sm text-green-600 font-medium">
-                        +{totalNew} new, <span className="text-red-500">-{totalRemoved} removed</span> in last {duration}h
+                    <h3 className="font-semibold text-gray-900 text-sm md:text-base">Activity Monitor</h3>
+                    <p className="text-xs md:text-sm text-green-600 font-medium">
+                        +{totalNew} new, <span className="text-red-500">-{totalRemoved} rem</span> ({duration}h)
                     </p>
                 </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full md:w-auto">
                 {/* Duration Selector */}
                 <CustomSelect
                     value={duration}
@@ -239,16 +284,18 @@ function ChartHeader({ totalNew, totalRemoved, duration, setDuration }: ChartHea
                         { label: '24 Hours', value: 24 },
                     ]}
                     renderTrigger={() => (
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-full shadow-sm hover:border-blue-300 hover:ring-2 hover:ring-blue-50 transition-all cursor-pointer group">
-                            <Clock className="w-3.5 h-3.5 text-gray-400 group-hover:text-blue-500" />
-                            <span className="text-xs font-medium text-gray-600">Last:</span>
-                            <span className="text-xs font-bold text-blue-600">{duration}h</span>
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm hover:border-blue-300 hover:ring-2 hover:ring-blue-50 transition-all cursor-pointer group w-full">
+                            <div className="flex items-center gap-2">
+                                <Clock className="w-3.5 h-3.5 text-gray-400 group-hover:text-blue-500" />
+                                <span className="text-xs font-medium text-gray-600">Period:</span>
+                                <span className="text-xs font-bold text-blue-600">{duration} Hours</span>
+                            </div>
                             <ChevronDown className="w-3 h-3 text-gray-300 group-hover:text-blue-400" />
                         </div>
                     )}
-                    className="relative"
+                    className="relative w-full"
                     align="right"
-                    width="w-32"
+                    width="w-full md:w-32"
                 />
             </div>
         </div>

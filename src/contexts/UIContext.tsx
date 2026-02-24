@@ -4,7 +4,7 @@ import { Tab } from '../types';
 import { useNotification } from './NotificationContext';
 
 // Constants moved here or imported? For now, defining strict types/constants.
-const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Support', 'Fulfill', 'Listing'];
+const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Listing', 'Products', 'Fulfill', 'Support'];
 
 interface UIContextType {
     // Layout

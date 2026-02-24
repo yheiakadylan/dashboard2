@@ -1,10 +1,16 @@
 // scripts/generate-firebase-config.js
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Load .env.local if available
+const envPath = join(__dirname, '..', '.env.local');
+if (existsSync(envPath) && process.loadEnvFile) {
+    process.loadEnvFile(envPath);
+}
 
 // Firebase configuration using environment variables (VITE_ prefix for client-side)
 // Note: During build, Vite will replace these with actual values

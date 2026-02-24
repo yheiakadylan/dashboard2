@@ -11,10 +11,12 @@ import CrawlerProgressBar from '../../CrawlerProgressBar';
 import AutoCrawlMenu from './AutoCrawlMenu';
 import { CustomSelect } from '../../ui/CustomSelect';
 import NewListingsChart from './NewListingsChart';
+import DailyStatsChart from './DailyStatsChart';
 
 interface AccountsListProps {
     onSelectAccount: (accountId: string, tab?: 'all' | 'active' | 'new' | 'inactive') => void;
 }
+
 
 const NewListing24hBadge = ({ count }: { count: number | null }) => {
     if (count === null) return <span className="text-gray-300 text-xs animate-pulse">...</span>;
@@ -129,6 +131,82 @@ const AccountRow = React.memo(({ account, status, newCount, isCrawling, onSelect
                 </button>
             </td>
         </tr>
+    );
+});
+
+const MobileAccountCard = React.memo(({ account, status, newCount, isCrawling, onSelectAccount, onToggleTracking }: AccountRowProps) => {
+    return (
+        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 space-y-3">
+            <div className="flex justify-between items-start">
+                <div>
+                    <h3 className="font-medium text-gray-900">{account.label}</h3>
+                    <button
+                        onClick={() => window.open(`https://www.etsy.com/shop/${account.label}`, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes')}
+                        className="text-xs text-blue-500 hover:underline"
+                    >
+                        View Shop
+                    </button>
+                </div>
+                <NewListing24hBadge count={newCount} />
+            </div>
+
+            <div className="flex justify-between items-center text-sm text-gray-500">
+                <span>Listings: {account.total_listings || 0}</span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={account.listing_tracking_enabled || false}
+                        onChange={(e) => onToggleTracking(account.id, e.target.checked)}
+                        disabled={isCrawling}
+                        className="sr-only peer disabled:cursor-not-allowed"
+                    />
+                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 disabled:opacity-60"></div>
+                </label>
+            </div>
+
+            {/* Status Section */}
+            <div className="pt-2 border-t border-gray-50 flex justify-between items-center">
+                <div className="flex flex-col text-xs">
+                    {status ? (
+                        <>
+                            <span className={`font-bold uppercase ${status.status === 'success' ? 'text-green-600' :
+                                status.status === 'error' ? 'text-red-600' :
+                                    status.status === 'crawling' ? 'text-blue-600' :
+                                        status.status === 'waiting' ? 'text-orange-600' :
+                                            'text-gray-400'
+                                }`}>
+                                {status.status}
+                            </span>
+                            {status.message && <span className="text-gray-400 truncate max-w-[150px]">{status.message}</span>}
+                        </>
+                    ) : (
+                        <>
+                            <span className="text-gray-400">Last crawled:</span>
+                            <span className="text-gray-600">{formatTimeAgo(account.last_listing_crawl)}</span>
+                            {account.last_crawl_stats && !account.last_crawl_error && (
+                                <div className="flex gap-2 mt-0.5">
+                                    {account.last_crawl_stats.added > 0 && <span className="text-green-600 font-semibold">+{account.last_crawl_stats.added}</span>}
+                                    {account.last_crawl_stats.removed > 0 && <span className="text-red-500 font-semibold">-{account.last_crawl_stats.removed}</span>}
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                <button
+                    onClick={() => onSelectAccount(account.id)}
+                    className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded text-xs font-medium hover:bg-blue-100"
+                >
+                    View Listings
+                </button>
+            </div>
+            {account.last_crawl_error && (
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 border border-red-200 rounded text-xs mt-1">
+                    <AlertCircle className="w-3 h-3 text-red-500" />
+                    <span className="text-red-600 truncate">{account.last_crawl_error}</span>
+                </div>
+            )}
+        </div>
     );
 });
 
@@ -305,99 +383,113 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
             {/* Header Actions */}
 
 
-            <div className="p-6">
-                <div className="flex justify-between items-center mb-6">
+            <div className="p-2 md:p-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div>
-                        <h1 className="text-2xl font-bold flex items-center gap-2">
-                            <Package className="w-7 h-7" />
+                        <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                            <Package className="w-6 h-6 md:w-7 md:h-7" />
                             Etsy Listing Tracker
                         </h1>
-                        <p className="text-gray-600 mt-1">
+                        <p className="text-sm md:text-base text-gray-600 mt-1">
                             Manage and track your Etsy shop listings
                         </p>
                     </div>
 
-                    <div className="flex gap-4 items-center">
-                        {/* Auto Crawl Controls */}
-                        {/* AutoCrawlMenu removed */}
+                    <div className="flex gap-2 items-center w-full md:w-auto overflow-x-auto pb-2 md:pb-0 no-scrollbar">
 
-                        <div className="text-sm text-gray-500">
-                            {extensionAvailable ? (
-                                <span className="flex items-center gap-1 text-green-600">
-                                    <span className="w-2 h-2 bg-green-500 rounded-full"></span> Extension Ready
-                                </span>
-                            ) : (
-                                <span className="flex items-center gap-1 text-red-600">
-                                    <AlertCircle className="w-4 h-4" /> Extension Missing
-                                </span>
-                            )}
+                        {/* Mobile: Scrollable horizontal list of actions */}
+                        <div className="flex items-center gap-2 flex-nowrap min-w-min">
+                            <div className="text-sm text-gray-500 whitespace-nowrap px-1">
+                                {extensionAvailable ? (
+                                    <span className="flex items-center" title="Extension Ready">
+                                        <span className="w-2.5 h-2.5 bg-green-500 rounded-full shadow-sm ring-1 ring-white"></span>
+                                        <span className="hidden sm:inline-flex items-center gap-1 text-green-600 ml-1.5">Ready</span>
+                                    </span>
+                                ) : (
+                                    <span className="flex items-center" title="Extension Missing">
+                                        <AlertCircle className="w-5 h-5 text-red-500" />
+                                        <span className="hidden sm:inline-flex items-center gap-1 text-red-600 ml-1">Missing</span>
+                                    </span>
+                                )}
+                            </div>
+
+                            <a
+                                href="/extension.zip"
+                                download="EtsyCrawlerExtension.zip"
+                                className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium whitespace-nowrap"
+                                title="Download Extension ZIP"
+                            >
+                                <Download className="w-4 h-4" />
+                                <span className="hidden sm:inline">Extension</span>
+                            </a>
+
+                            <button
+                                onClick={handleMapOrders}
+                                disabled={isMapping}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors text-sm whitespace-nowrap ${isMapping
+                                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                    : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'
+                                    }`}
+                                title="Link Orders to Listings by Image"
+                            >
+                                {isMapping ? (
+                                    <Loader className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-link"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+                                )}
+                                <span className="hidden sm:inline">{isMapping ? 'Mapping...' : 'Map Orders'}</span>
+                            </button>
+
+                            <button
+                                onClick={() => onSelectAccount('all_shops')}
+                                disabled={isCrawling}
+                                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 text-sm whitespace-nowrap"
+                            >
+                                <Store className="w-4 h-4" />
+                                <span className="hidden sm:inline">All Listings</span>
+                                <span className="sm:hidden">All</span>
+                            </button>
+
+                            <button
+                                onClick={triggerCrawl}
+                                disabled={!isCrawling && etsyAccounts.filter(a => a.listing_tracking_enabled).length === 0}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-medium text-sm whitespace-nowrap ${isCrawling
+                                    ? 'bg-red-600 text-white hover:bg-red-700'
+                                    : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed'
+                                    }`}
+                            >
+                                {isCrawling ? (
+                                    <>
+                                        <Pause className="w-4 h-4" />
+                                        <span className="hidden sm:inline">Stop Crawl</span>
+                                        <span className="sm:hidden">Stop</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Play className="w-4 h-4" />
+                                        <span className="hidden sm:inline">Crawl</span>
+                                        <span className="sm:hidden">Crawl</span>
+                                    </>
+                                )}
+                            </button>
                         </div>
-
-
-                        <a
-                            href="/extension.zip"
-                            download="EtsyCrawlerExtension.zip"
-                            className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
-                            title="Download Extension ZIP to install unpacked"
-                        >
-                            <Download className="w-4 h-4" />
-                            <span className="hidden xl:inline">Get Extension</span>
-                        </a>
-
-                        <button
-                            onClick={handleMapOrders}
-                            disabled={isMapping}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${isMapping
-                                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                                : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'
-                                }`}
-                            title="Link Orders to Listings by Image"
-                        >
-                            {isMapping ? (
-                                <Loader className="w-4 h-4 animate-spin" />
-                            ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-link"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
-                            )}
-                            <span>{isMapping ? 'Mapping...' : 'Map Orders'}</span>
-                        </button>
-
-                        <button
-                            onClick={() => onSelectAccount('all_shops')}
-                            disabled={isCrawling}
-                            className="hidden md:flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-                        >
-                            <Store className="w-5 h-5" />
-                            View All Listings
-                        </button>
-
-                        <button
-                            onClick={triggerCrawl}
-                            disabled={!isCrawling && etsyAccounts.filter(a => a.listing_tracking_enabled).length === 0}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-medium ${isCrawling
-                                ? 'bg-red-600 text-white hover:bg-red-700'
-                                : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed'
-                                }`}
-                        >
-                            {isCrawling ? (
-                                <>
-                                    <Pause className="w-5 h-5" />
-                                    Stop Crawl
-                                </>
-                            ) : (
-                                <>
-                                    <Play className="w-5 h-5" />
-                                    Crawl Enabled Shops
-                                </>
-                            )}
-                        </button>
                     </div>
                 </div>
 
-                {/* New Listings Chart */}
-                <NewListingsChart
-                    accounts={etsyAccounts}
-                    onSelectAccount={onSelectAccount}
-                />
+                <div className={`grid grid-cols-1 ${etsyAccounts.length > 15 ? 'lg:grid-cols-1' : 'lg:grid-cols-2'} gap-4 mb-6`}>
+                    {/* Daily Stats Chart (Historical Trend) */}
+                    <div className="w-full min-w-0">
+                        <DailyStatsChart teamId={teamId || ''} days={7} accounts={etsyAccounts} />
+                    </div>
+
+                    {/* New Listings Chart (Shop Breakdown) */}
+                    <div className="w-full min-w-0">
+                        <NewListingsChart
+                            accounts={etsyAccounts}
+                            onSelectAccount={onSelectAccount}
+                        />
+                    </div>
+                </div>
 
                 {isCrawling && <CrawlerProgressBar />}
 
@@ -411,77 +503,93 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
                             </p>
                         </div>
                     ) : (
-                        <div className="bg-white rounded-lg shadow overflow-hidden">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Shop Name
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Status
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            <div className="flex items-center gap-1 group w-fit">
-                                                <span>New</span>
-                                                <CustomSelect
-                                                    value={newListingDuration}
-                                                    onChange={(val) => setNewListingDuration(val)}
-                                                    options={[
-                                                        { label: '6 Hours', value: 6 },
-                                                        { label: '12 Hours', value: 12 },
-                                                        { label: '24 Hours', value: 24 },
-                                                        { label: '48 Hours', value: 48 },
-                                                        { label: '3 Days', value: 72 },
-                                                    ]}
-                                                    renderTrigger={() => (
-                                                        <span className="text-xs font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 hover:border-blue-300 transition-all cursor-pointer inline-flex items-center gap-0.5">
-                                                            {newListingDuration}h
-                                                            <ChevronDown className="w-3 h-3 opacity-50" />
-                                                        </span>
-                                                    )}
-                                                    width="w-32"
-                                                />
-                                            </div>
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Total
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            <div className="flex items-center gap-2">
-                                                Tracking
-                                                <label className="relative inline-flex items-center cursor-pointer" title="Toggle All">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={etsyAccounts.length > 0 && etsyAccounts.every(acc => acc.listing_tracking_enabled)}
-                                                        onChange={handleToggleAllTracking}
-                                                        disabled={isCrawling}
-                                                        className="sr-only peer disabled:cursor-not-allowed"
+                        <>
+                            <div className="bg-white rounded-lg shadow overflow-hidden hidden md:block">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Shop Name
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Status
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                <div className="flex items-center gap-1 group w-fit">
+                                                    <span>New</span>
+                                                    <CustomSelect
+                                                        value={newListingDuration}
+                                                        onChange={(val) => setNewListingDuration(val)}
+                                                        options={[
+                                                            { label: '6 Hours', value: 6 },
+                                                            { label: '12 Hours', value: 12 },
+                                                            { label: '24 Hours', value: 24 },
+                                                            { label: '48 Hours', value: 48 },
+                                                            { label: '3 Days', value: 72 },
+                                                        ]}
+                                                        renderTrigger={() => (
+                                                            <span className="text-xs font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 hover:border-blue-300 transition-all cursor-pointer inline-flex items-center gap-0.5">
+                                                                {newListingDuration}h
+                                                                <ChevronDown className="w-3 h-3 opacity-50" />
+                                                            </span>
+                                                        )}
+                                                        width="w-32"
                                                     />
-                                                    <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 disabled:opacity-60"></div>
-                                                </label>
-                                            </div>
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Actions
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {etsyAccounts.map((account) => (
-                                        <AccountRow
-                                            key={account.id}
-                                            account={account}
-                                            status={crawlStatuses[account.id]}
-                                            newCount={newListingCounts[account.id] ?? null}
-                                            isCrawling={isCrawling}
-                                            onSelectAccount={onSelectAccount}
-                                            onToggleTracking={handleToggleTracking}
-                                        />
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                                </div>
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Total
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                <div className="flex items-center gap-2">
+                                                    Tracking
+                                                    <label className="relative inline-flex items-center cursor-pointer" title="Toggle All">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={etsyAccounts.length > 0 && etsyAccounts.every(acc => acc.listing_tracking_enabled)}
+                                                            onChange={handleToggleAllTracking}
+                                                            disabled={isCrawling}
+                                                            className="sr-only peer disabled:cursor-not-allowed"
+                                                        />
+                                                        <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 disabled:opacity-60"></div>
+                                                    </label>
+                                                </div>
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Actions
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {etsyAccounts.map((account) => (
+                                            <AccountRow
+                                                key={account.id}
+                                                account={account}
+                                                status={crawlStatuses[account.id]}
+                                                newCount={newListingCounts[account.id] ?? null}
+                                                isCrawling={isCrawling}
+                                                onSelectAccount={onSelectAccount}
+                                                onToggleTracking={handleToggleTracking}
+                                            />
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div className="md:hidden space-y-3">
+                                {etsyAccounts.map((account) => (
+                                    <MobileAccountCard
+                                        key={account.id}
+                                        account={account}
+                                        status={crawlStatuses[account.id]}
+                                        newCount={newListingCounts[account.id] ?? null}
+                                        isCrawling={isCrawling}
+                                        onSelectAccount={onSelectAccount}
+                                        onToggleTracking={handleToggleTracking}
+                                    />
+                                ))}
+                            </div>
+                        </>
                     )
                 }
             </div >

@@ -6,7 +6,8 @@ import {
     FileText,
     HelpCircle,
     Truck,
-    Tag
+    Tag,
+    Package
 } from 'lucide-react';
 
 interface BottomNavProps {
@@ -78,6 +79,8 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
                 return <Truck className={iconClass} />;
             case 'Support':
                 return <HelpCircle className={iconClass} />;
+            case 'Listing':
+                return <Package className={iconClass} />;
             default:
                 return <Home className={iconClass} />;
         }
@@ -85,7 +88,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
 
     return (
         <nav
-            className={`md:hidden fixed left-4 right-4 bg-white/40 dark:bg-black/30 backdrop-blur-2xl backdrop-saturate-[1.8] border border-white/30 dark:border-white/10 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 flex justify-between items-center px-4 py-2 transition-opacity duration-200 ${isNotificationDetailOpen ? 'pointer-events-none opacity-30' : ''
+            className={`md:hidden fixed left-4 right-4 bg-white/40 dark:bg-black/30 backdrop-blur-2xl backdrop-saturate-[1.8] border border-white/30 dark:border-white/10 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 flex items-center px-1 py-2 transition-opacity duration-200 ${isNotificationDetailOpen ? 'pointer-events-none opacity-30' : ''
                 }`}
             style={{
                 bottom: 'max(16px, env(safe-area-inset-bottom))'
@@ -110,7 +113,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
                         key={tab}
                         ref={(el) => { tabsRef.current[tab] = el; }}
                         onClick={() => handleClick(tab)}
-                        className={`flex flex-col items-center justify-center relative p-2 transition-colors duration-300 rounded-xl z-20 ${isActive
+                        className={`flex-1 min-w-0 flex flex-col items-center justify-center relative p-2 transition-colors duration-300 rounded-xl z-20 ${isActive
                             ? 'text-blue-600 dark:text-blue-400'
                             : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                             }`}

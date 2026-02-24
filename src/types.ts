@@ -200,3 +200,21 @@ export interface UserProfile {
   photoURL?: string;
   [key: string]: any;
 }
+
+export interface DailyStats {
+  date: string;
+  new_listings: number;
+  removed_listings: number;
+  total_listings?: number;
+  shops?: {
+    [key: string]: {
+      new: number;
+      removed: number;
+      total: number;
+    }
+  };
+  shops_crawled?: number;
+  crawl_errors?: number;
+  createdAt?: string;
+  source?: string;
+}

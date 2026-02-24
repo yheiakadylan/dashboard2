@@ -119,6 +119,109 @@ async function handler(req: VercelRequest, res: VercelResponse) {
             return res.status(200).json({ shops });
         }
 
+        // --- ACTION: DAILY SNAPSHOT ---
+        if (action === 'daily_snapshot') {
+            const { date } = req.body;
+            if (!teamId || !date) {
+                return res.status(400).json({ error: 'Missing teamId or date' });
+            }
+
+            console.log(`[API] Creating daily snapshot for ${teamId} on ${date}...`);
+
+            // 1. Get Accounts
+            const accountsRef = db.collection('user').doc(teamId).collection('accounts');
+            const accountsSnapshot = await accountsRef.get();
+
+            const accounts: any[] = [];
+            accountsSnapshot.forEach((doc) => {
+                const data = doc.data();
+                if (data.platforms?.includes('etsy')) {
+                    accounts.push({ id: doc.id, ...data });
+                }
+            });
+
+            if (accounts.length === 0) {
+                return res.json({ success: false, message: 'No Etsy accounts found' });
+            }
+
+            // 2. Calculate Stats
+            const dayStartISO = new Date(date + 'T00:00:00Z').toISOString();
+            const dayEndISO = new Date(date + 'T23:59:59.999Z').toISOString();
+
+            let totalNew = 0;
+            let totalRemoved = 0;
+            let totalListings = 0;
+            const shopStats: Record<string, any> = {};
+
+            // Query each account (Parallel)
+            const accountPromises = accounts.map(async (account) => {
+                const listingsRef = db.collection('user').doc(teamId).collection('accounts').doc(account.id).collection('listings');
+
+                try {
+                    // New listings
+                    const newSnapshot = await listingsRef
+                        .where('createdAt', '>=', dayStartISO)
+                        .where('createdAt', '<=', dayEndISO)
+                        .where('status', '==', 'active')
+                        .get();
+
+                    // Removed listings
+                    const removedSnapshot = await listingsRef
+                        .where('updatedAt', '>=', dayStartISO)
+                        .where('updatedAt', '<=', dayEndISO)
+                        .where('status', '==', 'inactive')
+                        .get();
+
+                    const newCount = newSnapshot.size;
+                    const removedCount = removedSnapshot.size;
+
+                    if (newCount > 0 || removedCount > 0) {
+                        return {
+                            id: account.id,
+                            new: newCount,
+                            removed: removedCount,
+                            total: account.total_listings || 0
+                        };
+                    }
+                } catch (error) {
+                    console.error(`Error processing account ${account.id}:`, error);
+                }
+                return null;
+            });
+
+            const results = await Promise.all(accountPromises);
+
+            results.forEach(res => {
+                if (res) {
+                    totalNew += res.new;
+                    totalRemoved += res.removed;
+                    shopStats[res.id] = {
+                        new: res.new,
+                        removed: res.removed,
+                        total: res.total
+                    };
+                }
+            });
+
+            totalListings = accounts.reduce((sum, acc) => sum + (acc.total_listings || 0), 0);
+
+            const stats = {
+                date: date,
+                new_listings: totalNew,
+                removed_listings: totalRemoved,
+                total_listings: totalListings,
+                shops: shopStats,
+                shops_crawled: Object.keys(shopStats).length,
+                createdAt: new Date().toISOString(),
+                source: 'api-snapshot'
+            };
+
+            // 3. Save Snapshot
+            await db.collection('user').doc(teamId).collection('daily-stats').doc(date).set(stats);
+            console.log(`✅ Snapshot saved: ${totalNew} new, ${totalRemoved} removed`);
+            return res.json({ success: true, stats });
+        }
+
         // --- ACTION: SAVE (Default) ---
         if (!action || action === 'save') {
             if (!teamId || !shopId || !Array.isArray(listings)) {

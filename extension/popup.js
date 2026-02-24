@@ -478,5 +478,74 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Manually trigger snapshot
+    const forceSnapshotBtn = document.getElementById('forceSnapshotBtn');
+    if (forceSnapshotBtn) {
+        forceSnapshotBtn.addEventListener('click', () => {
+            const originalText = forceSnapshotBtn.innerText;
+            forceSnapshotBtn.disabled = true;
+            forceSnapshotBtn.innerText = 'Checking...';
+
+            chrome.runtime.sendMessage({ type: 'FORCE_SNAPSHOT' }, (response) => {
+                if (response && response.success) {
+                    alert('Daily Snapshot Check started!');
+                } else {
+                    alert('Failed to start. Check background console.');
+                }
+                setTimeout(() => {
+                    forceSnapshotBtn.disabled = false;
+                    forceSnapshotBtn.innerText = originalText;
+                }, 2000);
+            });
+        });
+    }
+
+    // Handle Backfill
+    const runBackfillBtn = document.getElementById('runBackfillBtn');
+    if (runBackfillBtn) {
+        runBackfillBtn.addEventListener('click', () => {
+            const startDate = document.getElementById('backfillStart').value;
+            const endDate = document.getElementById('backfillEnd').value;
+            const msgObj = document.getElementById('backfillMsg');
+
+            if (!startDate || !endDate) {
+                alert('Please select both Start and End dates.');
+                return;
+            }
+
+            if (new Date(startDate) > new Date(endDate)) {
+                alert('Start date must be before or equal to End date.');
+                return;
+            }
+
+            const originalText = runBackfillBtn.innerText;
+            runBackfillBtn.disabled = true;
+            runBackfillBtn.innerText = 'Backfilling... ⏳';
+            msgObj.style.display = 'block';
+            msgObj.style.color = '#ca8a04';
+            msgObj.textContent = 'Started backfill... Check background logs for progress.';
+
+            chrome.runtime.sendMessage({
+                type: 'RUN_BACKFILL',
+                startDate: startDate,
+                endDate: endDate
+            }, (response) => {
+                if (response && response.success) {
+                    msgObj.style.color = '#16a34a';
+                    msgObj.textContent = 'Backfill completed successfully ✅';
+                } else {
+                    msgObj.style.color = '#dc2626';
+                    msgObj.textContent = 'Failed: ' + (response?.error || 'Unknown error');
+                }
+
+                setTimeout(() => {
+                    runBackfillBtn.disabled = false;
+                    runBackfillBtn.innerText = originalText;
+                    setTimeout(() => msgObj.style.display = 'none', 3000);
+                }, 2000);
+            });
+        });
+    }
+
     setInterval(updateStatusUI, 1000); // Poll status every 1s for realtime
 });
