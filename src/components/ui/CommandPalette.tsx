@@ -31,16 +31,30 @@ const CommandPalette: React.FC = () => {
                 console.log('--- Quick Fetch Fulfill Start ---');
                 addNotification('Fetching fulfillment costs...', 'info');
                 try {
-                    const orderRecords = records.filter(r => r.kind === 'order');
+                    // USER RULE: Fetch if no ff_code OR (has ff_code but cost is 0/missing)
+                    const orderRecords = records.filter(r => {
+                        if (r.kind !== 'order' || !r.order_id) return false;
+                        const hasCost = r.cost_total && r.cost_total > 0;
+                        const hasFfCode = !!r.ff_code;
+
+                        // Rule 1: No ff_code -> Fetch
+                        if (!hasFfCode) return true;
+                        // Rule 2: Has ff_code but no cost -> Fetch
+                        if (hasFfCode && !hasCost) return true;
+
+                        return false;
+                    });
+
                     if (orderRecords.length === 0) {
-                        addNotification('No orders to fetch costs for.', 'info');
+                        addNotification('No order gaps found to fetch.', 'info');
                         return;
                     }
+
                     console.log(`Fetching costs for ${orderRecords.length} orders...`);
                     const costMap = await fetchCostsForRecords(orderRecords);
 
                     if (costMap.size === 0) {
-                        addNotification('No costs found.', 'info');
+                        addNotification('No costs found from providers.', 'info');
                         return;
                     }
 
@@ -49,7 +63,7 @@ const CommandPalette: React.FC = () => {
                     const updatedRecords = records.map(record => {
                         if (record.order_id && costMap.has(record.order_id)) {
                             const costInfo = costMap.get(record.order_id)!;
-                            // Only update if cost is different or new
+                            // Update if cost is different or new code found
                             if (record.cost_total !== costInfo.cost_total || record.ff_code !== costInfo.ff_code) {
                                 updates.push({
                                     id: record.id!,
@@ -75,14 +89,8 @@ const CommandPalette: React.FC = () => {
                         setRecords(updatedRecords);
                         addNotification(`Updated ${updates.length} records with new costs.`, 'success');
                     } else {
-                        addNotification('Costs fetched but no updates needed.', 'info');
+                        addNotification('No new cost updates found for these orders.', 'info');
                     }
-
-                    console.log('--- Quick Fetch Result ---');
-                    console.log('Mapped Costs:', costMap.size);
-                    costMap.forEach((cost, orderId) => {
-                        console.log(`[${orderId}] Cost: ${cost.cost_total}, Code: ${cost.ff_code}, Product: ${cost.product_name}`);
-                    });
                 } catch (e) {
                     console.error('Quick Fetch Error:', e);
                     addNotification('Failed to fetch costs.', 'error');
@@ -90,6 +98,7 @@ const CommandPalette: React.FC = () => {
             },
             group: 'Development'
         },
+
     ];
 
     const filteredCommands = commands.filter(cmd =>
