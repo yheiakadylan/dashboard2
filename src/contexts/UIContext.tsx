@@ -61,8 +61,13 @@ interface UIContextType {
     supportFilter: 'All' | 'Case' | 'Help';
     setSupportFilter: React.Dispatch<React.SetStateAction<'All' | 'Case' | 'Help'>>;
 
+    // Global Settings
+    globalUsdMode: boolean;
+    setGlobalUsdMode: React.Dispatch<React.SetStateAction<boolean>>;
+
     // Helpers
     handleViewDayDetails: (date: string) => void;
+    handleShopDetails: (accountId: string) => void;
 }
 
 const UIContext = createContext<UIContextType | undefined>(undefined);
@@ -70,10 +75,10 @@ const UIContext = createContext<UIContextType | undefined>(undefined);
 export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string; teamId?: string }> = ({ children, userUid, teamId }) => {
     const { addNotification } = useNotification();
 
-    // --- 1. Local Storage State ---
     const [activeTab, setActiveTabRaw] = useLocalStorage<Tab>('activeTab', 'Overview');
     const [timeZone, setTimeZone] = useLocalStorage<string>('timeZone', 'Asia/Ho_Chi_Minh');
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useLocalStorage<boolean>('sidebarCollapsed', false);
+    const [globalUsdMode, setGlobalUsdMode] = useLocalStorage<boolean>('globalUsdMode', false);
 
     // Tab Preferences
     const prefKey = userUid && teamId ? `tabPreferences_${teamId}_${userUid}` : 'tabPreferences_guest';
@@ -174,11 +179,18 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const handleTabClick = (tab: Tab) => {
         setActiveTabRaw(tab);
         setDayFilter(null);
+        setSelectedAccountId('all');
     };
 
     const handleViewDayDetails = (date: string) => {
         setActiveTabRaw('Order List');
         setDayFilter(date);
+    };
+
+    const handleShopDetails = (accountId: string) => {
+        setActiveTabRaw('Order List');
+        setSelectedAccountId(accountId);
+        setSearchTerm('');
     };
 
     const reorderTabs = useCallback((fromIndex: number, toIndex: number) => {
@@ -253,7 +265,9 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
             sourceFilter, setSourceFilter,
             statusFilter, setStatusFilter,
             supportFilter, setSupportFilter,
-            handleViewDayDetails
+            globalUsdMode, setGlobalUsdMode,
+            handleViewDayDetails,
+            handleShopDetails
         }}>
             {children}
         </UIContext.Provider>

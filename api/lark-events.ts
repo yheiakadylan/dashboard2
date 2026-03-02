@@ -571,7 +571,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(405).json({ message: 'Only POST requests are allowed.' });
     }
 
-    const { email, role, teamId } = req.body;
+    const { email, role, teamId, displayName } = req.body;
 
     // 1. Chỉ gửi nếu là 'user'
     if (role !== 'user') {
@@ -583,7 +583,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 3. Chuẩn bị nội dung
     const userEmail = email || 'Không rõ email';
-    const content = `🔔 User Login: Tài khoản ${userEmail} vừa đăng nhập vào dashboard.`;
+    const userName = displayName || email || 'Nhân viên';
+    const content = `🔔 User Login: Tài khoản ${userName} (${userEmail}) vừa đăng nhập vào dashboard.`;
 
     const payload = {
       msg_type: "text",
@@ -613,9 +614,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           teamId,
           type: 'LOGIN',
           title: 'Team Member Login',
-          content: `${userEmail} logged into the dashboard`,
+          content: `${userName} (${userEmail}) logged into the dashboard`,
           metadata: {
             login_info: {
+              user_name: userName,
               user_email: userEmail,
               user_role: role,
               timestamp: new Date().toISOString(),
@@ -625,7 +627,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         await sendPushNotificationToUsers(teamId, 'login', {
           title: '🔔 User Login',
-          body: `${userEmail} đã đăng nhập vào dashboard`,
+          body: `${userName} đã đăng nhập vào dashboard`,
           url: `${appUrl}?notification=${notificationId}` // Deep link to notification detail
         });
         console.log('[lark-events/login-notify] FCM notification sent successfully');

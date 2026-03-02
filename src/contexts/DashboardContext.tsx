@@ -145,16 +145,23 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   useEffect(() => {
     if (!teamId) return;
 
+    let unsubscribe: (() => void) | undefined;
+    let isMounted = true;
+
     import('../services/firebaseService').then(({ listenForSettings }) => {
-      const unsubscribe = listenForSettings(teamId, (settings) => {
+      if (!isMounted) return;
+      unsubscribe = listenForSettings(teamId, (settings) => {
         if (settings.autoSyncToSheet !== undefined) {
           setAutoSyncEnabled(settings.autoSyncToSheet);
           console.log(`[Auto-Sync] Settings updated: ${settings.autoSyncToSheet ? 'ENABLED' : 'DISABLED'}`);
         }
       });
-
-      return () => unsubscribe();
     });
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
   }, [teamId]);
 
   // Use auto-sync hook
@@ -178,50 +185,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }
   });
 
-  // --- Real-time Listener for New Records ---
-  useEffect(() => {
-    if (!teamId) return;
 
-    console.log('[Real-time] Setting up listener for new records...');
-
-    import('../services/firebaseService').then(({ listenForNewRecords }) => {
-      const unsubscribe = listenForNewRecords(teamId, (newRecord) => {
-        // Quietly add new record to state (React will re-render efficiently, no flash)
-        setRecords(prev => {
-          // Check if record already exists (avoid duplicates)
-          const exists = prev.some(r => r.id === newRecord.id);
-          if (exists) return prev;
-
-          console.log(`[Real-time] ✨ New ${newRecord.kind} arrived: ${newRecord.order_id || newRecord.id}`);
-
-          // Show toast notification only for orders
-          if (newRecord.kind === 'order') {
-            const isRefund = newRecord.source === 'Etsy_Refunded' || newRecord.source === 'Ebay_Refunded';
-            if (isRefund) {
-              addNotification(
-                `Refund processed #${newRecord.order_id}`,
-                'warning'
-              );
-            } else {
-              // Real new order
-              const productName = newRecord.details?.items?.[0]?.name || 'Unknown product';
-              addNotification(
-                `New order #${newRecord.order_id}: ${productName}`,
-                'success'
-              );
-            }
-          }
-
-          return [...prev, newRecord];
-        });
-      });
-
-      return () => {
-        console.log('[Real-time] Cleaning up listener...');
-        unsubscribe();
-      };
-    });
-  }, [teamId, addNotification]);
 
   // --- 4. Logic Functions ---
 
@@ -487,7 +451,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
         // Actually, runHistoricalSync has a check: `if (accountsNeedingSync.length === 0) return;`
         // We should probably reset the flag so it runs.
 
-        const resetData = { id: account.id, historical_sync_complete: false, history_synced_until: null, last_synced_at: null, scan_start_date: null };
+        const resetData = { id: account.id, historical_sync_complete: false, history_synced_until: undefined, last_synced_at: undefined, scan_start_date: undefined };
         await saveAccountsToFirebase(teamId, [{ ...account, ...resetData }]);
 
         const updatedAccount = { ...account, ...resetData };

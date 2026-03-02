@@ -171,7 +171,7 @@ export default defineConfig(({ mode }) => {
             'charts-vendor': ['recharts'],
 
             // Virtualization
-            'virtualization-vendor': ['react-window', 'react-virtualized-auto-sizer'],
+            'virtualization-vendor': ['react-window'],
 
             // Google AI
             'ai-vendor': ['@google/genai'],

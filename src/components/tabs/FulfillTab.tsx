@@ -1,11 +1,11 @@
 import React, { Suspense, lazy } from 'react';
-import ChartErrorBoundary from '../ChartErrorBoundary';
-import LoadingSpinner from '../LoadingSpinner';
+import ChartErrorBoundary from '../ui/ChartErrorBoundary';
+import LoadingSpinner from '../ui/LoadingSpinner';
 import { ProcessedData } from '../../types';
-import CollapsibleContainer from '../CollapsibleContainer';
-import DataTable from '../DataTable';
+import CollapsibleContainer from '../ui/CollapsibleContainer';
+import DataTable from '../ui/DataTable';
 
-import FulfillChart from '../FulfillChart';
+import FulfillChart from '../charts/FulfillChart';
 
 interface FulfillTabProps {
     processedData: ProcessedData;

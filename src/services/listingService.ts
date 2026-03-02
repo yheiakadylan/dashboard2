@@ -284,17 +284,38 @@ export const getImageMapFromManifests = async (teamId: string): Promise<Map<stri
     return imageMap;
 }
 
-export const findListingIdForRecord = (record: Record, imageMap: Map<string, string>): string | null => {
-    if (record.listing_id) return record.listing_id;
-    if (record.details?.items) {
-        for (const item of record.details.items) {
+export const applyListingIdsToRecord = (record: Record, imageMap: Map<string, string>): { hasChanges: boolean, record: Record } => {
+    let hasChanges = false;
+    let newItems = record.details?.items ? [...record.details.items] : undefined;
+
+    if (newItems) {
+        newItems = newItems.map(item => {
+            if (item.listing_id) {
+                return item;
+            }
+
             const imgId = extractEtsyImageId(item.image);
             if (imgId && imageMap.has(imgId)) {
-                return imageMap.get(imgId)!;
+                hasChanges = true;
+                const foundId = imageMap.get(imgId)!;
+                return { ...item, listing_id: foundId };
             }
-        }
+            return item;
+        });
     }
-    return null;
+
+    if (!hasChanges) return { hasChanges: false, record };
+
+    return {
+        hasChanges: true,
+        record: {
+            ...record,
+            details: record.details ? {
+                ...record.details,
+                items: newItems || []
+            } : record.details
+        }
+    };
 };
 
 export const mapOrdersToListings = async (teamId: string, daysToScan: number = 60): Promise<{ processed: number, mapped: number }> => {
@@ -317,11 +338,16 @@ export const mapOrdersToListings = async (teamId: string, daysToScan: number = 6
 
     recordsSnap.forEach(doc => {
         const record = doc.data() as Record;
-        if (record.listing_id) return;
+        // Optimization: if all its items have listing IDs, skip.
+        const allItemsMapped = record.details?.items?.every(item => item.listing_id) ?? true;
+        if (allItemsMapped) return;
 
-        const listingId = findListingIdForRecord(record, imageMap);
-        if (listingId) {
-            updates.push({ id: doc.id, listing_id: listingId });
+        const result = applyListingIdsToRecord(record, imageMap);
+        if (result.hasChanges) {
+            updates.push({
+                id: doc.id,
+                details: result.record.details
+            });
             mappedCount++;
         }
     });
@@ -344,10 +370,15 @@ export const mapSpecificRecords = async (teamId: string, records: Record[]): Pro
     let mappedCount = 0;
 
     records.forEach(record => {
-        if (record.listing_id) return;
-        const listingId = findListingIdForRecord(record, imageMap);
-        if (listingId && record.id) {
-            updates.push({ id: record.id, listing_id: listingId });
+        const allItemsMapped = record.details?.items?.every(item => item.listing_id) ?? true;
+        if (allItemsMapped) return;
+
+        const result = applyListingIdsToRecord(record, imageMap);
+        if (result.hasChanges && record.id) {
+            updates.push({
+                id: record.id,
+                details: result.record.details
+            });
             mappedCount++;
         }
     });

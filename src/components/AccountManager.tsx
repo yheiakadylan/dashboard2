@@ -7,10 +7,10 @@ import { useUI } from '../contexts/UIContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { RULES } from '../services/rules'; // Import RULES
 
-import UserManager from './UserManager';
-import ManualCostManager from './ManualCostManager';
-import NotificationSettings from './NotificationSettings';
-import Spinner from './Spinner';
+import UserManager from '../features/users/components/UserManager';
+import ManualCostManager from '../features/costs/components/ManualCostManager';
+import NotificationSettings from '../features/notifications/components/NotificationSettings';
+import Spinner from './ui/Spinner'; 
 
 interface ReSyncModalProps {
   isOpen: boolean;
@@ -906,7 +906,7 @@ const MailManager: React.FC = () => {
 };
 
 // --- MAIN ACCOUNT MANAGER MODAL ---
-import UserProfileSettings from './UserProfileSettings';
+import UserProfileSettings from '../features/users/components/UserProfileSettings';
 
 const AccountManager: React.FC = () => {
   const { role, permissions } = useDashboard();

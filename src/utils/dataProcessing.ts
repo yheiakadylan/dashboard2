@@ -143,8 +143,9 @@ export const processData = (
                     if (r.kind !== 'order') return;
 
                     const shopName = accountLabelMap.get(r.account) || r.account;
-                    const tax = r.details?.financials?.tax || 0;
-                    const netRevenue = r.amount - tax; // Revenue minus Tax
+                    const financials = r.details?.financials;
+                    // Product Revenue = Item Total minus Discounts (Excludes Shipping and Tax)
+                    const netRevenue = (financials?.itemTotal || 0) - (financials?.discount || 0);
 
                     if (r.details && r.details.items && r.details.items.length > 0) {
                         // Calculate total list value to determine weights
@@ -193,7 +194,9 @@ export const processData = (
                             type: 'value_with_unit',
                             value: p.revenue,
                             display: `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(p.revenue)} ${p.currency}`
-                        }
+                        },
+                        p.currency,   // [5] hidden: currency code for USD conversion
+                        p.revenue,    // [6] hidden: raw revenue number for USD conversion
                     ]);
             })()
         }
@@ -326,7 +329,7 @@ const calculateOverview = (
 }
 
 const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = ["Image", "Product Name", "Variants", "Order ID", "Status", "Revenue", "Curren", "Cost", "FF Code", "Case", "Help", "Account", "Date", "Source", "Actions"];
+    const headers = ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Curren", "Cost", "FF Code", "Case", "Help", "Account", "Date", "Source"];
 
     // ✅ Filter out refund records - they are status updates, not separate orders
     // Only show regular orders (Sales, etc.) with their updated status
@@ -361,10 +364,6 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
     const sortedOrders = [...orders].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
 
     const rows = sortedOrders.map(o => {
-        const actions = [];
-        if (o.id) {
-            actions.push({ type: 'view', label: 'View', id: o.id! });
-        }
 
 
         // --- New logic to get product name and image ---
@@ -401,11 +400,10 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
         const status = statusInfo?.status || o.status || 'New';
 
         return [
-            { type: 'image', src: productImage, fullSrc: fullProductImage, alt: productName }, // New cell for image
-            productName, // New cell for product name
-            variants, // New cell for variants
+            { type: 'image' as const, src: productImage, fullSrc: fullProductImage, alt: productName }, // Image
+            productName,
+            variants,
             o.order_id || 'N/A',
-            status, // ✅ Status from map (not from order.status)
             o.amount,
             o.currency || 'USD',
             o.cost_total ?? null,
@@ -415,10 +413,11 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
             accountLabelMap.get(o.account) || o.account,
             formatDateTime(o.dt_local, timeZone),
             displaySource,
-            { type: 'action_group', actions } as any,
-            o.dt_local, // Add raw ISO string for filtering, will not be displayed
-            o.source, // Add source string for filtering, will not be displayed
-        ];
+            o.id,        // Hidden [13]: record ID for row click
+            o.dt_local,  // Hidden [14]: raw ISO for date filter
+            o.source,    // Hidden [15]: source for source filter
+            status === 'Refunded', // Hidden [16]: isRefunded flag for row highlight
+        ] as any[];
     });
 
     return { headers, rows };
@@ -644,7 +643,7 @@ const calculateSummary = (
     // 1. Collect Valid Order IDs first (Sales orders in the current view)
     const validOrderIds = new Set<string>();
     records.forEach(r => {
-        const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded';
+        const isStatusUpdate = r.source === 'Etsy_Refunded';
         if (r.kind === 'order' && r.order_id && !isStatusUpdate) {
             validOrderIds.add(r.order_id);
         }
@@ -654,7 +653,7 @@ const calculateSummary = (
     const validPreviousOrderIds = new Set<string>();
     if (previousRecords) {
         previousRecords.forEach(r => {
-            const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded';
+            const isStatusUpdate = r.source === 'Etsy_Refunded';
             if (r.kind === 'order' && r.order_id && !isStatusUpdate) {
                 validPreviousOrderIds.add(r.order_id);
             }
@@ -684,7 +683,7 @@ const calculateSummary = (
         recordsToProcess.forEach(r => {
             const currency = r.currency || 'USD';
             if (r.kind === 'order') {
-                const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded';
+                const isStatusUpdate = r.source === 'Etsy_Refunded';
 
                 if (r.order_id && !isStatusUpdate) {
                     raw.orderIds.add(r.order_id);
@@ -698,7 +697,7 @@ const calculateSummary = (
                     raw.costByCurrency['USD'] = (raw.costByCurrency['USD'] || 0) + r.cost_total;
                 }
                 // Track refunds - ONLY if the order belongs to this period
-                if ((r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded') && r.order_id && validIds.has(r.order_id)) {
+                if (r.source === 'Etsy_Refunded' && r.order_id && validIds.has(r.order_id)) {
                     raw.refundedOrderIds.add(r.order_id);
                     const refundAmount = r.refund_details?.refundAmount || Math.abs(r.amount || 0);
                     const refundCurr = r.refund_details?.refundCurrency || currency;
@@ -931,7 +930,7 @@ const calculateSummary = (
 
         const currency = r.currency || 'USD';
         if (r.kind === 'order') {
-            const isStatusUpdate = r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded';
+            const isStatusUpdate = r.source === 'Etsy_Refunded';
 
             if (!isStatusUpdate) {
                 if (r.order_id) shopData[r.account].orders.add(r.order_id);
@@ -946,7 +945,7 @@ const calculateSummary = (
             }
 
             // Track refunds per shop - ONLY if validity check passes
-            if ((r.source === 'Etsy_Refunded' || r.source === 'Ebay_Refunded') && r.order_id && validOrderIds.has(r.order_id)) {
+            if (r.source === 'Etsy_Refunded' && r.order_id && validOrderIds.has(r.order_id)) {
                 if (r.order_id) shopData[r.account].refundedOrderIds.add(r.order_id);
                 const refundAmount = r.refund_details?.refundAmount || Math.abs(r.amount || 0);
                 const refundCurr = r.refund_details?.refundCurrency || currency;

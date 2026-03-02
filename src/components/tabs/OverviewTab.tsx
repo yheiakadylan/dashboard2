@@ -1,24 +1,27 @@
 import React, { Suspense, lazy } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { hasPermission } from '../../utils/permissionHelper';
-import KpiCard from '../KpiCard';
+import KpiCard from '../ui/KpiCard';
 import { KpiValue } from '../../types';
-import ChartErrorBoundary from '../ChartErrorBoundary';
-import LoadingSpinner from '../LoadingSpinner';
+import ChartErrorBoundary from '../ui/ChartErrorBoundary';
+import LoadingSpinner from '../ui/LoadingSpinner';
 import { ProcessedData } from '../../types';
-import DataTable from '../DataTable';
+import DataTable from '../ui/DataTable';
+import { useUI } from '../../contexts/UIContext';
 
-import OverviewChart from '../OverviewChart';
-import SummaryChart from '../SummaryChart';
+import OverviewChart from '../charts/OverviewChart';
+import SummaryChart from '../charts/SummaryChart';
 
 interface OverviewTabProps {
     processedData: ProcessedData;
     isSingleDay: boolean;
     handleViewDayDetails: (date: string) => void;
+    handleShopDetails: (accountId: string) => void;
 }
 
-const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, handleViewDayDetails }) => {
-    const { role, permissions } = useDashboard();
+const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, handleViewDayDetails, handleShopDetails }) => {
+    const { role, permissions, accounts } = useDashboard();
+    const { globalUsdMode } = useUI();
     const hiddenValue: KpiValue = { value: '---', direction: 'neutral' };
 
     // Permission helper - checks new permissions with fallback to legacy
@@ -60,7 +63,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
         return undefined;
     };
 
-    const { updateRate, refreshRates, resetRates } = useDashboard(); // Get exchange rate actions
+    const { updateRate, refreshRates, resetRates, exchangeRates } = useDashboard();
 
     return (
         <div className="p-2 md:p-6">
@@ -90,7 +93,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
                 {/* Main Overview Chart - Takes 1/2 width */}
                 <ChartErrorBoundary>
-                    <OverviewChart data={processedData.overview.chartData} />
+                    <OverviewChart data={processedData.overview.chartData} exchangeRates={exchangeRates} />
                 </ChartErrorBoundary>
 
                 {/* Revenue Chart - Takes 1/2 width */}
@@ -99,6 +102,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                         data={processedData.summary.chartData}
                         hideTitle={true}
                         hideFunds={!can('viewKpiFunds')}
+                        exchangeRates={exchangeRates}
                     />
                 </ChartErrorBoundary>
             </div>
@@ -107,6 +111,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
             {/* 3. Detailed Tables - Split View */}
             <div className={`grid grid-cols-1 ${isSingleDay ? '' : 'xl:grid-cols-2'} gap-6 items-start`}>
                 {/* Left: Daily Breakdown (Card View) - Hide if single day */}
+                {/* Left: Daily Breakdown (Card View) - Hide if single day */}
                 {!isSingleDay && (
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
                         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -114,14 +119,80 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                         </div>
                         <div className="">
                             <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
-                                <DataTable
-                                    headers={processedData.overview.table.headers}
-                                    data={processedData.overview.table.rows}
-                                    onViewDayDetails={handleViewDayDetails}
-                                    autoHeight={true}
-                                    mobileRowHeight={260} // Increased to show all rows including Cost without scroll
-                                    forceCardView={true}
-                                />
+                                {(() => {
+                                    const rawHeaders = processedData.overview.table.headers;
+                                    const rawRows = processedData.overview.table.rows;
+
+                                    let headers = rawHeaders;
+                                    let rows = rawRows;
+
+                                    if (globalUsdMode && exchangeRates) {
+                                        // 1. Identify indices for Revenue, Funds, Cost
+                                        const revIndices: { idx: number, curr: string }[] = [];
+                                        const fundsIndices: { idx: number, curr: string }[] = [];
+                                        const costIndices: { idx: number, curr: string }[] = [];
+                                        const otherIndices: number[] = [];
+
+                                        rawHeaders.forEach((h, i) => {
+                                            if (h.startsWith('Revenue (')) {
+                                                revIndices.push({ idx: i, curr: h.match(/\(([^)]+)\)/)?.[1] || 'USD' });
+                                            } else if (h.startsWith('Funds (')) {
+                                                fundsIndices.push({ idx: i, curr: h.match(/\(([^)]+)\)/)?.[1] || 'USD' });
+                                            } else if (h.startsWith('Cost (')) {
+                                                costIndices.push({ idx: i, curr: h.match(/\(([^)]+)\)/)?.[1] || 'USD' });
+                                            } else {
+                                                otherIndices.push(i);
+                                            }
+                                        });
+
+                                        // 2. Build New Headers
+                                        const baseHeaders = otherIndices.map(i => rawHeaders[i]);
+                                        // Insert USD columns before the last item ("Details")
+                                        const finalHeaders = [...baseHeaders];
+                                        const detailsIdx = finalHeaders.indexOf('Details');
+                                        const insertAt = detailsIdx !== -1 ? detailsIdx : finalHeaders.length;
+
+                                        const usdCols: string[] = [];
+                                        if (revIndices.length > 0) usdCols.push('Revenue (USD)');
+                                        if (fundsIndices.length > 0) usdCols.push('Funds (USD)');
+                                        if (costIndices.length > 0) usdCols.push('Cost (USD)');
+
+                                        finalHeaders.splice(insertAt, 0, ...usdCols);
+                                        headers = finalHeaders;
+
+                                        // 3. Transform Rows
+                                        rows = rawRows.map(row => {
+                                            const baseRow = otherIndices.map(i => row[i]);
+
+                                            const calcUSD = (indices: { idx: number, curr: string }[]) => {
+                                                return indices.reduce((sum, item) => {
+                                                    const val = (row[item.idx] as number) || 0;
+                                                    const rate = item.curr === 'USD' ? 1 : (exchangeRates[item.curr] || 0);
+                                                    return sum + (val * rate);
+                                                }, 0);
+                                            };
+
+                                            const transformedVals: number[] = [];
+                                            if (revIndices.length > 0) transformedVals.push(calcUSD(revIndices));
+                                            if (fundsIndices.length > 0) transformedVals.push(calcUSD(fundsIndices));
+                                            if (costIndices.length > 0) transformedVals.push(calcUSD(costIndices));
+
+                                            const finalRow = [...baseRow];
+                                            finalRow.splice(insertAt, 0, ...transformedVals);
+                                            return finalRow;
+                                        });
+                                    }
+
+                                    return (
+                                        <DataTable
+                                            headers={headers}
+                                            data={rows}
+                                            onViewDayDetails={handleViewDayDetails}
+                                            autoHeight={true}
+                                            forceCardView={true}
+                                        />
+                                    );
+                                })()}
                             </Suspense>
                         </div>
                     </div>
@@ -134,13 +205,58 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                     </div>
                     <div className="min-h-[400px]">
                         <Suspense fallback={<LoadingSpinner variant="table-row" count={5} />}>
-                            <DataTable
-                                headers={processedData.summary.table.headers}
-                                data={processedData.summary.table.rows}
-                                autoHeight={true}
-                                mobileRowHeight={200} // Explicitly set smaller height for mobile card view
-                                columnWidths={{ 'Revenue': 120, 'Orders': 80 }}
-                            />
+                            {(() => {
+                                let rows = processedData.summary.table.rows;
+                                const headers = processedData.summary.table.headers;
+
+                                if (globalUsdMode && exchangeRates) {
+                                    rows = rows.map(row => {
+                                        return row.map(cell => {
+                                            if (cell && typeof cell === 'object' && 'type' in cell && cell.type === 'text_with_subtitle') {
+                                                // Identify if it's mixed currency by looking at the main string or assume it needs conversion if it has numeric content
+                                                // Actually, Shop Summary revenue is in 'revenue (display)' format from calculateSummary.
+                                                // Since we don't have the raw currency map here easily, we rely on value_with_unit where possible.
+                                                // But for text_with_subtitle, the 'main' is already formatted.
+                                                // It's better to look at cells that are strictly value_with_unit or numbers.
+                                                return cell; // Skip complex ones for now unless we refactor calculateSummary
+                                            }
+
+                                            if (cell && typeof cell === 'object' && 'type' in cell && cell.type === 'value_with_unit') {
+                                                // For Shop Summary, value_with_unit.value is already USD if it was single currency, 
+                                                // or a sum if mixed. 
+                                                // Wait, formatMixedCurrency in calculateSummary sums them up but display is mixed.
+                                                // If globalUsdMode is on, we should format the value as USD.
+                                                return {
+                                                    ...cell,
+                                                    display: `$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cell.value)}`
+                                                };
+                                            }
+                                            return cell;
+                                        });
+                                    });
+                                }
+
+                                return (
+                                    <DataTable
+                                        headers={headers}
+                                        data={rows}
+                                        autoHeight={true}
+                                        columnWidths={{ 'Revenue': 120, 'Orders': 80 }}
+                                        onRowClick={(row) => {
+                                            // Find the index of 'Shop' header
+                                            const shopIndex = processedData.summary.table.headers.indexOf('Shop');
+                                            if (shopIndex !== -1 && row && row[shopIndex]) {
+                                                const shopName = String(row[shopIndex]);
+                                                // Find corresponding accountId (email)
+                                                const account = accounts.find(a => a.label === shopName || a.email === shopName);
+                                                const accountId = account ? account.email : shopName;
+                                                // Use the handleShopDetails function to switch tab and filter using the accountId
+                                                handleShopDetails(accountId);
+                                            }
+                                        }}
+                                    />
+                                );
+                            })()}
                         </Suspense>
                     </div>
                 </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import Spinner from '../Spinner';
+import Spinner from '../ui/Spinner';
 import CachedImage from './CachedImage';
 import { ListChildComponentProps, RowData } from './types';
 
@@ -105,26 +105,13 @@ const renderTextContent = (cell: any) => {
         : (typeof cell === 'string' ? cell : '');
 }
 
-const StatusBadge = ({ status }: { status: string }) => {
-    let colorClass = "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600";
-    const s = status.toString().toLowerCase();
-
-    if (s === 'new') {
-        colorClass = "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800";
-    } else if (s === 'refunded') {
-        colorClass = "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800";
-    }
-
-    return (
-        <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide ${colorClass}`}>
-            {status}
-        </span>
-    );
-};
 
 const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) => {
-    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, isMobile } = data;
+    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, isMobile, onRowClick } = data;
     const row = items[index];
+
+    // isRefunded is stored as last hidden element
+    const isRefunded = row[row.length - 1] === true;
 
     const findIdx = (name: string) => headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
 
@@ -151,17 +138,22 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         const sourceValue = sourceIndex !== -1 ? row[sourceIndex] : null;
         const dateTimeValue = dateTimeIndex !== -1 ? row[dateTimeIndex] : null; // Get DateTime value
 
-        const currencyIndex = findIdx('Currency');
-        const specialIndexes = new Set([imageIndex, productIndex, orderIdIndex, actionIndex, dateTimeIndex, currencyIndex, sourceIndex]);
+        const currencyIndex = findIdx('Currency') !== -1 ? findIdx('Currency') : findIdx('Curren');
+        const accountIndex = findIdx('Account');
+        const dateIndex = findIdx('Date');
+        const ffCodeIndex = findIdx('FF Code');
+        const specialIndexes = new Set([imageIndex, productIndex, orderIdIndex, actionIndex, dateTimeIndex, currencyIndex, sourceIndex, accountIndex, dateIndex]);
+        const accountValue = accountIndex !== -1 ? row[accountIndex] : null;
+        const dateValue = dateIndex !== -1 ? row[dateIndex] : null;
         const bodyItems = headers
             .map((h, i) => {
-                if (specialIndexes.has(i) || h === 'DateTime') return null;
+                if (specialIndexes.has(i) || h === 'DateTime' || h === 'Status') return null; // skip Status column
                 let val = row[i];
                 if (h === 'Cost' && (val === null || val === '-' || val === '')) {
                     val = 0;
                 }
 
-                if (val === null || val === '-' || val === '' || (val === 0 && !h.toLowerCase().includes('count') && h !== 'Cost')) return null;
+                if (val === null || val === '-' || val === '' || val === 'No' || (val === 0 && !h.toLowerCase().includes('count') && h !== 'Cost')) return null;
 
                 // Merge Currency into Revenue
                 if (h === 'Revenue' && currencyIndex !== -1) {
@@ -171,72 +163,72 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     }
                 }
 
-                // Status Badge Logic
-                if (h === 'Status') {
-                    return { h, val, i, isStatus: true };
-                }
-
                 return { h, val, i };
             })
-            .filter((item) => item !== null) as { h: string; val: any; i: number; isMoney?: boolean; isStatus?: boolean }[];
+            .filter((item) => item !== null) as { h: string; val: any; i: number; isMoney?: boolean }[];
 
         const viewAction = actions?.actions?.find((a: any) => a.type === 'view');
         const viewId = viewAction?.id;
 
         return (
             <div style={{ ...style, willChange: 'transform' }} className="px-2 py-1.5">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 h-full flex flex-col justify-between">
-                    <div className="flex gap-3 mb-2 items-start">
+                <div
+                    className={`rounded-lg shadow-sm border p-3 h-full flex flex-col gap-2 transition-colors ${isRefunded
+                        ? 'bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                        } ${onRowClick ? 'cursor-pointer hover:border-blue-300 dark:hover:border-blue-600' : ''}`}
+                    onClick={() => onRowClick && onRowClick(row)}
+                >
+                    {/* Top: Image + Order info + Product name */}
+                    <div className="flex gap-3 items-start">
                         {imageCell?.src ? (
-                            <CachedImage src={imageCell.src} alt={imageCell.alt} onClick={() => imageCell.fullSrc && onImageClick(imageCell.fullSrc)} className="w-20 h-20 min-w-20 flex-shrink-0 object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
+                            <CachedImage src={imageCell.src} alt={imageCell.alt} onClick={(e: React.MouseEvent) => { e.stopPropagation(); imageCell.fullSrc && onImageClick(imageCell.fullSrc); }} className="w-16 h-16 min-w-[64px] flex-shrink-0 object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
                         ) : (
-                            <div className="w-20 h-20 min-w-20 flex-shrink-0 bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 text-center p-1">No Image</div>
+                            <div className="w-16 h-16 min-w-[64px] flex-shrink-0 bg-gray-100 dark:bg-gray-700 rounded-md flex items-center justify-center text-[10px] text-gray-400 text-center">No Image</div>
                         )}
                         <div className="flex-grow min-w-0">
-                            <div className="pb-1">
-                                <div className="flex justify-between items-start">
+                            <div className="flex justify-between items-start mb-0.5">
+                                <div className="flex items-center gap-1.5 min-w-0">
                                     {orderIdIndex !== -1 && (
-                                        <span className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Order #{orderIdValue}</span>
+                                        <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider truncate">#{orderIdValue}</span>
                                     )}
-                                    {sourceValue && (
-                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 ml-2">
-                                            {renderTextContent(sourceValue)}
+                                    {isRefunded && (
+                                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-red-600 dark:text-red-400 flex-shrink-0">
+                                            <span>↩</span><span>Refunded</span>
                                         </span>
                                     )}
                                 </div>
-                                <h4
-                                    className={`text-sm font-bold text-gray-900 dark:text-white leading-tight mt-0.5 mb-1 line-clamp-2 ${viewId ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
-                                    title={String(productValue)}
-                                    onClick={() => viewId && onViewOrderDetails && onViewOrderDetails(viewId)}
-                                >
-                                    {renderTextContent(productValue)}
-                                </h4>
-                                {dateTimeValue && (
-                                    <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">{renderTextContent(dateTimeValue)}</p>
+                                {sourceValue && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 ml-1 flex-shrink-0">
+                                        {renderTextContent(sourceValue)}
+                                    </span>
                                 )}
                             </div>
+                            <p className="text-sm font-bold text-gray-900 dark:text-white leading-tight line-clamp-2" title={String(productValue)}>
+                                {renderTextContent(productValue)}
+                            </p>
                         </div>
                     </div>
-                    <div className={`grid ${orderIdIndex === -1 ? 'grid-cols-3 gap-2' : 'grid-cols-2 gap-x-4 gap-y-2'} mb-3 flex-grow content-start border-t border-gray-100 dark:border-gray-700 pt-3`}>
+
+                    {/* Middle: Key fields grid — flex-grow để luôn dãn đầy không gian giữa top và footer */}
+                    <div className="flex-grow grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-gray-100 dark:border-gray-700 pt-2 content-start">
                         {bodyItems.map((item) => {
                             const isMoney = item.isMoney || (typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Cost') || item.h.includes('Amount')));
                             const valueClass = isMoney ? 'text-gray-900 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300';
-
                             return (
                                 <div key={item.i} className="flex flex-col min-w-0">
-                                    <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate" title={item.h}>{item.h}</span>
-                                    {item.isStatus ? (
-                                        <StatusBadge status={item.val} />
-                                    ) : (
-                                        <span className={`text-sm truncate ${valueClass}`}>{item.isMoney ? item.val : renderTextContent(item.val)}</span>
-                                    )}
+                                    <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate">{item.h}</span>
+                                    <span className={`text-sm truncate ${valueClass}`}>{item.isMoney ? item.val : renderTextContent(item.val)}</span>
                                 </div>
-                            )
+                            );
                         })}
                     </div>
-                    {actions && (
-                        <div className="pt-2 border-t border-gray-100 dark:border-gray-700 mt-auto flex justify-end flex-wrap gap-2">
-                            {renderActionCell(actions, actionIndex, loadingItems, onResyncClick, onViewOrderDetails, onViewDayDetails, row, isMobile)}
+
+                    {/* Footer: Account + Date — mt-auto để luôn dính đáy card dù bodyItems ít hay nhiều */}
+                    {(accountValue || dateValue) && (
+                        <div className="mt-auto flex justify-between items-center border-t border-gray-100 dark:border-gray-700 pt-1.5 text-[10px] text-gray-500 dark:text-gray-400">
+                            {accountValue && <span className="font-semibold truncate max-w-[55%]">{renderTextContent(accountValue)}</span>}
+                            {dateValue && <span className="text-right">{renderTextContent(dateValue)}</span>}
                         </div>
                     )}
                 </div>
@@ -272,15 +264,15 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         )}
                     </div>
 
-                    {/* Message Body */}
-                    <div className="flex-grow mb-3">
-                        <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed line-clamp-4">
+                    {/* Message Body — không flex-grow/clamp: tự co theo nội dung */}
+                    <div className="mb-2">
+                        <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
                             {renderTextContent(messageValue)}
                         </p>
                     </div>
 
-                    {/* Footer - Meta Info */}
-                    <div className="pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
+                    {/* Footer - Meta Info — mt-auto để luôn dính đáy dù message ngắn */}
+                    <div className="mt-auto pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
                         <div className="font-medium truncate max-w-[50%]">
                             {accountValue && (
                                 <span className="flex items-center gap-1">
@@ -312,8 +304,12 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
 
         return (
 
-            <div style={{ ...style, willChange: 'transform' }} className="px-2 py-1.5 has-mobile-card">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 h-full flex flex-col justify-between">
+            <div
+                style={{ ...style, willChange: 'transform' }}
+                className={`px-2 py-1.5 has-mobile-card ${onRowClick ? 'cursor-pointer' : ''}`}
+                onClick={() => onRowClick && onRowClick(row)}
+            >
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 h-full flex flex-col justify-between hover:shadow-md transition-shadow">
                     <div className="flex justify-between items-start mb-2 border-b border-gray-100 dark:border-gray-700 pb-2">
                         <div className="w-full">
                             <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">{titleHeader}</span>
@@ -322,7 +318,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             </h4>
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-2 gap-y-1 mb-2 flex-grow overflow-y-auto content-start">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-2 gap-y-1 mb-2">
                         {bodyItems.map((item) => {
                             if (item.val === 'Click for detail') return null;
                             const isMoney = typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Funds') || item.h.includes('Cost'));

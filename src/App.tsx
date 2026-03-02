@@ -1,36 +1,35 @@
 import React, { useState, useCallback, Suspense, lazy, useEffect } from 'react';
 // import { User } from 'firebase/auth';
-import Header from './components/Header';
+import Header from './components/layout/Header';
 import { useDashboard } from './contexts/DashboardContext';
-import { useAuthLogic } from './hooks/useAuthLogic';
+import { useAuthLogic } from './features/auth/hooks/useAuthLogic';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { Record } from './types';
 import { reprocessRecord } from './services/emailService';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
-import { triggerHaptic } from './utils/haptics';
 import { getPermittedTabs } from './utils/permissions';
 import { UIProvider, useUI } from './contexts/UIContext';
-import SidebarSkeleton from './components/SidebarSkeleton';
-import Spinner from './components/Spinner';
-import { DeepLinkHandler } from './components/DeepLinkHandler';
-
+import SidebarSkeleton from './components/layout/SidebarSkeleton';
+import Spinner from './components/ui/Spinner';
+import { DeepLinkHandler } from './components/layout/DeepLinkHandler';
+import { triggerHaptic } from './utils/haptics';
 // Lazy load heavy components
-import Sidebar from './components/Sidebar';
-// const DataTable = lazy(() => import('./components/DataTable'));
-import AccountManager from './components/AccountManager';
-import OrderDetailModal from './components/OrderDetailModal';
-import TabSettings from './components/TabSettings';
-import BottomNav from './components/BottomNav';
-import InstallPrompt from './components/InstallPrompt';
+import Sidebar from './components/layout/Sidebar';
+// const DataTable = lazy(() => import('./components/ui/DataTable'));
+import AccountManager from './features/accounts/components/AccountManager';
+import OrderDetailModal from './components/modals/OrderDetailModal';
+import TabSettings from './features/settings/components/TabSettings';
+import BottomNav from './components/layout/BottomNav';
+import InstallPrompt from './components/ui/InstallPrompt';
 
-import LoginNotificationHandler from './components/LoginNotificationHandler';
-import ConnectedDashboardProvider from './components/ConnectedDashboardProvider';
-import Auth from './components/Auth';
-import MainContent from './components/MainContent';
-import ErrorBoundary from './components/ErrorBoundary';
+import LoginNotificationHandler from './features/auth/components/LoginNotificationHandler';
+import ConnectedDashboardProvider from './contexts/ConnectedDashboardProvider';
+import Auth from './features/auth/components/Auth';
+import MainContent from './components/layout/MainContent';
+import ErrorBoundary from './components/ui/ErrorBoundary';
 import { getMessagingInstance } from './services/firebaseService';
 import { onMessage } from 'firebase/messaging';
-import CommandPalette from './components/CommandPalette';
+import CommandPalette from './components/ui/CommandPalette';
 
 
 const DashboardLayout: React.FC = () => {
@@ -156,6 +155,7 @@ const DashboardLayout: React.FC = () => {
     // Listen for foreground FCM messages
     useEffect(() => {
         let unsubscribe: (() => void) | undefined;
+        let isMounted = true;
 
         const setupFCMListener = async () => {
             try {
@@ -164,6 +164,8 @@ const DashboardLayout: React.FC = () => {
                     console.log('[FCM] Messaging not available');
                     return;
                 }
+
+                if (!isMounted) return;
 
                 // Listen for messages when app is in foreground
                 unsubscribe = onMessage(messaging, (payload) => {
@@ -208,6 +210,7 @@ const DashboardLayout: React.FC = () => {
         setupFCMListener();
 
         return () => {
+            isMounted = false;
             if (unsubscribe) {
                 unsubscribe();
                 console.log('[FCM] Foreground listener cleaned up');
@@ -223,7 +226,7 @@ const DashboardLayout: React.FC = () => {
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 bg-gradient-mesh text-gray-900 dark:text-gray-100 flex overflow-hidden">
             <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
 
-            <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
+            <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
                 <Header />
                 <main className="flex-grow p-2 md:p-6 flex flex-col overflow-hidden relative">
                     <div className="relative flex-grow glass-panel rounded-lg shadow-lg overflow-hidden border-0">

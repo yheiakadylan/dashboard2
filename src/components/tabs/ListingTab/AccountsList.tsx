@@ -7,7 +7,7 @@ import { Package, Play, Loader, AlertCircle, Clock, Store, Pause, ChevronDown, D
 import { formatTimeAgo } from '../../../utils/dateFormatter';
 import { getNewListingsCount } from '../../../services/listingService';
 import { useCrawler } from '../../../contexts/CrawlerContext';
-import CrawlerProgressBar from '../../CrawlerProgressBar';
+import CrawlerProgressBar from '../../ui/CrawlerProgressBar';
 import AutoCrawlMenu from './AutoCrawlMenu';
 import { CustomSelect } from '../../ui/CustomSelect';
 import NewListingsChart from './NewListingsChart';

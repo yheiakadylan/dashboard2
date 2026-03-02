@@ -195,7 +195,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
 
         // --- CHUẨN BỊ THÔNG BÁO ---
-        const notificationEvents: { type: 'order' | 'funds', text: string }[] = [];
+        const notificationEvents: { type: 'order' | 'refund' | 'funds', text: string }[] = [];
 
         recordsToAdd.forEach(record => {
           const docRef = record.email_id
@@ -210,10 +210,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const shopName = accountLabelMap.get(record.account) || record.account;
 
           if (record.kind === 'order') {
-            notificationEvents.push({
-              type: 'order',
-              text: `New Order: ${record.order_id || 'Unknown'} - $${record.amount} (${shopName})`
-            });
+            const isRefund = record.source === 'Etsy_Refunded';
+            if (isRefund) {
+              notificationEvents.push({
+                type: 'refund',
+                text: `Refund: #${record.order_id || 'Unknown'} - $${Math.abs(record.amount || 0)} (${shopName})`
+              });
+            } else {
+              notificationEvents.push({
+                type: 'order',
+                text: `New Order: #${record.order_id || 'Unknown'} - $${record.amount} (${shopName})`
+              });
+            }
           } else if (record.kind === 'Funds') {
             notificationEvents.push({
               type: 'funds',
@@ -237,6 +245,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (notificationEvents.length > 0) {
           const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
           const orders = notificationEvents.filter(e => e.type === 'order');
+          const refunds = notificationEvents.filter(e => e.type === 'refund');
           const funds = notificationEvents.filter(e => e.type === 'funds');
 
           // Gửi thông báo Order
@@ -253,6 +262,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
                 title: 'New Orders',
                 body: `You have ${orders.length} new orders.`,
+                url: `${appUrl}/?tab=Order+List`
+              });
+            }
+          }
+
+          // Gửi thông báo Refund
+          if (refunds.length > 0) {
+            if (refunds.length === 1) {
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                title: 'Refund Processed',
+                body: refunds[0].text,
+                url: `${appUrl}/?tab=Order+List`
+              });
+            } else {
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                title: 'Refunds Processed',
+                body: `You have ${refunds.length} successful refunds.`,
                 url: `${appUrl}/?tab=Order+List`
               });
             }

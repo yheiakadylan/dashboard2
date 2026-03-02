@@ -18,6 +18,7 @@ export interface RowData {
     onImageClick: (src: string) => void;
     isMobile: boolean;
     columnWidths?: { [key: string]: number };
+    onRowClick?: (rowRecord: any) => void;
 }
 
 export interface DataTableProps {
@@ -32,4 +33,5 @@ export interface DataTableProps {
     mobileBreakpoint?: number;
     columnWidths?: { [key: string]: number };
     scrollParentId?: string;
+    onRowClick?: (rowRecord: any) => void;
 }

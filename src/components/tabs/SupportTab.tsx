@@ -1,7 +1,7 @@
 import React, { useMemo, Suspense } from 'react';
-import DataTable from '../DataTable';
+import DataTable from '../ui/DataTable';
 import { ProcessedData } from '../../types';
-import LoadingSpinner from '../LoadingSpinner';
+import LoadingSpinner from '../ui/LoadingSpinner';
 import { useUI } from '../../contexts/UIContext';
 import useMediaQuery from '../../hooks/useMediaQuery';
 
@@ -60,12 +60,11 @@ const SupportTab: React.FC<SupportTabProps> = ({ processedData }) => {
     return (
         <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
             <div className="p-2 md:p-6">
-                <div style={isDesktop ? { height: 'calc(100vh - 120px)' } : {}}>
+                <div style={isDesktop ? { height: 'calc(100vh - 160px)' } : {}}>
                     <Suspense fallback={<LoadingSpinner variant="table-row" count={10} />}>
                         <DataTable
                             headers={displayData.headers}
                             data={displayData.rows}
-                            mobileRowHeight={220}
                             autoHeight={!isDesktop}
                         />
                     </Suspense>

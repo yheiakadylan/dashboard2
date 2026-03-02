@@ -1,5 +1,5 @@
 import { Record } from '../types';
-import { getGoogleAccessToken } from './authService';
+import { getGoogleAccessToken } from '../features/auth/services/authService';
 import { Account } from '../types';
 import { GOOGLE_SHEET_COLUMNS } from '../config/sheetColumns';
 

@@ -20,7 +20,7 @@ import { splitDateRange } from '../utils/dateChunking';
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { fetchCostsForRecords } from '../services/fulfillmentService';
 import { User } from 'firebase/auth';
-import { getImageMapFromManifests, findListingIdForRecord } from '../services/listingService';
+import { getImageMapFromManifests, applyListingIdsToRecord } from '../services/listingService';
 
 interface UseDataSyncProps {
     user: User | null;
@@ -244,8 +244,8 @@ export const useDataSync = ({
                         const imageMap = await getImageMapFromManifests(teamId);
                         if (imageMap.size > 0) {
                             finalNewRecords = finalNewRecords.map(record => {
-                                const listingId = findListingIdForRecord(record, imageMap);
-                                return listingId ? { ...record, listing_id: listingId } : record;
+                                const result = applyListingIdsToRecord(record, imageMap);
+                                return result.record;
                             });
                         }
                     }
@@ -697,8 +697,26 @@ export const useDataSync = ({
             const toDate = new Date(to); toDate.setHours(23, 59, 59, 999);
 
             if (recordDate >= fromDate && recordDate <= toDate) {
-                setRecords(prevRecords => [newRecord, ...prevRecords].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime()));
-                addNotification(`New ${newRecord.kind} received.`, "info");
+                setRecords(prevRecords => {
+                    const exists = prevRecords.some(r => r.id === newRecord.id);
+                    if (exists) return prevRecords;
+
+                    if (newRecord.kind === 'order') {
+                        const isRefund = newRecord.source === 'Etsy_Refunded';
+                        if (isRefund) {
+                            addNotification(`Refund processed #${newRecord.order_id}`, 'info');
+                        } else {
+                            const productName = newRecord.details?.items?.[0]?.name || 'Unknown product';
+                            addNotification(`New order #${newRecord.order_id}: ${productName}`, 'success');
+                        }
+                    } else if (newRecord.kind === 'Funds') {
+                        addNotification(`Funds Received: $${newRecord.amount}`, 'success');
+                    } else {
+                        addNotification(`New ${newRecord.kind} received.`, "info");
+                    }
+
+                    return [newRecord, ...prevRecords].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
+                });
             }
         });
 

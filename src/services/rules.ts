@@ -168,18 +168,22 @@ const _STOP_AFTER = new RegExp(
 const stripHtmlBasic = (s: string): string => {
   if (!s) return "";
   return s
+    .replace(/\r\n/g, "\n")  // 🔥 Normalize CRLF -> LF TRƯỚC (critical for Etsy emails)
+    .replace(/\r/g, "\n")    // Normalize remaining CR
     .replace(/&nbsp;/gi, " ") // Replace &nbsp; first to avoid splitting words incorrectly
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "") // Strip CSS <style> blocks
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "") // Strip <script> blocks too
     .replace(/&amp;/gi, "&")   // Đổi &amp; -> &
     .replace(/&quot;/gi, '"')  // Đổi &quot; -> "
     .replace(/&#39;/gi, "'")   // Đổi &#39; -> '
     .replace(/&lt;/gi, "<")    // Đổi &lt; -> <
     .replace(/&gt;/gi, ">")    // Đổi &gt; -> >
-    .replace(/<\/(div|tr|p|h\d|br|li|td|th|table)>/gi, "\n") // Add newline after block closers including table cells
+    .replace(/<\/(div|tr|p|h\d|br|li|td|th|table)>/gi, "\n") // Add newline after block closers
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, " ") // Strip tags
-    .replace(/[ \t]+\n/g, "\n") // Trim end of lines
-    .replace(/\n{3,}/g, "\n\n") // Compress newlines
-    .replace(/[ \t]{2,}/g, " ") // Compress spaces
+    .replace(/<[^>]+>/g, " ") // Strip remaining open tags
+    .replace(/[ \t]+\n/g, "\n") // Trim trailing spaces on each line
+    .replace(/\n{3,}/g, "\n\n") // Compress 3+ newlines to 2 (now works since \r\n normalized)
+    .replace(/[ \t]{2,}/g, " ") // Compress multiple spaces
     .trim();
 };
 
@@ -573,32 +577,102 @@ const extractEtsyDetails = (html: string): OrderDetails => {
 
 
 
-  // 4. Extract Financials (Case Insensitive)
+  // 4. Extract Financials
+  //
+  // NGUYÊN TẮC: KHÔNG PHÁ VỠ NHỮNG GÌ ĐANG CHẠY TỐT
+  // - itemTotal, orderTotal: dùng REGEX cũ (chưa bao giờ sai)
+  // - discount, shipping, tax: dùng TABLE PARSING (robust) + regex fallback
+  //   vì các field này có nhiều label/format khác nhau giữa các shop
+
   const stripped = stripHtmlBasic(html);
 
-  // Group 1 ([^0-9-]*): Bắt lấy prefix (VD: "AU$", "$", "GBP", "Sales Tax: ")
-  // Group 2 ([\d.,]+): Bắt lấy số tiền
+  // === itemTotal & orderTotal: REGEX (ổn định, không đổi) ===
+  const itemTotalMatch = stripped.match(/Item\s+total\s*:\s*([^\d\n]*)\s*(\d[\d.,]*)/i);
+  const orderTotalMatch = stripped.match(/(?:Order|Grand)\s+total\s*:\s*([^\d\n]*)\s*(\d[\d.,]*)/i);
 
-  const itemTotalMatch = stripped.match(/Item\s+total\s*:?\s*([^\d\n]*)\s*([\d.,]+)/i);
-  const discountMatch = stripped.match(/Discount\s*:?\s*([^\d\n]*)\s*([\d.,]+)/i);
-  const shippingMatch = stripped.match(/(?:Shipping|Delivery)\s*:?\s*([^\d\n]*)\s*([\d.,]+)/i);
-  const taxMatch = stripped.match(/(?:Sales\s+tax|Tax)\s*:?\s*([^\d\n]*)\s*([\d.,]+)/i);
-  const orderTotalMatch = stripped.match(/Order\s+total\s*:?\s*([^\d\n]*)\s*([\d.,]+)/i);
+  const itemTotal = itemTotalMatch ? parseFloat(itemTotalMatch[2].replace(/,/g, '')) : 0;
+  const orderTotal = orderTotalMatch ? parseFloat(orderTotalMatch[2].replace(/,/g, '')) : 0;
+
+  // Currency: lấy từ prefix của Order Total (AU$, £, €, etc.)
+  let currencyPrefix = orderTotalMatch?.[1]?.trim() || '';
+
+  // === discount, shipping, tax: TABLE PARSING (robust, nhiều format) ===
+  // Helper: extract số tiền từ text của một cell
+  const extractAmount = (raw: string): number => {
+    const m = raw.replace(/[^\d.,]/g, '').match(/\d[\d.,]*/);
+    return m ? parseFloat(m[0].replace(/,/g, '')) : 0;
+  };
+
+  // Label matchers — bao phủ nhiều cách viết Etsy quốc tế
+  const isDiscount = (k: string) => /^(discount|coupon|promo|promotion|sale|you\s+saved)/i.test(k);
+  const isShipping = (k: string) => /^(shipping|delivery|postage|freight|ship\s+cost)/i.test(k);
+  const isTax = (k: string) => /^(sales\s*tax|tax|vat|gst|hst|pst|qst|import\s+duty)/i.test(k);
+
+  let discount = 0;
+  let shipping = 0;
+  let tax = 0;
+  let shippingFromTable = false;
+  let taxFromTable = false;
+
+  // Parse HTML table rows: <tr><td>Label</td><td>Value</td></tr>
+  const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+
+  for (const trMatch of html.matchAll(trRegex)) {
+    const cells = [...trMatch[0].matchAll(tdRegex)];
+    if (cells.length < 2) continue;
+
+    const keyRaw = stripHtmlBasic(cells[0][1]).replace(/:/g, '').trim();
+    const valRaw = stripHtmlBasic(cells[cells.length - 1][1]).trim();
+    if (!keyRaw || !valRaw) continue;
+
+    const amount = extractAmount(valRaw);
+
+    if (isDiscount(keyRaw)) { discount = Math.max(discount, amount); }
+    if (isShipping(keyRaw)) { shipping = amount; shippingFromTable = true; }
+    if (isTax(keyRaw)) { tax = amount; taxFromTable = true; }
+  }
+
+  // === Fallback regex cho shipping & tax nếu không parse được từ table ===
+  if (!shippingFromTable) {
+    const shM = stripped.match(/(?:Shipping|Delivery|Postage)\s*:\s*([^\d\n]*)\s*(\d[\d.,]*)/i);
+    if (shM) shipping = parseFloat(shM[2].replace(/,/g, ''));
+  }
+  if (!taxFromTable) {
+    const txM = stripped.match(/(?:Sales\s*tax\s*:?|(?:VAT|GST|HST|Tax)\s*:)\s*([^\d\n]*)\s*(\d[\d.,]*)/i);
+    if (txM) tax = parseFloat(txM[2].replace(/,/g, ''));
+  }
+  if (!discount) {
+    const dcM = stripped.match(/(?:Discount|Coupon|Promo)\s*:\s*([^\d\n]*)\s*(\d[\d.,]*)/i);
+    if (dcM) discount = parseFloat(dcM[2].replace(/,/g, ''));
+  }
+
+  // === FALLBACK: Tính tax ngược nếu tax = 0 nhưng có khoảng chênh lệch ===
+  // orderTotal = itemTotal - discount + shipping + tax
+  if (tax === 0 && orderTotal > 0 && itemTotal > 0) {
+    const computedTax = parseFloat((orderTotal - itemTotal + discount - shipping).toFixed(2));
+    if (computedTax > 0) tax = computedTax;
+  }
+
+  // 🔍 DEBUG LOG - XÓA SAU KHI FIX XONG
+  console.group(`[DEBUG] Financials (shipping:${shippingFromTable ? 'TABLE' : 'REGEX'} tax:${taxFromTable ? 'TABLE' : 'REGEX'})`);
+  console.log({ itemTotal, discount, shipping, tax, orderTotal, currencyPrefix });
+  console.groupEnd();
+  // 🔍 END DEBUG
 
   const financials = {
-    //Số tiền luôn ở Group 2
-    itemTotal: itemTotalMatch ? parseFloat(itemTotalMatch[2].replace(/,/g, '')) : 0,
-    discount: discountMatch ? parseFloat(discountMatch[2].replace(/,/g, '')) : 0,
-    shipping: shippingMatch ? parseFloat(shippingMatch[2].replace(/,/g, '')) : 0,
-    tax: taxMatch ? parseFloat(taxMatch[2].replace(/,/g, '')) : 0,
-    orderTotal: orderTotalMatch ? parseFloat(orderTotalMatch[2].replace(/,/g, '')) : 0,
+    itemTotal,
+    discount,
+    shipping,
+    tax,
+    orderTotal,
   };
 
   // --- 5. Detect Currency ---
-  // Dựa vào prefix của Order Total để quyết định loại tiền
+  // Dựa vào currencyPrefix đã detect từ Order Total row
   let detectedCurrency = "USD";
-  if (orderTotalMatch && orderTotalMatch[1]) {
-    detectedCurrency = detectCurrencyFromPrefix(orderTotalMatch[1]);
+  if (currencyPrefix) {
+    detectedCurrency = detectCurrencyFromPrefix(currencyPrefix);
   }
 
   return {

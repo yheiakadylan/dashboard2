@@ -1,5 +1,5 @@
 import React from 'react';
-import Spinner from '../Spinner';
+import Spinner from '../ui/Spinner';
 import CachedImage from './CachedImage';
 import { ListChildComponentProps, RowData } from './types';
 import { HIDDEN_MOBILE_HEADERS } from '../../constants';
@@ -95,16 +95,31 @@ const renderTextContent = (cell: any) => {
 }
 
 const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) => {
-    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, columnWidths } = data;
+    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, columnWidths, onRowClick } = data;
     const row = items[index];
+
+    // isRefunded is stored as last hidden element (index 16)
+    const isRefunded = row[row.length - 1] === true;
+
+    // Row background: refunded = đỏ nhạt, còn lại alternating trắng/xám
+    const rowBg = isRefunded
+        ? 'bg-red-50/70 dark:bg-red-950/20'
+        : (index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/50 dark:bg-gray-800/80');
 
     return (
         <div
             style={{ ...style, willChange: 'transform' }}
-            className={`flex items-center border-b border-gray-100 dark:border-gray-800 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors duration-150 ${index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/50 dark:bg-gray-800/80'} group`}
+            className={`relative flex items-center border-b text-sm transition-colors duration-150 group ${onRowClick ? 'cursor-pointer' : ''} ${isRefunded
+                    ? 'border-red-200 dark:border-red-900/40 hover:bg-red-100/60 dark:hover:bg-red-950/30'
+                    : 'border-gray-100 dark:border-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/10'
+                } ${rowBg}`}
+            onClick={() => onRowClick && onRowClick(row)}
         >
-            {/* Hover indicator strip */}
-            <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 transform scale-y-0 group-hover:scale-y-100 transition-transform origin-left"></div>
+            {/* Hover/refund indicator strip */}
+            <div className={`absolute left-0 top-0 bottom-0 w-1 transform transition-all duration-150 origin-left ${isRefunded
+                    ? 'bg-red-400 dark:bg-red-600 scale-y-100'
+                    : 'bg-blue-500 scale-y-0 group-hover:scale-y-100'
+                }`} />
 
             {headers.map((header, cellIndex) => {
                 const cell = row[cellIndex];
@@ -161,7 +176,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                 if (cell && typeof cell === 'object') {
                     if (cell.type === 'image') {
                         return (
-                            <div key={cellIndex} className={cellClass} style={customStyle}>
+                            <div key={cellIndex} className={cellClass} style={customStyle} onClick={(e) => e.stopPropagation()}>
                                 {cell.src ? (
                                     <CachedImage src={cell.src} alt={cell.alt} onClick={() => cell.fullSrc && onImageClick(cell.fullSrc)} className="w-[60px] h-[60px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer shadow-sm group-hover:shadow-md hover:scale-110 transition-transform duration-200" />
                                 ) : (
@@ -187,21 +202,19 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     );
                 }
 
-                // Render Status as badge
-                if (header === 'Status') {
-                    const statusValue = String(cell || 'New').trim();
-                    let badgeClass = 'px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap ';
-
-                    if (statusValue === 'Refunded') {
-                        badgeClass += 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800';
-                    } else {
-                        // New or default
-                        badgeClass += 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800';
-                    }
-
+                // Render Order ID with optional Refund badge
+                if (header === 'Order ID' || header === 'Order Number') {
                     return (
                         <div key={cellIndex} className={cellClass} style={customStyle}>
-                            <span className={badgeClass}>{statusValue}</span>
+                            <div className="flex flex-col min-w-0">
+                                <span className="truncate">{String(cell || '')}</span>
+                                {isRefunded && (
+                                    <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400">
+                                        <span>↩</span>
+                                        <span>Refunded</span>
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     );
                 }
