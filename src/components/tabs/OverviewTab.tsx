@@ -210,25 +210,44 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                                 const headers = processedData.summary.table.headers;
 
                                 if (globalUsdMode && exchangeRates) {
+                                    const calcUsdVal = (amountMap?: { [c: string]: number }) => {
+                                        if (!amountMap) return 0;
+                                        return Object.entries(amountMap).reduce((sum, [curr, val]) => {
+                                            const rate = curr === 'USD' ? 1 : (exchangeRates[curr] || 0);
+                                            return sum + (val * rate);
+                                        }, 0);
+                                    };
+                                    const formatUsd = (val: number) => `$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val)}`;
+
                                     rows = rows.map(row => {
                                         return row.map(cell => {
                                             if (cell && typeof cell === 'object' && 'type' in cell && cell.type === 'text_with_subtitle') {
-                                                // Identify if it's mixed currency by looking at the main string or assume it needs conversion if it has numeric content
-                                                // Actually, Shop Summary revenue is in 'revenue (display)' format from calculateSummary.
-                                                // Since we don't have the raw currency map here easily, we rely on value_with_unit where possible.
-                                                // But for text_with_subtitle, the 'main' is already formatted.
-                                                // It's better to look at cells that are strictly value_with_unit or numbers.
-                                                return cell; // Skip complex ones for now unless we refactor calculateSummary
+                                                if (cell.mainAmountMap || cell.subtitleAmountMap) {
+                                                    const mainUsd = calcUsdVal(cell.mainAmountMap);
+                                                    const subUsd = calcUsdVal(cell.subtitleAmountMap);
+                                                    return {
+                                                        ...cell,
+                                                        main: formatUsd(mainUsd),
+                                                        subtitle: subUsd > 0 ? `↩ ${formatUsd(subUsd)}` : cell.subtitle,
+                                                        value: mainUsd // For sorting if applied
+                                                    };
+                                                }
+                                                return cell; // Fallback
                                             }
 
                                             if (cell && typeof cell === 'object' && 'type' in cell && cell.type === 'value_with_unit') {
-                                                // For Shop Summary, value_with_unit.value is already USD if it was single currency, 
-                                                // or a sum if mixed. 
-                                                // Wait, formatMixedCurrency in calculateSummary sums them up but display is mixed.
-                                                // If globalUsdMode is on, we should format the value as USD.
+                                                if (cell.amountMap) {
+                                                    const usdVal = calcUsdVal(cell.amountMap);
+                                                    return {
+                                                        ...cell,
+                                                        value: usdVal,
+                                                        display: formatUsd(usdVal)
+                                                    };
+                                                }
+                                                // Fallback to original value if no amount map
                                                 return {
                                                     ...cell,
-                                                    display: `$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cell.value)}`
+                                                    display: formatUsd(cell.value)
                                                 };
                                             }
                                             return cell;

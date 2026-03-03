@@ -128,7 +128,7 @@ export interface KpiData {
 // FIX: Allowed null in TableData rows to support records with missing cost data.
 export interface TableData {
   headers: string[];
-  rows: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string } | { type: 'action_group', actions: any[] } | { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string })[][];
+  rows: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string, amountMap?: { [c: string]: number } } | { type: 'action_group', actions: any[] } | { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string, mainAmountMap?: { [c: string]: number }, subtitleAmountMap?: { [c: string]: number } })[][];
 }
 
 export interface OverviewChartData {

@@ -297,9 +297,13 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         const bodyItems = headers.map((h, i) => {
             if (i === 0 || i === actionIndex || h === 'DateTime') return null;
             let val = row[i];
-            if (val === null || val === '-' || val === '' || (val === 0 && !h.toLowerCase().includes('count'))) return null;
-            return { h, val, i };
-        }).filter((item): item is { h: string; val: any; i: number } => item !== null);
+            const isFunds = h.toLowerCase().includes('funds');
+            if (val === null || val === '-' || val === '' || (val === 0 && !h.toLowerCase().includes('count'))) {
+                if (!isFunds) return null;
+                else val = 0; // Force 0 so renderTextContent shows '--' or 0
+            }
+            return { h, val, i, isFunds };
+        }).filter((item): item is { h: string; val: any; i: number; isFunds: boolean } => item !== null);
 
 
         return (
@@ -322,10 +326,19 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         {bodyItems.map((item) => {
                             if (item.val === 'Click for detail') return null;
                             const isMoney = typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Funds') || item.h.includes('Cost'));
-                            const valueClass = isMoney ? 'text-gray-900 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300 font-medium';
+                            let valueClass = isMoney ? 'text-gray-900 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300 font-medium';
+                            let headerClass = 'text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate';
+                            let containerClass = 'flex flex-col min-w-0';
+
+                            if (item.isFunds) {
+                                valueClass = 'text-green-800 dark:text-green-200 font-bold';
+                                headerClass = 'text-[10px] text-green-700 dark:text-green-400 uppercase font-bold tracking-wide truncate';
+                                containerClass = 'flex flex-col min-w-0 bg-green-100 dark:bg-green-900/60 px-2.5 py-1.5 -mx-2 -my-1 rounded-md border border-green-400 dark:border-green-500 shadow-sm justify-self-start';
+                            }
+
                             return (
-                                <div key={item.i} className="flex flex-col min-w-0">
-                                    <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate" title={item.h}>{item.h}</span>
+                                <div key={item.i} className={containerClass}>
+                                    <span className={headerClass} title={item.h}>{item.h}</span>
                                     {/* Removed truncate to allow wrapped text (subtitles) to show */}
                                     <span className={`text-sm ${valueClass}`}>{renderTextContent(item.val)}</span>
                                 </div>

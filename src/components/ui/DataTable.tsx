@@ -124,13 +124,17 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         });
     }, [data, sortColumn, sortDirection]);
 
-    // Reset VariableSizeList cache khi data/sort thay đổi
-    // (VariableSizeList cache item sizes — phải reset khi data rows đổi)
+    // ⚠️ ALL HOOKS MUST BE DECLARED BEFORE ANY EARLY RETURN (React Rules of Hooks)
+    // isMobile depends on width which may be 0 initially - that's fine, hooks still run
+    const isMobile = width < mobileBreakpoint || forceCardView;
+
+    // Reset VariableSizeList cache khi data/sort/width thay đổi
+    // (VariableSizeList cache item sizes — phải reset khi data hoặc width đổi)
     React.useEffect(() => {
         if (varListRef.current) {
             varListRef.current.resetAfterIndex(0);
         }
-    }, [sortedData]);
+    }, [sortedData, width, isMobile]);
 
     // Measure table absolute position once (and on resize) - Simpler version just for tooltip/modal pos if needed
     React.useLayoutEffect(() => {
@@ -143,10 +147,6 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         window.addEventListener('resize', measureOffset);
         return () => window.removeEventListener('resize', measureOffset);
     }, [useWindowScroll]);
-
-    // ⚠️ ALL HOOKS MUST BE DECLARED BEFORE ANY EARLY RETURN (React Rules of Hooks)
-    // isMobile depends on width which may be 0 initially - that's fine, hooks still run
-    const isMobile = width < mobileBreakpoint || forceCardView;
 
     /**
      * Tính chiều cao động cho mỗi mobile card dựa trên số field có data.
@@ -186,7 +186,16 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
             // === GENERIC LAYOUT (Fulfill, Overview, Daily Breakdown, etc.) ===
             const GENERIC_BASE = 102; // title block + padding
             const GENERIC_ROW_H = 40;  // 1 grid row (label + value)
-            const GRID_COLS = 2;   // mobile: grid-cols-2
+
+            // Match Tailwind breakpoints: sm: 640px, md: 768px, lg: 1024px
+            let GRID_COLS = 2;   // default fallback
+            if (typeof window !== 'undefined') {
+                const vw = window.innerWidth;
+                if (vw >= 1024) GRID_COLS = 5;
+                else if (vw >= 768) GRID_COLS = 4;
+                else if (vw >= 640) GRID_COLS = 3;
+            }
+
             const EXTRA_LINE_H = 20;  // extra per wrapped value line
             const CHARS_PER_CELL = 18;  // ~148px cell / 14px font
             const ACTION_H = 48;  // "Click for details" button: border + pt-2 + btn ~36px
@@ -199,7 +208,8 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
             headers.forEach((h, i) => {
                 if (i === 0 || i === actionIdx2 || h === 'DateTime') return;
                 const val = row[i];
-                if (val === null || val === '-' || val === '' || (val === 0 && !h.toLowerCase().includes('count'))) return;
+                const isFunds = h.toLowerCase().includes('funds');
+                if (!isFunds && (val === null || val === '-' || val === '' || (val === 0 && !h.toLowerCase().includes('count')))) return;
                 genericBodyCount++;
 
                 // Extra height if value text wraps
@@ -246,12 +256,12 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         const effectiveBase = hasFooter ? BASE_HEIGHT : BASE_HEIGHT - FOOTER_H;
 
         return effectiveBase + gridRows * GRID_ROW_H;
-    }, [sortedData, headers, isMobile, mobileRowHeight]);
+    }, [sortedData, headers, isMobile, mobileRowHeight, width]);
 
     const totalMobileHeight = useMemo(() => {
         if (!isMobile) return 0;
         return sortedData.reduce((sum, _, i) => sum + getMobileItemHeight(i), 0);
-    }, [sortedData, isMobile, getMobileItemHeight]);
+    }, [sortedData, isMobile, getMobileItemHeight, width]);
 
     // ── Early returns (AFTER all hooks) ──────────────────────────────────────
     if (data.length === 0) {

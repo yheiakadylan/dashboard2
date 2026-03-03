@@ -991,9 +991,9 @@ const calculateSummary = (
     // sortedCostCurrencies removed as it was unused
 
     // --- Consolidated Column Logic ---
-    const formatMixedCurrency = (amountMap: { [c: string]: number }): { value: number, display: string } => {
+    const formatMixedCurrency = (amountMap: { [c: string]: number }): { value: number, display: string, amountMap: { [c: string]: number } } => {
         const currencies = Object.keys(amountMap).sort();
-        if (currencies.length === 0) return { value: 0, display: '--' };
+        if (currencies.length === 0) return { value: 0, display: '--', amountMap: {} };
 
         let totalVal = 0;
         const parts = currencies.map(c => {
@@ -1002,7 +1002,7 @@ const calculateSummary = (
             return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val) + ' ' + c;
         });
 
-        return { value: totalVal, display: parts.join(' + ') };
+        return { value: totalVal, display: parts.join(' + '), amountMap };
     };
 
     const tableHeaders = ["Shop", "Orders", "Revenue"];
@@ -1036,9 +1036,11 @@ const calculateSummary = (
                 type: 'text_with_subtitle' as const,
                 main: revenue.display,
                 subtitle: `↩ ${refund.display}`,
-                subtitleClass: 'text-red-500 font-medium'
+                subtitleClass: 'text-red-500 font-medium',
+                mainAmountMap: revenue.amountMap,
+                subtitleAmountMap: refund.amountMap
             }
-            : { type: 'value_with_unit' as const, value: revenue.value, display: revenue.display };
+            : { type: 'value_with_unit' as const, value: revenue.value, display: revenue.display, amountMap: revenue.amountMap };
 
         const row = [
             shopName,
@@ -1048,7 +1050,7 @@ const calculateSummary = (
 
         if (role === 'owner' || permissions.viewKpiFunds) {
             const funds = formatMixedCurrency(data.funds);
-            row.push({ type: 'value_with_unit' as const, value: funds.value, display: funds.display });
+            row.push({ type: 'value_with_unit' as const, value: funds.value, display: funds.display, amountMap: funds.amountMap });
         }
 
         if (role === 'owner' || permissions.viewKpiCost) {
@@ -1068,11 +1070,11 @@ const calculateSummary = (
         const manualRow = [
             "Manual Entry",
             0,
-            { type: 'value_with_unit' as const, value: 0, display: '--' } // Revenue
+            { type: 'value_with_unit' as const, value: 0, display: '--', amountMap: {} } // Revenue
         ];
 
         if (role === 'owner' || permissions.viewKpiFunds) {
-            manualRow.push({ type: 'value_with_unit' as const, value: 0, display: '--' }); // Funds
+            manualRow.push({ type: 'value_with_unit' as const, value: 0, display: '--', amountMap: {} }); // Funds
         }
 
         // Manual Cost is typically strictly Cost, so we push it if the column exists
