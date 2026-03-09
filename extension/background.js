@@ -316,7 +316,9 @@ async function performAutoCrawl(force = false) {
                 await saveListingsToDashboard(listings, config.teamId, shop.id, config.userId, appUrl);
                 successCount++; // ✅ Track success
             } else {
-                console.log(`[Background] No listings found or empty result for ${shop.label}.`);
+                console.log(`[Background] No listings found or empty result for ${shop.label}. Pushing empty array to reset DB.`);
+                // ✅ KEY FIX: Must call save with empty array so API updates `last_listing_crawl` and clears removed items
+                await saveListingsToDashboard([], config.teamId, shop.id, config.userId, appUrl);
                 successCount++; // Still count as success (empty shop)
             }
 
@@ -326,6 +328,8 @@ async function performAutoCrawl(force = false) {
         } catch (err) {
             console.error(`[Background] Failed to crawl ${shop.label}:`, err);
             errorCount++; // ✅ Track error
+            // Push error to DB so user can see it natively!
+            await saveListingsToDashboard([], config.teamId, shop.id, config.userId, appUrl, err.message || 'Unknown error');
         }
     }
 
@@ -461,7 +465,7 @@ async function notifyDashboard(type, data, retries = 3) {
     return false;
 }
 
-async function saveListingsToDashboard(listings, teamId, shopId, userId, baseUrl = 'http://localhost:3000') {
+async function saveListingsToDashboard(listings, teamId, shopId, userId, baseUrl = 'http://localhost:3000', errorMessage = null) {
     try {
         const endpoint = `${baseUrl.replace(/\/$/, '')}/api/listing`;
         console.log(`[Background] Saving data to ${endpoint}...`);
@@ -474,7 +478,8 @@ async function saveListingsToDashboard(listings, teamId, shopId, userId, baseUrl
                 teamId: teamId,
                 shopId: shopId,
                 userId: userId,
-                listings: listings
+                listings: listings,
+                errorMessage: errorMessage
             })
         });
 

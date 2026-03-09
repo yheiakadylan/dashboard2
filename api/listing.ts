@@ -33,7 +33,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(405).json({ message: 'Method Not Allowed' });
     }
 
-    const { action, email, password, teamId, shopId, userId, listings, token } = req.body;
+    const { action, email, password, teamId, shopId, userId, listings, token, errorMessage } = req.body;
 
     console.log(`[API Extension] Action: ${action || 'save (default)'}`);
 
@@ -222,10 +222,9 @@ async function handler(req: VercelRequest, res: VercelResponse) {
             return res.json({ success: true, stats });
         }
 
-        // --- ACTION: SAVE (Default) ---
         if (!action || action === 'save') {
             if (!teamId || !shopId || !Array.isArray(listings)) {
-                return res.status(400).json({ message: 'Missing fields for save (teamId, shopId, listings)' });
+                return res.status(400).json({ message: 'Missing fields for save (teamId, shopId, listings array required)' });
             }
 
             const listingsRef = db.collection('user').doc(teamId).collection('accounts').doc(shopId).collection('listings');
@@ -380,7 +379,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
             });
 
             // Update account stats
-            finalBatch.update(db.collection('user').doc(teamId).collection('accounts').doc(shopId), {
+            const updatePayload: any = {
                 last_listing_crawl: now,
                 total_listings: scrapedIds.size,
                 last_crawl_stats: {
@@ -390,7 +389,17 @@ async function handler(req: VercelRequest, res: VercelResponse) {
                     skipped,
                     timestamp: now
                 }
-            });
+            };
+
+            // Xóa rác lỗi cũ nếu lần nay OK, hoặc ghi nhận lỗi mới
+            if (errorMessage) {
+                updatePayload.last_crawl_error = String(errorMessage);
+                updatePayload.last_crawl_error_at = now;
+            } else {
+                updatePayload.last_crawl_error = null;
+            }
+
+            finalBatch.update(db.collection('user').doc(teamId).collection('accounts').doc(shopId), updatePayload);
 
             try {
                 await finalBatch.commit();
