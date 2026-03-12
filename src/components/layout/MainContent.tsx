@@ -8,10 +8,10 @@ import ScrollToTop from './ScrollToTop';
 import OverviewTab from '../tabs/OverviewTab';
 import ProductsTab from '../tabs/ProductsTab';
 import SupportTab from '../tabs/SupportTab';
+import OrderListTab from '../tabs/OrderListTab';
+import FulfillTab from '../tabs/FulfillTab';
+import ListingTab from '../tabs/ListingTab';
 
-const OrderListTab = React.lazy(() => import('../tabs/OrderListTab'));
-const FulfillTab = React.lazy(() => import('../tabs/FulfillTab'));
-const ListingTab = React.lazy(() => import('../tabs/ListingTab'));
 
 interface MainContentProps {
     onViewOrderDetails: (recordId: string) => void;
