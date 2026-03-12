@@ -1,4 +1,4 @@
-import { CSSProperties } from 'react';
+import React, { CSSProperties } from 'react';
 
 // Define ListChildComponentProps manually
 export interface ListChildComponentProps<T = any> {
@@ -19,11 +19,22 @@ export interface RowData {
     isMobile: boolean;
     columnWidths?: { [key: string]: number };
     onRowClick?: (rowRecord: any) => void;
+    selectedKeys?: Set<string>;
+    onToggleSelect?: (key: string) => void;
 }
 
 export interface DataTableProps {
     headers: string[];
-    data: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string, alt: string, fullSrc?: string } | { type: 'action_group', actions: any[] } | { type: 'value_with_unit', value: number, display: string, unit?: string } | { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string })[][];
+    data: (string | number | null | any | React.ReactNode |
+    { type: 'button', label: string, id: string } |
+    { type: 'image', src: string, alt: string, fullSrc?: string } |
+    { type: 'action_group', actions: any[] } |
+    { type: 'value_with_unit', value: number, display: string, unit?: string } |
+    { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string } |
+    { type: 'mapping_select', value: string, name: string, variant: string, categories: any[], onCategoryChange: (name: string, variant: string, code: string) => void } |
+    { type: 'mapping_action', name: string, variant: string, currentCategory: string, onCategoryChange: (name: string, variant: string, code: string) => void } |
+    { type: 'checkbox', idKey?: string, checked?: boolean, onChange?: (checked: boolean) => void }
+    )[][];
     onViewDayDetails?: (date: string) => void;
     onViewOrderDetails?: (recordId: string) => void;
     onResyncOrder?: (recordId: string) => Promise<void>;
@@ -34,4 +45,12 @@ export interface DataTableProps {
     columnWidths?: { [key: string]: number };
     scrollParentId?: string;
     onRowClick?: (rowRecord: any) => void;
+    onItemsRendered?: (props: {
+        overscanStartIndex: number;
+        overscanStopIndex: number;
+        visibleStartIndex: number;
+        visibleStopIndex: number;
+    }) => void;
+    selectedKeys?: Set<string>;
+    onToggleSelect?: (key: string) => void;
 }

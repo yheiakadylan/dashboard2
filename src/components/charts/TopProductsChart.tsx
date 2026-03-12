@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { TopProduct } from '../../types';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import { saveAs } from 'file-saver';
@@ -8,7 +8,9 @@ import ImagePreviewModal from '../modals/ImagePreviewModal';
 
 interface TopProductsChartProps {
   data: { [shopName: string]: TopProduct[] };
+  title?: string;
   hideTitle?: boolean;
+  onItemClick?: (item: TopProduct) => void;
 }
 
 // 1. Custom Tick: Xử lý sự kiện chuột trái (onClick)
@@ -46,7 +48,7 @@ const CustomYAxisTick = ({ x, y, payload, data, onClick }: any) => {
   );
 };
 
-const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = false }) => {
+const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top Products", hideTitle = false, onItemClick }) => {
   const { role, permissions } = useDashboard();
   // Add null safety check for data
   if (!data || typeof data !== 'object') {
@@ -69,18 +71,22 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
     return Object.values(combined).sort((a, b) => b.quantity - a.quantity);
   }, [data]);
 
-  const shopNames = ['All Shops', ...Object.keys(data).sort()];
+  const isCategoryChart = title.toLowerCase().includes('category');
+  const isVariantChart = title.toLowerCase().includes('variant') || title.toLowerCase().includes('size');
 
-  const [selectedShop, setSelectedShop] = useState<string>('All Shops');
+  const allLabel = isCategoryChart ? 'All Categories' : (isVariantChart ? 'All Variants' : 'All Shops');
+  const shopNames = [allLabel, ...Object.keys(data).sort()];
+
+  const [selectedShop, setSelectedShop] = useState<string>(allLabel);
   const [limit, setLimit] = useState<number>(10);
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [previewProduct, setPreviewProduct] = useState<TopProduct | null>(null);
 
   useEffect(() => {
-    if (shopNames.length > 0 && (!selectedShop || (!data[selectedShop] && selectedShop !== 'All Shops'))) {
-      setSelectedShop('All Shops');
+    if (shopNames.length > 0 && (!selectedShop || (!data[selectedShop] && selectedShop !== allLabel))) {
+      setSelectedShop(allLabel);
     }
-  }, [data, shopNames, selectedShop]);
+  }, [data, shopNames, selectedShop, allLabel]);
 
   const handleExportXLSX = async () => {
     if (!data) {
@@ -89,24 +95,37 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
     }
 
     const { exportTopProductsToExcel } = await import('../../utils/excelExport');
-    const filename = `Top_Products_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const filename = `${title.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
     await exportTopProductsToExcel(allShopsData, data, filename);
   };
 
   // Determine current dataset
-  const fullChartData = selectedShop === 'All Shops' ? allShopsData : (data[selectedShop] || []);
-  // Slice data chỉ để hiển thị trên Chart, không ảnh hưởng Export
-  const chartData = fullChartData.slice(0, limit);
+  const fullChartData = selectedShop === allLabel ? allShopsData : (data[selectedShop] || []);
+  
+  // Calculate total quantity for percentage
+  const totalQuantity = useMemo(() => fullChartData.reduce((sum, item) => sum + item.quantity, 0), [fullChartData]);
 
-  // Check if ANY shop has data
-  const hasAnyData = Object.values(data).some(shopData => shopData.length > 0) || allShopsData.length > 0;
+  // Prepare chart data with percentages
+  const chartData = useMemo(() => {
+    return fullChartData.slice(0, limit).map(item => ({
+      ...item,
+      percentage: totalQuantity > 0 ? ((item.quantity / totalQuantity) * 100).toFixed(1) : '0'
+    }));
+  }, [fullChartData, limit, totalQuantity]);
 
-  // Return null only if NO shop has any data
+  // Check if ANY shop/item has data
+  const hasAnyData = Object.values(data).some(items => items.length > 0) || allShopsData.length > 0;
+
+  // Return null only if NO data
   if (!hasAnyData) {
     return null;
   }
 
   const handleBarClick = (data: TopProduct) => {
+    if (onItemClick) {
+      onItemClick(data);
+      return;
+    }
     if (data.image) {
       setPreviewProduct(data);
     }
@@ -157,8 +176,9 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
         <h4 className="text-xs md:text-sm font-bold text-center px-2 line-clamp-2 text-gray-800 dark:text-gray-100 max-w-[120px]">
           {item.name}
         </h4>
-        <span className="text-sm md:text-base font-black text-blue-600 dark:text-blue-400 mt-1">
+        <span className="text-sm md:text-base font-black text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1.5">
           {item.quantity} sold
+          {(item as any).percentage && <span className="text-[10px] opacity-60 font-bold">({(item as any).percentage}%)</span>}
         </span>
       </div>
     </div>
@@ -172,9 +192,9 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
         {!hideTitle && (
           <div className="flex items-center gap-3">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              Top Products
+              {title}
               <span className="text-xs font-normal text-gray-500 bg-gray-100 dark:bg-gray-700 px-2.5 py-0.5 rounded-full border border-gray-200 dark:border-gray-600">
-                {fullChartData.length} active
+                {allShopsData.length} {isCategoryChart ? (allShopsData.length === 1 ? 'category' : 'categories') : (isVariantChart ? (allShopsData.length === 1 ? 'variant' : 'variants') : (allShopsData.length === 1 ? 'product' : 'products'))}
               </span>
             </h3>
 
@@ -190,13 +210,15 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
         )}
 
         <div className="flex flex-wrap gap-2 w-full xl:w-auto items-center">
-          <select
-            value={selectedShop}
-            onChange={(e) => setSelectedShop(e.target.value)}
-            className="bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 min-w-[140px]"
-          >
-            {shopNames.map(shop => <option key={shop} value={shop}>{shop}</option>)}
-          </select>
+          {shopNames.length > 2 && (
+            <select
+              value={selectedShop}
+              onChange={(e) => setSelectedShop(e.target.value)}
+              className="bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 min-w-[140px]"
+            >
+              {shopNames.map(shop => <option key={shop} value={shop}>{shop}</option>)}
+            </select>
+          )}
           <select
             value={limit}
             onChange={(e) => setLimit(Number(e.target.value))}
@@ -239,7 +261,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
                     type="category"
                     dataKey="name"
                     width={isMobile ? 0 : 220}
-                    tick={isMobile ? false : <CustomYAxisTick data={chartData} onClick={setPreviewProduct} />}
+                    tick={isMobile ? false : <CustomYAxisTick data={chartData} onClick={handleBarClick} />}
                     interval={0}
                     stroke="var(--recharts-text-color)"
                     fontSize={12}
@@ -256,16 +278,23 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
                       boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
                     }}
                   />
-                  <Bar
-                    dataKey="quantity"
-                    name="Quantity Sold"
-                    fill="url(#colorGradient)"
-                    radius={[0, 4, 4, 0]}
-                    barSize={limit > 20 ? undefined : 20}
-                    onClick={handleBarClick}
-                    style={{ cursor: 'pointer' }}
-                    animationDuration={1000}
-                  />
+                    <Bar
+                      dataKey="quantity"
+                      name="Quantity Sold"
+                      fill="url(#colorGradient)"
+                      radius={[0, 4, 4, 0]}
+                      barSize={limit > 20 ? undefined : 20}
+                      onClick={handleBarClick}
+                      style={{ cursor: 'pointer' }}
+                      animationDuration={1000}
+                    >
+                      <LabelList 
+                        dataKey="percentage" 
+                        position="right" 
+                        formatter={(v: string) => `${v}%`} 
+                        style={{ fontSize: '10px', fill: 'var(--recharts-text-color)', fontWeight: '600' }}
+                      />
+                    </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -326,7 +355,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, hideTitle = f
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
                               <path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H6.28l-.31-1.243A1 1 0 005 1H3zM16 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM6.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" />
                             </svg>
-                            {item.quantity} sold
+                            {item.quantity} sold {(item as any).percentage && <span className="opacity-70">({(item as any).percentage}%)</span>}
                           </div>
                         </div>
                       </div>

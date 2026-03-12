@@ -38,8 +38,10 @@ export const compareValues = (a: any, b: any, direction: SortDirection): number 
         return direction === 'asc' ? (valA as number) - (valB as number) : (valB as number) - (valA as number);
     }
 
-    const strA = String(valA).toLowerCase();
-    const strB = String(valB).toLowerCase();
+    const cleanForSort = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const strA = cleanForSort(String(valA));
+    const strB = cleanForSort(String(valB));
 
     if (strA < strB) return direction === 'asc' ? -1 : 1;
     if (strA > strB) return direction === 'asc' ? 1 : -1;

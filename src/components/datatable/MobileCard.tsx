@@ -1,6 +1,7 @@
 import React from 'react';
 import Spinner from '../ui/Spinner';
 import CachedImage from './CachedImage';
+import { getHighResImageUrl } from '../../utils/imageUtils';
 import { ListChildComponentProps, RowData } from './types';
 
 const renderActionCell = (cell: any, _cellIndex: number, loadingItems: Set<string>, onResyncClick: (id: string) => void, onViewOrderDetails?: (id: string) => void, onViewDayDetails?: (date: string) => void, rowData?: any[], isMobile: boolean = false) => {
@@ -73,9 +74,27 @@ const renderActionCell = (cell: any, _cellIndex: number, loadingItems: Set<strin
 
     return null;
 }
-
-const renderTextContent = (cell: any) => {
+const renderTextContent = (cell: any, selectedKeys?: Set<string>, onToggleSelect?: (key: string) => void) => {
     if (cell && typeof cell === 'object') {
+        if (cell.type === 'checkbox') {
+            const isChecked = cell.checked !== undefined ? cell.checked : (selectedKeys && cell.idKey ? selectedKeys.has(cell.idKey) : false);
+            const handleCheck = (e: React.ChangeEvent<HTMLInputElement>) => {
+                if (cell.onChange) {
+                    cell.onChange(e.target.checked);
+                } else if (onToggleSelect && cell.idKey) {
+                    onToggleSelect(cell.idKey);
+                }
+            };
+            return (
+                <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={handleCheck}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+            );
+        }
         if (cell.type === 'value_with_unit') {
             if (cell.value === 0 || cell.display === '--') {
                 return <span className="text-gray-300 dark:text-gray-600">--</span>;
@@ -94,6 +113,24 @@ const renderTextContent = (cell: any) => {
                 </span>
             );
         }
+        if (cell.type === 'mapping_select') {
+            return (
+                <select
+                    title="Select Category"
+                    className="w-full p-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 transition-all outline-none"
+                    value={cell.value === 'Unmapped' ? '' : cell.value}
+                    onChange={(e) => cell.onCategoryChange(cell.name, cell.variant, e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <option value="">-- Unmapped --</option>
+                    {[...cell.categories].sort((a, b) => a.name.localeCompare(b.name)).map((cat: any) => (
+                        <option key={cat.code} value={cat.code}>
+                            {cat.name}
+                        </option>
+                    ))}
+                </select>
+            );
+        }
     }
     return typeof cell === 'number'
         ? (cell === 0
@@ -102,7 +139,7 @@ const renderTextContent = (cell: any) => {
                 ? cell.toLocaleString('en-US')
                 : cell.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
         )
-        : (typeof cell === 'string' ? cell : '');
+        : (typeof cell === 'string' ? cell : cell); // Fallback to cell itself if it's a React Node or unknown object
 }
 
 
@@ -159,7 +196,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                 if (h === 'Revenue' && currencyIndex !== -1) {
                     const currency = row[currencyIndex];
                     if (currency) {
-                        return { h, val: `${renderTextContent(val)} ${currency}`, i, isMoney: true };
+                        return { h, val: `${renderTextContent(val, data.selectedKeys, data.onToggleSelect)} ${currency}`, i, isMoney: true };
                     }
                 }
 
@@ -182,7 +219,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     {/* Top: Image + Order info + Product name */}
                     <div className="flex gap-3 items-start">
                         {imageCell?.src ? (
-                            <CachedImage src={imageCell.src} alt={imageCell.alt} onClick={(e: React.MouseEvent) => { e.stopPropagation(); imageCell.fullSrc && onImageClick(imageCell.fullSrc); }} className="w-16 h-16 min-w-[64px] flex-shrink-0 object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
+                            <CachedImage src={imageCell.src} alt={imageCell.alt} onClick={(e: React.MouseEvent) => { e.stopPropagation(); onImageClick(imageCell.fullSrc || getHighResImageUrl(imageCell.src) || imageCell.src); }} className="w-16 h-16 min-w-[64px] flex-shrink-0 object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
                         ) : (
                             <div className="w-16 h-16 min-w-[64px] flex-shrink-0 bg-gray-100 dark:bg-gray-700 rounded-md flex items-center justify-center text-[10px] text-gray-400 text-center">No Image</div>
                         )}
@@ -200,12 +237,12 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                                 </div>
                                 {sourceValue && (
                                     <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 ml-1 flex-shrink-0">
-                                        {renderTextContent(sourceValue)}
+                                        {renderTextContent(sourceValue, data.selectedKeys, data.onToggleSelect)}
                                     </span>
                                 )}
                             </div>
                             <p className="text-sm font-bold text-gray-900 dark:text-white leading-tight line-clamp-2" title={String(productValue)}>
-                                {renderTextContent(productValue)}
+                                {renderTextContent(productValue, data.selectedKeys, data.onToggleSelect)}
                             </p>
                         </div>
                     </div>
@@ -218,7 +255,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             return (
                                 <div key={item.i} className="flex flex-col min-w-0">
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate">{item.h}</span>
-                                    <span className={`text-sm truncate ${valueClass}`}>{item.isMoney ? item.val : renderTextContent(item.val)}</span>
+                                    <span className={`text-sm truncate ${valueClass}`}>{item.isMoney ? item.val : renderTextContent(item.val, data.selectedKeys, data.onToggleSelect)}</span>
                                 </div>
                             );
                         })}
@@ -227,8 +264,8 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     {/* Footer: Account + Date — mt-auto để luôn dính đáy card dù bodyItems ít hay nhiều */}
                     {(accountValue || dateValue) && (
                         <div className="mt-auto flex justify-between items-center border-t border-gray-100 dark:border-gray-700 pt-1.5 text-[10px] text-gray-500 dark:text-gray-400">
-                            {accountValue && <span className="font-semibold truncate max-w-[55%]">{renderTextContent(accountValue)}</span>}
-                            {dateValue && <span className="text-right">{renderTextContent(dateValue)}</span>}
+                            {accountValue && <span className="font-semibold truncate max-w-[55%]">{renderTextContent(accountValue, data.selectedKeys, data.onToggleSelect)}</span>}
+                            {dateValue && <span className="text-right">{renderTextContent(dateValue, data.selectedKeys, data.onToggleSelect)}</span>}
                         </div>
                     )}
                 </div>
@@ -255,11 +292,11 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     {/* Header */}
                     <div className="flex justify-between items-start mb-3">
                         <span className="text-sm font-bold text-gray-900 dark:text-white">
-                            #{renderTextContent(orderIdValue)}
+                            #{renderTextContent(orderIdValue, data.selectedKeys, data.onToggleSelect)}
                         </span>
                         {sourceValue && (
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-                                {renderTextContent(sourceValue)}
+                                {renderTextContent(sourceValue, data.selectedKeys, data.onToggleSelect)}
                             </span>
                         )}
                     </div>
@@ -267,7 +304,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     {/* Message Body — không flex-grow/clamp: tự co theo nội dung */}
                     <div className="mb-2">
                         <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
-                            {renderTextContent(messageValue)}
+                            {renderTextContent(messageValue, data.selectedKeys, data.onToggleSelect)}
                         </p>
                     </div>
 
@@ -277,7 +314,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             {accountValue && (
                                 <span className="flex items-center gap-1">
                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                                    {renderTextContent(accountValue)}
+                                    {renderTextContent(accountValue, data.selectedKeys, data.onToggleSelect)}
                                 </span>
                             )}
                         </div>
@@ -315,11 +352,19 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
             >
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 h-full flex flex-col justify-between hover:shadow-md transition-shadow">
                     <div className="flex justify-between items-start mb-2 border-b border-gray-100 dark:border-gray-700 pb-2">
-                        <div className="w-full">
-                            <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">{titleHeader}</span>
-                            <h4 className="text-base font-bold text-gray-900 dark:text-white truncate" title={String(titleValue)}>
-                                {renderTextContent(titleValue)}
-                            </h4>
+                        <div className="w-full relative flex items-center">
+                            {/* Checkbox placement at the very start of Generic Layout */}
+                            {headers.includes('Select') && (
+                                <div className="mr-2 h-full flex items-center">
+                                    {renderTextContent(row[0], data.selectedKeys, data.onToggleSelect)}
+                                </div>
+                            )}
+                            <div>
+                                <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">{titleHeader}</span>
+                                <h4 className="text-base font-bold text-gray-900 dark:text-white truncate" title={String(titleValue)}>
+                                    {renderTextContent(titleValue, data.selectedKeys, data.onToggleSelect)}
+                                </h4>
+                            </div>
                         </div>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-2 gap-y-1 mb-2">
@@ -340,7 +385,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                                 <div key={item.i} className={containerClass}>
                                     <span className={headerClass} title={item.h}>{item.h}</span>
                                     {/* Removed truncate to allow wrapped text (subtitles) to show */}
-                                    <span className={`text-sm ${valueClass}`}>{renderTextContent(item.val)}</span>
+                                    <span className={`text-sm ${valueClass}`}>{renderTextContent(item.val, data.selectedKeys, data.onToggleSelect)}</span>
                                 </div>
                             )
                         })}

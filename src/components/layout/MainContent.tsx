@@ -6,12 +6,12 @@ import ErrorBoundary from '../ui/ErrorBoundary';
 import ScrollToTop from './ScrollToTop';
 
 import OverviewTab from '../tabs/OverviewTab';
-
 import ProductsTab from '../tabs/ProductsTab';
-import OrderListTab from '../tabs/OrderListTab';
-import FulfillTab from '../tabs/FulfillTab';
 import SupportTab from '../tabs/SupportTab';
-import ListingTab from '../tabs/ListingTab';
+
+const OrderListTab = React.lazy(() => import('../tabs/OrderListTab'));
+const FulfillTab = React.lazy(() => import('../tabs/FulfillTab'));
+const ListingTab = React.lazy(() => import('../tabs/ListingTab'));
 
 interface MainContentProps {
     onViewOrderDetails: (recordId: string) => void;
@@ -115,26 +115,36 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
 
                 case 'Order List':
                     return (
-                        <OrderListTab
-                            processedData={processedData}
-                            dayFilter={dayFilter}
-                            sourceFilter={sourceFilter}
-                            statusFilter={statusFilter}
-                            timeZone={timeZone}
-                            handleViewOrderDetails={onViewOrderDetails}
-                            handleResyncOrder={onResyncOrder}
-                            allRecords={records}
-                        />
+                        <Suspense fallback={<div className="p-2 md:p-6 animate-fade-in"><SkeletonLoader variant="card" count={6} /></div>}>
+                            <OrderListTab
+                                processedData={processedData}
+                                dayFilter={dayFilter}
+                                sourceFilter={sourceFilter}
+                                statusFilter={statusFilter}
+                                timeZone={timeZone}
+                                handleViewOrderDetails={onViewOrderDetails}
+                                handleResyncOrder={onResyncOrder}
+                                allRecords={records}
+                            />
+                        </Suspense>
                     );
 
                 case 'Support':
                     return <SupportTab processedData={processedData} />;
 
                 case 'Fulfill':
-                    return <FulfillTab processedData={processedData} />;
+                    return (
+                        <Suspense fallback={<div className="p-4 animate-fade-in"><SkeletonLoader variant="table-row" count={8} /></div>}>
+                            <FulfillTab processedData={processedData} />
+                        </Suspense>
+                    );
 
                 case 'Listing':
-                    return <ListingTab />;
+                    return (
+                        <Suspense fallback={<div className="p-4 animate-fade-in"><SkeletonLoader variant="table-row" count={8} /></div>}>
+                            <ListingTab />
+                        </Suspense>
+                    );
 
                 default:
                     return <div className="p-8 text-center text-gray-500">Selected tab content not available.</div>;
@@ -142,14 +152,14 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
         })();
 
         return (
-            <div key={activeTab} className="animate-fade-in-up min-h-full">
+            <div key={activeTab} className="animate-fade-in-up flex-1 flex flex-col h-full min-h-0">
                 {content}
             </div>
         );
     };
 
     return (
-        <div className="relative">
+        <div className="relative flex flex-col h-full overflow-hidden">
             {/* Main content - always visible */}
             {renderContent()}
 

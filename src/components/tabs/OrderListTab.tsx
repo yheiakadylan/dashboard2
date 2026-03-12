@@ -10,6 +10,9 @@ import PreviewSyncModal from '../modals/PreviewSyncModal';
 import { useUI } from '../../contexts/UIContext';
 import { useDashboard } from '../../contexts/DashboardContext';
 import useMediaQuery from '../../hooks/useMediaQuery';
+import Pagination from '../ui/Pagination';
+
+const ITEMS_PER_PAGE = 200;
 
 interface OrderListTabProps {
     processedData: ProcessedData;
@@ -38,6 +41,12 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [selectedRecords, setSelectedRecords] = useState<Record[]>([]);
     const isDesktop = useMediaQuery('(min-width: 768px)');
+    const [currentPage, setCurrentPage] = useState(0);
+
+    // Reset page when filtering
+    React.useEffect(() => {
+        setCurrentPage(0);
+    }, [dayFilter, sourceFilter, statusFilter]);
 
     // Identify hidden column indices
     const variantsIndex = processedData.orders.headers.findIndex(h => h === 'Variants');
@@ -81,10 +90,11 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
         // Keep a reference to filtered (but not stripped) original rows for record ID lookup
         const filtered = rows;
 
-        // Strip hidden columns for display
-        let stripped = rows.map(row =>
-            row.filter((_, i) => i !== variantsIndex && i !== sourceIndex && i !== recordIdIndex)
-        );
+        // Strip hidden columns for display but KEEP recordId at the end for ID lookup
+        let stripped = rows.map(row => {
+            const displayPart = row.filter((_, i) => i !== variantsIndex && i !== sourceIndex && i !== recordIdIndex);
+            return [...displayPart, row[recordIdIndex]]; // Append recordId as last element
+        });
 
         // USD conversion: convert Revenue to USD using exchange rates
         if (globalUsdMode && exchangeRates) {
@@ -108,18 +118,14 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
         return [filtered, stripped];
     }, [processedData.orders.rows, dayFilter, sourceFilter, statusFilter, timeZone, variantsIndex, sourceIndex, recordIdIndex, displayHeaders, globalUsdMode, exchangeRates]);
 
-    // Build a fast lookup: stripped row index → record ID (filteredOriginalRows is same-length & same-order as displayRows)
-    const rowRecordIds = useMemo(() =>
-        filteredOriginalRows.map(orig => orig[recordIdIndex] as string | undefined),
-        [filteredOriginalRows, recordIdIndex]
-    );
+    const totalPages = Math.ceil(displayRows.length / ITEMS_PER_PAGE);
+    const paginatedRows = useMemo(() => {
+        return displayRows.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE);
+    }, [displayRows, currentPage]);
 
-    // When a row is clicked, use its index in displayRows to look up the record ID
+    // When a row is clicked, the recordId is the last element of the row array
     const handleRowClick = (row: any[]) => {
-        // The row passed by DataTable is the stripped display row.
-        // We find the matching index from displayRows to get the record ID.
-        const rowIndex = displayRows.indexOf(row);
-        const recordId = rowIndex !== -1 ? rowRecordIds[rowIndex] : undefined;
+        const recordId = row[row.length - 1] as string | undefined;
         if (recordId) {
             handleViewOrderDetails(recordId);
         }
@@ -135,16 +141,23 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     return (
         <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] relative">
             <div className="p-2 md:p-6">
-                <div style={isDesktop ? { height: 'calc(100vh - 160px)' } : {}}>
-                    <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
-                        <DataTable
-                            headers={displayHeaders}
-                            data={displayRows}
-                            onResyncOrder={handleResyncOrder}
-                            onRowClick={handleRowClick}
-                            autoHeight={!isDesktop}
-                        />
-                    </Suspense>
+                <div style={isDesktop ? { height: 'calc(100vh - 160px)' } : {}} className="flex flex-col border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
+                    <div className="flex-1 min-h-0 relative">
+                        <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
+                            <DataTable
+                                headers={displayHeaders}
+                                data={paginatedRows}
+                                onResyncOrder={handleResyncOrder}
+                                onRowClick={handleRowClick}
+                                autoHeight={!isDesktop}
+                            />
+                        </Suspense>
+                    </div>
+                    <Pagination 
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={setCurrentPage}
+                    />
                 </div>
             </div>
 

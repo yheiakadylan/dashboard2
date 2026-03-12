@@ -1,6 +1,7 @@
 import React from 'react';
 import Spinner from '../ui/Spinner';
 import CachedImage from './CachedImage';
+import { getHighResImageUrl } from '../../utils/imageUtils';
 import { ListChildComponentProps, RowData } from './types';
 import { HIDDEN_MOBILE_HEADERS } from '../../constants';
 
@@ -77,13 +78,72 @@ const renderActionCell = (cell: any, _cellIndex: number, loadingItems: Set<strin
     return null;
 }
 
-const renderTextContent = (cell: any) => {
+const renderTextContent = (cell: any, selectedKeys?: Set<string>, onToggleSelect?: (key: string) => void) => {
     if (cell && typeof cell === 'object' && cell.type === 'value_with_unit') {
         if (cell.value === 0 || cell.display === '--') {
             return <span className="text-gray-300 dark:text-gray-600">--</span>;
         }
         return cell.display;
     }
+
+    if (cell && typeof cell === 'object' && cell.type === 'checkbox') {
+        const isChecked = cell.checked !== undefined ? cell.checked : (selectedKeys && cell.idKey ? selectedKeys.has(cell.idKey) : false);
+        const handleCheck = (e: React.ChangeEvent<HTMLInputElement>) => {
+            if (cell.onChange) {
+                cell.onChange(e.target.checked);
+            } else if (onToggleSelect && cell.idKey) {
+                onToggleSelect(cell.idKey);
+            }
+        };
+
+        return (
+            <input
+                type="checkbox"
+                checked={isChecked}
+                onChange={handleCheck}
+                onClick={(e) => e.stopPropagation()} // Prevent row click
+                className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            />
+        );
+    }
+
+    if (cell && typeof cell === 'object' && cell.type === 'mapping_select') {
+        return (
+            <select
+                title="Select Category"
+                className="w-full p-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 transition-all outline-none"
+                value={cell.value === 'Unmapped' ? '' : cell.value}
+                onChange={(e) => cell.onCategoryChange(cell.name, cell.variant, e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <option value="">-- Unmapped --</option>
+                {[...cell.categories].sort((a, b) => a.name.localeCompare(b.name)).map((cat: any) => (
+                    <option key={cat.code} value={cat.code}>
+                        {cat.name}
+                    </option>
+                ))}
+            </select>
+        );
+    }
+
+    if (cell && typeof cell === 'object' && cell.type === 'mapping_action') {
+        return (
+            <button
+                onClick={async (e) => {
+                    e.stopPropagation();
+                    const code = prompt(`Enter category code for "${cell.name}":`, cell.currentCategory === 'Unmapped' ? '' : cell.currentCategory);
+                    if (code) await cell.onCategoryChange(cell.name, cell.variant, code.toUpperCase());
+                }}
+                className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                title="Manual Entry"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+            </button>
+        );
+    }
+
     return typeof cell === 'number'
         ? (cell === 0
             ? <span className="text-gray-300 dark:text-gray-600">--</span>
@@ -91,7 +151,7 @@ const renderTextContent = (cell: any) => {
                 ? cell.toLocaleString('en-US')
                 : cell.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
         )
-        : (typeof cell === 'string' ? cell : '');
+        : (typeof cell === 'string' ? cell : cell); // Fallback to cell itself if it's a React Node or unknown object
 }
 
 const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) => {
@@ -110,15 +170,15 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         <div
             style={{ ...style, willChange: 'transform' }}
             className={`relative flex items-center border-b text-sm transition-colors duration-150 group ${onRowClick ? 'cursor-pointer' : ''} ${isRefunded
-                    ? 'border-red-200 dark:border-red-900/40 hover:bg-red-100/60 dark:hover:bg-red-950/30'
-                    : 'border-gray-100 dark:border-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/10'
+                ? 'border-red-200 dark:border-red-900/40 hover:bg-red-100/60 dark:hover:bg-red-950/30'
+                : 'border-gray-100 dark:border-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/10'
                 } ${rowBg}`}
             onClick={() => onRowClick && onRowClick(row)}
         >
             {/* Hover/refund indicator strip */}
             <div className={`absolute left-0 top-0 bottom-0 w-1 transform transition-all duration-150 origin-left ${isRefunded
-                    ? 'bg-red-400 dark:bg-red-600 scale-y-100'
-                    : 'bg-blue-500 scale-y-0 group-hover:scale-y-100'
+                ? 'bg-red-400 dark:bg-red-600 scale-y-100'
+                : 'bg-blue-500 scale-y-0 group-hover:scale-y-100'
                 }`} />
 
             {headers.map((header, cellIndex) => {
@@ -132,6 +192,10 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
 
                 // --- NEW: Column-specific styling ---
                 switch (header) {
+                    case 'Select':
+                    case 'Checkbox':
+                        cellClass += 'flex-none w-[50px] justify-center';
+                        break;
                     case 'Image':
                         cellClass += 'flex-none w-[95px] justify-center'; // 75px + padding
                         break;
@@ -160,6 +224,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         cellClass += 'flex-1 basis-[110px]'; // Increased width for full timestamp
                         break;
                     case 'Actions':
+                    case 'Action':
                         cellClass += 'flex-none w-[90px] justify-center'; // Decreased width
                         break;
                     default:
@@ -178,7 +243,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         return (
                             <div key={cellIndex} className={cellClass} style={customStyle} onClick={(e) => e.stopPropagation()}>
                                 {cell.src ? (
-                                    <CachedImage src={cell.src} alt={cell.alt} onClick={() => cell.fullSrc && onImageClick(cell.fullSrc)} className="w-[60px] h-[60px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer shadow-sm group-hover:shadow-md hover:scale-110 transition-transform duration-200" />
+                                    <CachedImage src={cell.src} alt={cell.alt} onClick={() => onImageClick(cell.fullSrc || getHighResImageUrl(cell.src) || cell.src)} className="w-[60px] h-[60px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer shadow-sm group-hover:shadow-md hover:scale-110 transition-transform duration-200" />
                                 ) : (
                                     <div className="w-[60px] h-[60px] bg-gray-100 dark:bg-gray-700 rounded-md flex items-center justify-center text-[10px] text-gray-400 dark:text-gray-500 text-center p-1 border border-dashed border-gray-300 dark:border-gray-600">No Image</div>
                                 )}
@@ -187,8 +252,15 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     }
                     if (cell.type === 'button' || cell.type === 'action_group') {
                         return (
-                            <div key={cellIndex} className={cellClass} style={customStyle}>
+                            <div key={cellIndex} className={cellClass} style={customStyle} onClick={(e) => e.stopPropagation()}>
                                 {renderActionCell(cell, cellIndex, loadingItems, onResyncClick, onViewOrderDetails, onViewDayDetails, row)}
+                            </div>
+                        )
+                    }
+                    if (cell.type === 'checkbox') {
+                        return (
+                            <div key={cellIndex} className={cellClass} style={customStyle}>
+                                {renderTextContent(cell, data.selectedKeys, data.onToggleSelect)}
                             </div>
                         )
                     }
@@ -238,11 +310,11 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     <div
                         key={cellIndex}
                         className={cellClass}
-                        title={(header === 'Product Name' || header === 'Message' || header === 'Message / Type') && typeof cell === 'string' ? cell : undefined}
+                        title={(header === 'Product Name' || header === 'Variant' || header === 'Message' || header === 'Message / Type') && typeof cell === 'string' ? cell : undefined}
                         style={customStyle}
                     >
                         <span className="truncate w-full block">
-                            {renderTextContent(cell)}
+                            {renderTextContent(cell, data.selectedKeys, data.onToggleSelect)}
                         </span>
                     </div>
                 );

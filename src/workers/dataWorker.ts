@@ -12,6 +12,8 @@ interface WorkerMessage {
     permissions: { [key: string]: boolean };
     manualCosts: ManualCost[];
     exchangeRates: { [currency: string]: number } | null;
+    productMappings: any[];
+    categories: any[];
 }
 
 self.onmessage = (e: MessageEvent<WorkerMessage>) => {
@@ -25,7 +27,9 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
         role,
         permissions,
         manualCosts,
-        exchangeRates
+        exchangeRates,
+        productMappings,
+        categories
     } = e.data;
 
     try {
@@ -38,7 +42,9 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
             role,
             permissions,
             manualCosts,
-            exchangeRates
+            exchangeRates,
+            productMappings,
+            categories
         );
         self.postMessage({ success: true, data: processed, requestId });
     } catch (error: any) {

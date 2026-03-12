@@ -1,4 +1,4 @@
-﻿import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../types';
+import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../types';
 import { getHighResImageUrl } from './imageUtils';
 import { decodeHTMLEntities } from './htmlDecode';
 
@@ -69,6 +69,40 @@ const formatSource = (source: string): string => {
     return source.replace(/_/g, ' ');
 };
 
+const slimImage = (src: string | undefined): string | undefined => {
+    if (!src) return src;
+    // If it's a huge base64 string, we might want to truncate it for the list view if it's just meant to be a tiny thumbnail.
+    // But better yet, just ensure we aren't passing massive blobs if not needed.
+    // For now, simple length check as a proxy for safety.
+    if (src.length > 50000 && src.startsWith('data:')) {
+        return src.substring(0, 500); // Truncate corrupted or excessively large blobs
+    }
+    return src;
+};
+
+// Helper to clean variants from personalization markers
+const cleanVariantForAggregation = (v: string): string => {
+    if (!v) return 'Standard';
+    const lowerV = v.toLowerCase();
+    // Keywords that indicate the start of personalization text to be truncated
+    const markers = ['personalization:', 'personalization', 'personalised:', 'personalised', 'custom:', 'customization:', 'note to seller', 'text:'];
+    
+    let firstIndex = -1;
+    markers.forEach(marker => {
+        const idx = lowerV.indexOf(marker);
+        if (idx !== -1 && (firstIndex === -1 || idx < firstIndex)) {
+            firstIndex = idx;
+        }
+    });
+
+    if (firstIndex !== -1) {
+        let cleaned = v.substring(0, firstIndex).trim();
+        // Remove trailing punctuation common after truncation
+        return cleaned.replace(/[,|\-|\||:|/|\\]\s*$/, '').trim() || 'Standard';
+    }
+    return v.trim() || 'Standard';
+};
+
 export const processData = (
     records: Record[],
     previousRecords: Record[] | null,
@@ -78,9 +112,21 @@ export const processData = (
     role: string,
     permissions: { [key: string]: boolean },
     manualCosts: any[],
-    exchangeRates: { [currency: string]: number } | null
+    exchangeRates: { [currency: string]: number } | null,
+    productMappings: any[] = [],
+    categories: any[] = []
 ): ProcessedData => {
     const accountLabelMap = new Map(accounts.map(acc => [acc.email, acc.label || acc.email]));
+    const categoryNameMap = new Map(categories.map(c => [c.code, c.name]));
+
+    // --- MAPPINGS LOOKUP ---
+    const mappingsLookup = new Map<string, string>();
+    if (productMappings && Array.isArray(productMappings)) {
+        productMappings.forEach(m => {
+            const key = `${m.name.trim().toLowerCase()}|${(m.variant || '').trim().toLowerCase()}`;
+            mappingsLookup.set(key, m.category_code);
+        });
+    }
 
     // --- DEDUPLICATION LOGIC ---
     // Filter out duplicates based on order_id and dt_local
@@ -121,9 +167,9 @@ export const processData = (
         ? getFulfillRecords(uniqueRecords, accountLabelMap, timeZone, manualCosts, filterDateRange, exchangeRates)
         : { table: { headers: ['Fulfill'], rows: [["Permission Denied"]] }, merchizeChartData: [], printwayChartData: [], totalCost: 0 };
 
-    const { kpis: summaryKpis, table: summaryTable, chartData: summaryChartData, topProductsByShop } = (role === 'owner' || permissions.viewOverviewTab)
-        ? calculateSummary(uniqueRecords, previousRecords, accountLabelMap, role, permissions, manualCosts, filterDateRange, exchangeRates)
-        : { kpis: {}, table: { headers: ['Summary'], rows: [["Permission Denied"]] }, chartData: [], topProductsByShop: {} };
+    const { kpis: summaryKpis, table: summaryTable, chartData: summaryChartData, topProductsByShop, topProductsByCategory, topProductsBySize, categoryComparison: summaryCategoryComp, unmappedKeywords: summaryUnmappedKeywords } = (role === 'owner' || permissions.viewOverviewTab)
+        ? calculateSummary(uniqueRecords, previousRecords, accountLabelMap, role, permissions, manualCosts, filterDateRange, exchangeRates, mappingsLookup, categoryNameMap)
+        : { kpis: {}, table: { headers: ['Summary'], rows: [["Permission Denied"]] }, chartData: [], topProductsByShop: {}, topProductsByCategory: {}, topProductsBySize: {}, categoryComparison: [], unmappedKeywords: [] };
 
     return {
         overview: overviewData,
@@ -133,11 +179,11 @@ export const processData = (
         cases,
         help,
         fulfill,
-        summary: { kpis: summaryKpis, table: summaryTable, chartData: summaryChartData, topProductsByShop },
+        summary: { kpis: summaryKpis, table: summaryTable, chartData: summaryChartData, topProductsByShop, topProductsByCategory, topProductsBySize, categoryComparison: summaryCategoryComp, unmappedKeywords: summaryUnmappedKeywords },
         products: {
-            headers: ['Image', 'Product Name', 'Shop', 'Quantity', 'Revenue'],
+            headers: ['Image', 'Product Name', 'Category', 'Variant/Size', 'Shop', 'Quantity', 'Revenue'],
             rows: (() => {
-                const productStats = new Map<string, { image: any, name: string, shop: string, quantity: number, revenue: number, currency: string }>();
+                const productStats = new Map<string, { image: any, name: string, shop: string, quantity: number, revenue: number, currency: string, category: string, categoryCode: string, variant: string }>();
 
                 uniqueRecords.forEach(r => {
                     if (r.kind !== 'order') return;
@@ -152,19 +198,34 @@ export const processData = (
                         const totalListValue = r.details.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
                         r.details.items.forEach(item => {
-                            const name = decodeHTMLEntities(item.name.trim()); // Decode HTML entities and ensure no leading/trailing spaces
-                            const key = `${name}_${shopName}`;
+                            const name = decodeHTMLEntities((item.name || '').trim());
+                            const variant = decodeHTMLEntities((item.variant || '').trim() || 'Standard');
+
+                            const cleanedVariant = cleanVariantForAggregation(variant);
+                            const specificMapKey = `${name.trim().toLowerCase()}|${(cleanedVariant || '').trim().toLowerCase()}`;
+                            const generalMapKey = `${name.trim().toLowerCase()}|`;
+
+                            const categoryCode = mappingsLookup.get(specificMapKey) ||
+                                mappingsLookup.get(generalMapKey) ||
+                                item.category_code || r.category_code || 'Unmapped';
+                            
+                            const categoryName = categoryNameMap.get(categoryCode) || categoryCode;
+
+                            const key = `${name.toLowerCase().trim()}_${cleanedVariant.toLowerCase().trim()}_${shopName.toLowerCase().trim()}`;
 
                             // Calculate weight ensuring no division by zero
                             const weight = totalListValue > 0 ? (item.price * item.quantity) / totalListValue : (1 / r.details!.items.length);
                             const itemRevenue = netRevenue * weight;
 
-                            // Image Logic (High Res) -> Refactored to use util
-                            const image = getHighResImageUrl(item.image) || item.image;
+                            // Image Logic: Store raw image only. UI will optimize/convert to high-res on-demand
+                            const rawImage = item.image;
 
                             const current = productStats.get(key) || {
-                                image: image,
+                                image: rawImage,
                                 name: name,
+                                variant: cleanedVariant,
+                                category: categoryName,
+                                categoryCode: categoryCode,
                                 shop: shopName,
                                 quantity: 0,
                                 revenue: 0,
@@ -173,7 +234,9 @@ export const processData = (
 
                             // Update stats
                             // Use first available image if current is missing
-                            if (!current.image && image) current.image = image;
+                            if (!current.image && rawImage) {
+                                current.image = rawImage;
+                            }
 
                             current.quantity += item.quantity;
                             current.revenue += itemRevenue;
@@ -183,21 +246,30 @@ export const processData = (
                     }
                 });
 
-                return Array.from(productStats.values())
-                    .sort((a, b) => b.revenue - a.revenue)
-                    .map(p => [
-                        { type: 'image', src: p.image, fullSrc: p.image, alt: p.name },
-                        p.name,
-                        p.shop,
-                        p.quantity,
-                        {
-                            type: 'value_with_unit',
-                            value: p.revenue,
-                            display: `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(p.revenue)} ${p.currency}`
-                        },
-                        p.currency,   // [5] hidden: currency code for USD conversion
-                        p.revenue,    // [6] hidden: raw revenue number for USD conversion
-                    ]);
+                const productStatsArr = Array.from(productStats.values());
+
+                // Sort by revenue descending
+                productStatsArr.sort((a, b) => b.revenue - a.revenue);
+
+                // LIMIT to top 3000 products for memory safety in the list view
+                const limitedProducts = productStatsArr.slice(0, 3000);
+
+                return limitedProducts.map(p => [
+                    { type: 'image', src: slimImage(p.image), alt: p.name },
+                    p.name,
+                    p.category,
+                    p.variant,
+                    p.shop,
+                    p.quantity,
+                    {
+                        type: 'value_with_unit',
+                        value: p.revenue,
+                        display: `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(p.revenue)} ${p.currency}`
+                    },
+                    p.currency,   // [7] hidden: currency code for USD conversion
+                    p.revenue,    // [8] hidden: raw revenue number for USD conversion
+                    p.categoryCode // [9] hidden: original code for filtering
+                ] as any);
             })()
         }
     };
@@ -384,11 +456,8 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
             }
 
             // Get image of the first item
-            const rawImage = o.details.items[0].image || null;
-
-            // Convert to high-res for BOTH thumbnail and preview -> instant loading
-            productImage = getHighResImageUrl(rawImage);
-            fullProductImage = productImage;
+            productImage = o.details.items[0].image || null;
+            // No fullProductImage here - UI will generate on demand
         }
         // --- End of new logic ---
 
@@ -400,7 +469,7 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
         const status = statusInfo?.status || o.status || 'New';
 
         return [
-            { type: 'image' as const, src: productImage, fullSrc: fullProductImage, alt: productName }, // Image
+            { type: 'image' as const, src: productImage, alt: productName }, // Image
             productName,
             variants,
             o.order_id || 'N/A',
@@ -455,14 +524,14 @@ const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sale
             }
             const rawImage = r.details.items[0].image || null;
 
-            // Convert to high-res for BOTH thumbnail and preview -> instant loading
-            productImage = getHighResImageUrl(rawImage);
-            fullProductImage = productImage;
+            // Use original for thumbnail to save memory, high-res for preview only
+            productImage = rawImage;
+            fullProductImage = getHighResImageUrl(rawImage) || rawImage;
         }
         // --- End of logic ---
 
         return [
-            { type: 'image', src: productImage, fullSrc: fullProductImage, alt: productName },
+            { type: 'image', src: productImage, alt: productName },
             productName,
             r.order_id || 'N/A',
             r.amount,
@@ -623,8 +692,29 @@ const calculateSummary = (
     permissions: { [key: string]: boolean },
     manualCosts: any[],
     filterDateRange: { from: string; to: string },
-    exchangeRates: { [currency: string]: number } | null
-): { kpis: KpiData, table: TableData, chartData: SummaryChartData[], topProductsByShop: { [shopName: string]: TopProduct[] } } => {
+    exchangeRates: { [currency: string]: number } | null,
+    mappingsLookup: Map<string, string>,
+    categoryNameMap: Map<string, string>
+): { kpis: KpiData, table: TableData, chartData: SummaryChartData[], topProductsByShop: { [shopName: string]: TopProduct[] }, topProductsByCategory: { [category: string]: TopProduct[] }, topProductsBySize: { [size: string]: TopProduct[] }, categoryComparison: TopProduct[], unmappedKeywords: { keyword: string; count: number }[] } => {
+
+    const extractSize = (variant: string | undefined): string => {
+        if (!variant) return 'Standard';
+        const v = variant.toLowerCase();
+        // Try common size patterns
+        if (/\b(xs|s|m|l|xl|2xl|3xl|4xl|5xl)\b/i.test(v)) {
+            const match = v.match(/\b(xs|s|m|l|xl|2xl|3xl|4xl|5xl)\b/i);
+            return match ? match[0].toUpperCase() : 'Standard';
+        }
+        if (/\b(\d+oz)\b/i.test(v)) {
+            const match = v.match(/\b(\d+oz)\b/i);
+            return match ? match[0].toLowerCase() : 'Standard';
+        }
+        if (/\b(\d+x\d+)\b/i.test(v)) {
+            const match = v.match(/\b(\d+x\d+)\b/i);
+            return match ? match[0].toLowerCase() : 'Standard';
+        }
+        return 'Standard';
+    };
 
     const calculatePercentageChange = (current: number, previous: number): { change: number; direction: 'up' | 'down' | 'neutral' } => {
         if (previous === 0) {
@@ -914,7 +1004,8 @@ const calculateSummary = (
     const allTableCurrencies = { revenue: new Set<string>(), funds: new Set<string>(), cost: new Set<string>() };
 
     // --- LOGIC TÍNH TOÁN TOP PRODUCTS ---
-    const productStatsByShop: { [key: string]: Map<string, { qty: number, rev: number, image?: string }> } = {};
+    const productStatsByShop: { [key: string]: Map<string, { qty: number, rev: number, image?: string, category: string, classification: string, size: string }> } = {};
+    const productStatsByCategory: { [key: string]: Map<string, { qty: number, rev: number, image?: string, shop: string, classification: string, size: string }> } = {};
 
     records.forEach(r => {
         const shopLabel = accountLabelMap.get(r.account) || r.account;
@@ -958,16 +1049,59 @@ const calculateSummary = (
                 if (r.details && r.details.items && r.details.items.length > 0) {
                     r.details.items.forEach(item => {
                         const name = decodeHTMLEntities(item.name.trim());
-                        const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
 
-                        // --- High Res Image Logic --- -> Refactored
-                        const image = getHighResImageUrl(item.image || current.image);
+                        // Clean variant for matching like in MappingTab
+                        const cleanVariantForMap = (v: string) => {
+                            const lowerV = v.toLowerCase();
+                            const pIndex = lowerV.indexOf('personalization');
+                            const piIndex = lowerV.indexOf('personalised');
+                            const cIndex = lowerV.indexOf('custom');
+                            const indices = [pIndex, piIndex, cIndex].filter(i => i !== -1);
+                            if (indices.length > 0) {
+                                const firstIndex = Math.min(...indices);
+                                let cleaned = v.substring(0, firstIndex).trim();
+                                return cleaned.replace(/[,|\-|\||:]\s*$/, '').trim();
+                            }
+                            return v;
+                        };
 
+                        const variant = decodeHTMLEntities(item.variant?.trim() || 'Standard');
+                        const cleanedVariant = cleanVariantForMap(variant);
+                        const specificMapKey = `${name.trim().toLowerCase()}|${(cleanedVariant || '').trim().toLowerCase()}`;
+                        const generalMapKey = `${name.trim().toLowerCase()}|`;
+
+                        const category = mappingsLookup.get(specificMapKey) ||
+                            mappingsLookup.get(generalMapKey) ||
+                            item.category_code || r.category_code || 'Unmapped';
+                        const size = extractSize(variant);
+                        const classification = variant; // Keep original for display but used for grouping by size
+
+                        // 1. By Shop
+                        if (!productStatsByShop[shopLabel]) productStatsByShop[shopLabel] = new Map();
+                        const currentShopMap = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0, category, classification, size };
                         productStatsByShop[shopLabel].set(name, {
-                            qty: current.qty + item.quantity,
-                            rev: current.rev + (item.quantity * item.price),
-                            image: image
+                            qty: currentShopMap.qty + item.quantity,
+                            rev: currentShopMap.rev + (item.quantity * item.price),
+                            image: item.image || currentShopMap.image,
+                            category,
+                            classification,
+                            size
                         });
+
+                        // 2. By Category
+                        if (!productStatsByCategory[category]) productStatsByCategory[category] = new Map();
+                        const currentCatMap = productStatsByCategory[category].get(name) || { qty: 0, rev: 0, shop: shopLabel, classification, size };
+                        productStatsByCategory[category].set(name, {
+                            qty: currentCatMap.qty + item.quantity,
+                            rev: currentCatMap.rev + (item.quantity * item.price),
+                            image: item.image || currentCatMap.image,
+                            shop: shopLabel,
+                            classification,
+                            size
+                        });
+
+                        // productStatsBySize removed to save memory as it was unused and 
+                        // grouping by unique variant strings caused OOM
                     });
                 }
             }
@@ -1099,21 +1233,86 @@ const calculateSummary = (
         return chartEntry;
     });
 
-    // --- TRANSFORM PRODUCT STATS TO SORTED ARRAY ---
+    // --- TRANSFORM PRODUCT STATS TO SORTED ARRAY (Limited to top 500 to save memory) ---
     const topProductsByShop: { [shopName: string]: TopProduct[] } = {};
     Object.keys(productStatsByShop).forEach(shop => {
         const stats = productStatsByShop[shop];
-        const sortedProducts = Array.from(stats.entries())
+        topProductsByShop[shop] = Array.from(stats.entries())
             .map(([name, stat]) => ({
                 name,
                 quantity: stat.qty,
                 revenue: stat.rev,
-                image: stat.image
+                image: stat.image,
+                category: stat.category,
+                classification: stat.classification,
+                size: stat.size
             }))
-            .sort((a, b) => b.quantity - a.quantity) // Sort by Quantity DESC
-        // .slice(0, 100); // Increased limit to Top 100
-        topProductsByShop[shop] = sortedProducts;
+            .sort((a, b) => b.quantity - a.quantity)
+            .slice(0, 500); // Limit to top 500 per shop
     });
 
-    return { kpis, table: { headers: tableHeaders, rows: tableRows }, chartData: summaryChartData, topProductsByShop };
+    const categoryComparison = Object.keys(productStatsByCategory).map(cat => {
+        const stats = productStatsByCategory[cat];
+        let totalQty = 0;
+        let totalRev = 0;
+        let topImage: string | undefined = undefined;
+        let maxQty = -1;
+
+        stats.forEach((stat) => {
+            totalQty += stat.qty;
+            totalRev += stat.rev;
+            if (stat.qty > maxQty) {
+                maxQty = stat.qty;
+                topImage = stat.image;
+            }
+        });
+
+        return {
+            name: categoryNameMap.get(cat) || cat,
+            code: cat,
+            quantity: totalQty,
+            revenue: totalRev,
+            image: topImage
+        };
+    }).sort((a, b) => b.quantity - a.quantity);
+
+    // --- KEYWORD ANALYSIS FOR UNMAPPED ---
+    const unmappedKeywordCounts = new Map<string, number>();
+    const stopWords = new Set(['a', 'an', 'the', 'and', 'or', 'but', 'if', 'then', 'else', 'when', 'at', 'by', 'for', 'with', 'about', 'in', 'on', 'to', 'of', 'personalized', 'custom', 'gift', 'gift for', 'design', 't-shirt', 'mug', 'shirt', 'hoodie', 'personalization', 'mockup', 'bundle', 'svg', 'png', 'jpg', 'digital', 'download']);
+
+    records.forEach(r => {
+        if (r.kind !== 'order') return;
+        if (r.details?.items) {
+            r.details.items.forEach(item => {
+                const name = decodeHTMLEntities(item.name.trim());
+                const variant = decodeHTMLEntities(item.variant?.trim() || 'Standard');
+
+                const cleanedVariant = cleanVariantForAggregation(variant);
+                const specificMapKey = `${name.trim().toLowerCase()}|${(cleanedVariant || '').trim().toLowerCase()}`;
+                const generalMapKey = `${name.trim().toLowerCase()}|`;
+
+                const category = mappingsLookup.get(specificMapKey) ||
+                    mappingsLookup.get(generalMapKey) ||
+                    item.category_code || r.category_code || 'Unmapped';
+
+                if (category === 'Unmapped' || !category) {
+                    const words = name.toLowerCase()
+                        .replace(/[^\w\s]/g, ' ')
+                        .split(/\s+/)
+                        .filter(w => w.length > 2 && !stopWords.has(w));
+
+                    words.forEach(w => {
+                        unmappedKeywordCounts.set(w, (unmappedKeywordCounts.get(w) || 0) + item.quantity);
+                    });
+                }
+            });
+        }
+    });
+
+    const unmappedKeywords = Array.from(unmappedKeywordCounts.entries())
+        .map(([keyword, count]) => ({ keyword, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 50);
+
+    return { kpis, table: { headers: tableHeaders, rows: tableRows }, chartData: summaryChartData, topProductsByShop, topProductsByCategory: {}, topProductsBySize: {}, categoryComparison, unmappedKeywords };
 }

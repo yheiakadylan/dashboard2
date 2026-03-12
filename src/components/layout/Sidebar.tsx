@@ -17,7 +17,8 @@ import {
     FileSpreadsheet,
     LayoutDashboard,
     Users,
-    Package
+    Package,
+    Map
 } from 'lucide-react';
 
 interface SidebarProps {

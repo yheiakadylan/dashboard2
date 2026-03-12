@@ -23,6 +23,7 @@ export interface OrderItem {
   image?: string;
   transactionId?: string;
   sku?: string;
+  category_code?: string; // Added field
 }
 
 export interface OrderDetails {
@@ -64,6 +65,7 @@ export interface Record {
   ff_code?: string;
   product_name?: string;
   details?: OrderDetails; // Added detailed info
+  category_code?: string; // Added field
 }
 
 export interface CostData {

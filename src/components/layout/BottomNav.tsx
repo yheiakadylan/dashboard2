@@ -7,7 +7,8 @@ import {
     HelpCircle,
     Truck,
     Tag,
-    Package
+    Package,
+    Map
 } from 'lucide-react';
 
 interface BottomNavProps {

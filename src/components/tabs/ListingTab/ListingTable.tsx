@@ -5,6 +5,7 @@ import { useDashboard } from '../../../contexts/DashboardContext';
 import { ArrowLeft, Search, ChevronLeft, ChevronRight, Store, Clock, ChevronDown } from 'lucide-react';
 import { formatTimeAgo } from '../../../utils/dateFormatter';
 import { CustomSelect } from '../../ui/CustomSelect';
+import Pagination from '../../ui/Pagination';
 
 import { useCrawler } from '../../../contexts/CrawlerContext';
 
@@ -26,7 +27,7 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
     const [totalCount, setTotalCount] = useState(0);
 
     // Server-side Pagination
-    const ITEMS_PER_PAGE = 50;
+    const ITEMS_PER_PAGE = 200;
     const [currentPage, setCurrentPage] = useState(1);
     const [cursors, setCursors] = useState<any[]>([null]); // cursors[i] = lastDoc used to fetch page i+1
     const [hasMore, setHasMore] = useState(true);
@@ -273,29 +274,12 @@ export default function ListingTable({ accountId, onBack, initialTab = 'new' }: 
                         />
                     </div>
 
-                    {/* Pagination - Right side on mobile */}
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                            disabled={currentPage === 1 || loading}
-                            className="p-1.5 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Previous Page"
-                        >
-                            <ChevronLeft className="w-4 h-4" />
-                        </button>
-
-                        <span className="text-sm text-gray-700 mx-2 font-medium bg-gray-50 px-2 py-1 rounded border border-gray-100 min-w-[60px] text-center md:bg-transparent md:border-0 md:p-0 md:min-w-0">
-                            {currentPage} / {totalPages || 1}
-                        </span>
-
-                        <button
-                            onClick={() => setCurrentPage(prev => prev + 1)}
-                            disabled={!hasMore || loading}
-                            className="p-1.5 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Next Page"
-                        >
-                            <ChevronRight className="w-4 h-4" />
-                        </button>
+                    <div className="bg-white dark:bg-gray-800 rounded-lg p-1">
+                        <Pagination 
+                            currentPage={currentPage - 1}
+                            totalPages={totalPages}
+                            onPageChange={(p) => setCurrentPage(p + 1)}
+                        />
                     </div>
                 </div>
             </div>

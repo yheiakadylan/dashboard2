@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, createContext } from 'react';
-import { Record, Account, ProcessedData, ManualCost, UserProfile } from '../types';
+import { Record, Account, ProcessedData, ManualCost, UserProfile, Category, ProductMapping } from '../types';
 import {
   saveAccountsToFirebase,
   deleteRecordsForAccounts,
@@ -82,6 +82,16 @@ interface DashboardContextType {
   resetRates: () => void;
   refreshRates: () => Promise<void>;
   nextUpdateTime: Date | null;
+
+  // Category & Mapping
+  categories: Category[];
+  productMappings: ProductMapping[];
+  refreshCategories: () => Promise<void>;
+  refreshMappings: () => Promise<void>;
+  updateMapping: (mapping: ProductMapping) => Promise<void>;
+  createCategory: (category: { code: string, name: string }) => Promise<void>;
+  bulkSaveCategories: (categories: { code: string, name: string, oldCode?: string }[]) => Promise<void>;
+  bulkUpdateMappings: (mappings: ProductMapping[]) => Promise<void>;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -205,6 +215,87 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     refreshBoards();
   }, [refreshBoards]);
 
+  // --- Category & Mapping Logic ---
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [productMappings, setProductMappings] = useState<ProductMapping[]>([]);
+
+  const refreshCategories = React.useCallback(async () => {
+    if (teamId) {
+      const { getCategories } = await import('../services/firebaseService');
+      const fetched = await getCategories(teamId);
+      setCategories(fetched);
+    }
+  }, [teamId]);
+
+  const refreshMappings = React.useCallback(async () => {
+    if (teamId) {
+      const { getProductMappings } = await import('../services/firebaseService');
+      const fetched = await getProductMappings(teamId);
+      setProductMappings(fetched);
+    }
+  }, [teamId]);
+
+  useEffect(() => {
+    refreshCategories();
+    refreshMappings();
+  }, [refreshCategories, refreshMappings]);
+
+  const updateMapping = async (mapping: ProductMapping) => {
+    if (!teamId) return;
+    const { saveProductMapping } = await import('../services/firebaseService');
+    await saveProductMapping(teamId, mapping);
+    await refreshMappings();
+  };
+
+  const createCategory = async (category: { code: string, name: string }) => {
+    if (!teamId) return;
+    const { saveCategory } = await import('../services/firebaseService');
+    await saveCategory(teamId, category);
+    await refreshCategories();
+  };
+
+  const bulkSaveCategories = async (categoriesToSave: { code: string, name: string, oldCode?: string }[]) => {
+    if (!teamId) return;
+    const { saveCategoriesBulk, saveProductMappingsBulk } = await import('../services/firebaseService');
+    
+    // Detect renames (where code changed)
+    const renames = categoriesToSave.filter(c => c.oldCode && c.oldCode !== c.code);
+    
+    if (renames.length > 0) {
+      setSyncState('Updating product mappings...');
+      const mappingsToUpdate: ProductMapping[] = [];
+      
+      renames.forEach(rename => {
+        // Find all mappings that used the old code
+        productMappings.forEach(mapping => {
+          if (mapping.category_code === rename.oldCode) {
+            mappingsToUpdate.push({
+              ...mapping,
+              category_code: rename.code
+            });
+          }
+        });
+      });
+      
+      if (mappingsToUpdate.length > 0) {
+        await saveProductMappingsBulk(teamId, mappingsToUpdate);
+        await refreshMappings();
+      }
+    }
+
+    setSyncState('Saving categories...');
+    await saveCategoriesBulk(teamId, categoriesToSave);
+    await refreshCategories();
+    setSyncState(null);
+  };
+
+  const bulkUpdateMappings = async (mappings: ProductMapping[]) => {
+    if (!teamId) return;
+    const { saveProductMappingsBulk } = await import('../services/firebaseService');
+    await saveProductMappingsBulk(teamId, mappings);
+    await refreshMappings();
+  };
+
   // Computed Visible Accounts (for data display)
   const visibleAccounts = useMemo(() => {
     // Owner Logic
@@ -251,7 +342,16 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     cases: { headers: [], rows: [] },
     help: { headers: [], rows: [] },
     fulfill: { table: { headers: [], rows: [] }, merchizeChartData: [], printwayChartData: [], totalCost: 0 },
-    summary: { kpis: {}, table: { headers: [], rows: [] }, chartData: [], topProductsByShop: {} },
+    summary: {
+      kpis: {},
+      table: { headers: [], rows: [] },
+      chartData: [],
+      topProductsByShop: {},
+      topProductsByCategory: {},
+      topProductsBySize: {},
+      categoryComparison: [],
+      unmappedKeywords: []
+    },
     products: { headers: [], rows: [] }
   };
 
@@ -303,23 +403,53 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }));
   }, [visibleAccounts]);
 
-  // Ref to hold stable processing accounts
-  const stableProcessingAccountsRef = useRef(processingAccounts);
-  // Manual check
-  const isProcessingAccountsDifferent = JSON.stringify(processingAccounts) !== JSON.stringify(stableProcessingAccountsRef.current);
-  if (isProcessingAccountsDifferent) {
-    stableProcessingAccountsRef.current = processingAccounts;
-  }
+  // Use a ref to hold the absolute stable version of accounts (by content)
+  // This prevents filteredRecords from changing reference if the content is same
+  const stableAccountsRef = useRef(processingAccounts);
+  const stableProcessingAccounts = useMemo(() => {
+    const isDifferent = JSON.stringify(processingAccounts) !== JSON.stringify(stableAccountsRef.current);
+    if (isDifferent) {
+      stableAccountsRef.current = processingAccounts;
+    }
+    return stableAccountsRef.current;
+  }, [processingAccounts]);
 
-  // Let's explicitly memoize the JSON string and use that as dependency?
-  const processingAccountsHash = useMemo(() => JSON.stringify(processingAccounts), [processingAccounts]);
+  const processingAccountsHash = useMemo(() => JSON.stringify(stableProcessingAccounts), [stableProcessingAccounts]);
+
+  // --- STABILIZE OTHER DEPENDENCIES ---
+  const stableManualCostsRef = useRef(manualCosts);
+  const stableManualCosts = useMemo(() => {
+    const isDifferent = JSON.stringify(manualCosts) !== JSON.stringify(stableManualCostsRef.current);
+    if (isDifferent) {
+      stableManualCostsRef.current = manualCosts;
+    }
+    return stableManualCostsRef.current;
+  }, [manualCosts]);
+
+  const stableMappingsRef = useRef(productMappings);
+  const stableMappings = useMemo(() => {
+    const isDifferent = JSON.stringify(productMappings) !== JSON.stringify(stableMappingsRef.current);
+    if (isDifferent) {
+      stableMappingsRef.current = productMappings;
+    }
+    return stableMappingsRef.current;
+  }, [productMappings]);
+
+  const stableRatesRef = useRef(exchangeRates);
+  const stableRates = useMemo(() => {
+    const isDifferent = JSON.stringify(exchangeRates) !== JSON.stringify(stableRatesRef.current);
+    if (isDifferent) {
+      stableRatesRef.current = exchangeRates;
+    }
+    return stableRatesRef.current;
+  }, [exchangeRates]);
 
 
   // Filter Records for Display/Processing
-  // Use stableProcessingAccountsRef to prevent re-filtering (and re-processing) when only timestamps change
+  // Use stableProcessingAccounts to prevent re-filtering (and re-processing) when only timestamps change
   const filteredRecords = useRecordFiltering({
     records,
-    accounts: stableProcessingAccountsRef.current as Account[], // Cast as full Account[] assuming filtering uses only stable IDs
+    accounts: stableProcessingAccounts as Account[], // Use memoized stable version
     selectedAccountId,
     searchTerm
   });
@@ -333,6 +463,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     tz: string;
     manual: any;
     rates: any;
+    mappings: any;
+    categories: any;
   }>({
     records: null,
     prevRecords: null,
@@ -340,7 +472,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     filter: null,
     tz: '',
     manual: null,
-    rates: null
+    rates: null, // This will store the stableRates reference
+    mappings: null,
+    categories: null
   });
 
   // Sync ref for safety timeout check
@@ -358,17 +492,27 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       filter: filterDateRange,
       tz: timeZone,
       manual: manualCosts,
-      rates: exchangeRates
+      rates: exchangeRates,
+      mappings: productMappings,
+      categories: categories
     };
 
+    // Optimized comparison to avoid redundant worker runs
+    const prevTrigger = lastTriggeredRef.current;
+
+    // Deep compare rates as they are rarely changed but new objects
+    const ratesChanged = JSON.stringify(exchangeRates) !== JSON.stringify(prevTrigger.rates);
+
     if (
-      filteredRecords === lastTriggeredRef.current.records &&
-      previousPeriodRecords === lastTriggeredRef.current.prevRecords &&
-      processingAccountsHash === lastTriggeredRef.current.accountsHash &&
-      filterDateRange === lastTriggeredRef.current.filter &&
-      timeZone === lastTriggeredRef.current.tz &&
-      manualCosts === lastTriggeredRef.current.manual &&
-      JSON.stringify(exchangeRates) === JSON.stringify(lastTriggeredRef.current.rates)
+      filteredRecords === prevTrigger.records &&
+      previousPeriodRecords === prevTrigger.prevRecords &&
+      processingAccountsHash === prevTrigger.accountsHash &&
+      filterDateRange === prevTrigger.filter &&
+      timeZone === prevTrigger.tz &&
+      stableManualCosts === prevTrigger.manual &&
+      stableRates === prevTrigger.rates &&
+      stableMappings === prevTrigger.mappings &&
+      categories === prevTrigger.categories
     ) {
       return;
     }
@@ -379,21 +523,22 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       accountsHash: processingAccountsHash,
       filter: filterDateRange,
       tz: timeZone,
-      manual: manualCosts,
-      rates: exchangeRates
+      manual: stableManualCosts,
+      rates: stableRates,
+      mappings: stableMappings,
+      categories: categories
     };
 
     // Set processing state
     setIsProcessing(true);
-    // DON'T reset processedData - keep old data visible for optimistic UI
 
-    // Safety timeout: If worker doesn't respond in 10s, force unlock UI
+    // Safety timeout: If worker doesn't respond in 15s, force unlock UI
     const safetyTimeout = setTimeout(() => {
       if (isProcessingRef.current) {
         console.warn("Worker timed out, forcing UI unlock.");
         setIsProcessing(false);
       }
-    }, 10000);
+    }, 15000);
 
     // Increment request ID
     workerRequestIdRef.current += 1;
@@ -404,17 +549,19 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       requestId: currentRequestId,
       records: filteredRecords,
       previousRecords: previousPeriodRecords,
-      accounts: stableProcessingAccountsRef.current, // Use stable structure
+      accounts: stableProcessingAccounts,
       filterDateRange,
       timeZone,
       role,
       permissions,
-      manualCosts,
-      exchangeRates
+      manualCosts: stableManualCosts,
+      exchangeRates: stableRates,
+      productMappings: stableMappings, // PASS MAPPINGS TO WORKER
+      categories: categories
     });
 
     return () => clearTimeout(safetyTimeout);
-  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, manualCosts, exchangeRates]);
+  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, manualCosts, exchangeRates, productMappings, categories]);
 
 
 
@@ -728,7 +875,16 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       boards,
       selectedBoardId,
       setSelectedBoardId,
-      refreshBoards
+      refreshBoards,
+
+      categories,
+      productMappings,
+      refreshCategories,
+      refreshMappings,
+      updateMapping,
+      createCategory,
+      bulkSaveCategories,
+      bulkUpdateMappings
     }}>
       {children}
     </DashboardContext.Provider>

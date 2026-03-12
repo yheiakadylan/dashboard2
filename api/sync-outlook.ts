@@ -7,6 +7,7 @@ import { RULES, parseMessage } from '../src/services/rules.js';
 import type { Account, Record } from './_lib/types.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 import { processTeamSync } from './_lib/syncService.js';
+import { applyCategoryMappings } from './_lib/mappingHelper.js';
 
 // --- Helpers ---
 /*
@@ -191,13 +192,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // 5. Lưu record mới và cập nhật timestamp
       if (totalNewRecords > 0) {
+        // 🟢 APPLY CATEGORY MAPPING
+        const mappedRecords = await applyCategoryMappings(SHARED_USER_ID, recordsToAdd);
+
         const batch = db.batch();
         const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
 
         // --- CHUẨN BỊ THÔNG BÁO ---
         const notificationEvents: { type: 'order' | 'refund' | 'funds', text: string }[] = [];
 
-        recordsToAdd.forEach(record => {
+        mappedRecords.forEach(record => {
           const docRef = record.email_id
             ? recordsRef.doc(record.email_id)
             : recordsRef.doc();

@@ -7,6 +7,7 @@ import { getHtmlFromGmailPayload, getPlainTextFromGmailPayload } from './_lib/gm
 import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 import { processTeamSync } from './_lib/syncService.js';
+import { applyCategoryMappings } from './_lib/mappingHelper.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -155,13 +156,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    // 🟢 APPLY CATEGORY MAPPING
+    const mappedRecords = await applyCategoryMappings(effectiveUserId, newRecords);
+
     // Lưu vào DB (logic cũ giữ nguyên)
     const recordsCollection = db.collection('user').doc(effectiveUserId).collection('records');
     const batch = db.batch();
 
-    if (newRecords.length > 0) {
+    if (mappedRecords.length > 0) {
       let saveCount = 0;
-      for (const record of newRecords) {
+      for (const record of mappedRecords) {
         const docRef = record.email_id
           ? recordsCollection.doc(record.email_id)
           : recordsCollection.doc();

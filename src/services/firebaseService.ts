@@ -20,7 +20,7 @@ import {
 import { getAuth } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getMessaging, isSupported } from "firebase/messaging";
-import { Account, Record, UserProfile } from '../types';
+import { Account, Record, UserProfile, Category, ProductMapping } from '../types';
 
 // Firebase configuration - uses VITE_ prefix for client-side access
 const firebaseConfig = {
@@ -543,5 +543,112 @@ export const getTeamMembers = async (teamId: string): Promise<UserProfile[]> => 
     console.error("Error getting team members:", error);
     return [];
   }
+};
+
+// === [NEW] Category & Product Mapping Services ===
+
+export const getCategories = async (teamId: string): Promise<Category[]> => {
+  const col = collection(db, 'user', teamId, 'categories');
+  const snap = await getDocs(col);
+  return snap.docs.map(doc => ({ ...(doc.data() as Category), id: doc.id }));
+};
+
+export const saveCategory = async (teamId: string, category: Partial<Category> & { code: string }): Promise<void> => {
+  // Use code as document ID for easy reference/lookup
+  const docRef = doc(db, 'user', teamId, 'categories', category.code.toUpperCase().trim());
+  const data = {
+    ...category,
+    code: category.code.toUpperCase().trim(),
+    updatedAt: new Date().toISOString()
+  };
+  if (!category.createdAt) (data as any).createdAt = new Date().toISOString();
+  await setDoc(docRef, data, { merge: true });
+};
+
+export const saveCategoriesBulk = async (teamId: string, categories: { code: string, name: string }[]): Promise<void> => {
+  const batch = writeBatch(db);
+  const now = new Date().toISOString();
+
+  // 1. Get existing categories to handle deletions
+  const colRef = collection(db, 'user', teamId, 'categories');
+  const existingSnap = await getDocs(colRef);
+  const existingCodes = existingSnap.docs.map(doc => doc.id);
+
+  // 2. Identify codes to delete (those that are in DB but NOT in the new list)
+  const newCodes = new Set(categories.map(c => c.code.toUpperCase().trim()));
+  const codesToDelete = existingCodes.filter(code => !newCodes.has(code));
+
+  // 3. Add deletions to batch
+  codesToDelete.forEach(code => {
+    const docRef = doc(db, 'user', teamId, 'categories', code);
+    batch.delete(docRef);
+  });
+
+  // 4. Upsert (Add/Update) new categories
+  categories.forEach(category => {
+    const code = category.code.toUpperCase().trim();
+    const docRef = doc(db, 'user', teamId, 'categories', code);
+
+    // Find if it was an existing category to keep its createdAt if possible
+    const existingDoc = existingSnap.docs.find(d => d.id === code);
+    const existingData = existingDoc ? existingDoc.data() : null;
+
+    batch.set(docRef, {
+      code,
+      name: category.name.trim(),
+      updatedAt: now,
+      createdAt: existingData?.createdAt || now
+    }, { merge: true });
+  });
+
+  await batch.commit();
+};
+
+export const deleteCategory = async (teamId: string, categoryId: string): Promise<void> => {
+  const docRef = doc(db, 'user', teamId, 'categories', categoryId);
+  await deleteDoc(docRef);
+};
+
+export const getProductMappings = async (teamId: string): Promise<ProductMapping[]> => {
+  const col = collection(db, 'user', teamId, 'product_mappings');
+  const snap = await getDocs(col);
+  return snap.docs.map(doc => ({ ...(doc.data() as ProductMapping), id: doc.id }));
+};
+
+export const saveProductMapping = async (teamId: string, mapping: ProductMapping): Promise<void> => {
+  // Use a predictable ID: base64 of [name + variant] to ensure uniqueness and allow direct updates
+  const id = btoa(unescape(encodeURIComponent(`${mapping.name.trim().toLowerCase()}_${(mapping.variant || '').trim().toLowerCase()}`)));
+  const docRef = doc(db, 'user', teamId, 'product_mappings', id);
+  const data = {
+    ...mapping,
+    id,
+    updatedAt: new Date().toISOString()
+  };
+  if (!mapping.createdAt) (data as any).createdAt = new Date().toISOString();
+  await setDoc(docRef, data, { merge: true });
+};
+
+export const saveProductMappingsBulk = async (teamId: string, mappings: ProductMapping[]): Promise<void> => {
+  const { writeBatch } = await import('firebase/firestore');
+  const batch = writeBatch(db);
+  const now = new Date().toISOString();
+
+  mappings.forEach(mapping => {
+    const id = btoa(unescape(encodeURIComponent(`${mapping.name.trim().toLowerCase()}_${(mapping.variant || '').trim().toLowerCase()}`)));
+    const docRef = doc(db, 'user', teamId, 'product_mappings', id);
+    batch.set(docRef, {
+      ...mapping,
+      id,
+      updatedAt: now,
+      createdAt: mapping.createdAt || now
+    }, { merge: true });
+  });
+
+  await batch.commit();
+};
+
+export const deleteProductMapping = async (teamId: string, mappingId: string): Promise<void> => {
+  const docRef = doc(db, 'user', teamId, 'product_mappings', mappingId);
+  await deleteDoc(docRef);
 };
 

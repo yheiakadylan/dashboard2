@@ -12,7 +12,7 @@ export default function ListingTab() {
     };
 
     return (
-        <div className="listing-tab">
+        <div className="listing-tab h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
             {selectedAccountId ? (
                 <ListingTable
                     accountId={selectedAccountId}

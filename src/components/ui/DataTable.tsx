@@ -39,7 +39,13 @@ const useContainerSize = (ref: React.RefObject<HTMLDivElement>) => {
         const updateSize = () => {
             if (ref.current) {
                 const { width, height } = ref.current.getBoundingClientRect();
-                setSize({ width, height });
+                setSize(prev => {
+                    // Ignore sub-pixel changes to prevent ResizeObserver infinite loops
+                    if (Math.abs(prev.width - width) < 1 && Math.abs(prev.height - height) < 1) {
+                        return prev;
+                    }
+                    return { width, height };
+                });
             }
         };
 
@@ -64,7 +70,7 @@ const useContainerSize = (ref: React.RefObject<HTMLDivElement>) => {
 
 // SortDirection type imported from utils now
 
-const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, autoHeight = false, mobileRowHeight, forceCardView = false, mobileBreakpoint = 768, columnWidths, scrollParentId, onRowClick }) => {
+const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, autoHeight = false, mobileRowHeight, forceCardView = false, mobileBreakpoint = 768, columnWidths, scrollParentId, onRowClick, onItemsRendered, selectedKeys, onToggleSelect }) => {
     const [sortColumn, setSortColumn] = useState<number | null>(null);
     const [sortDirection, setSortDirection] = useState<SortDirection>(null);
     const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set());
@@ -98,7 +104,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         }
     };
 
-    const handleResyncClick = async (id: string) => {
+    const handleResyncClick = useCallback(async (id: string) => {
         if (!onResyncOrder) return;
         setLoadingItems(prev => new Set(prev).add(id));
         try {
@@ -110,7 +116,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                 return next;
             });
         }
-    };
+    }, [onResyncOrder]);
 
     const sortedData = useMemo(() => {
         if (sortColumn === null || sortDirection === null) {
@@ -124,9 +130,17 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         });
     }, [data, sortColumn, sortDirection]);
 
-    // ⚠️ ALL HOOKS MUST BE DECLARED BEFORE ANY EARLY RETURN (React Rules of Hooks)
     // isMobile depends on width which may be 0 initially - that's fine, hooks still run
-    const isMobile = width < mobileBreakpoint || forceCardView;
+    // Stabilize isMobile: only change if width is non-zero to prevent flickering/resetting scroll
+    const [isMobile, setIsMobile] = useState(forceCardView);
+    React.useEffect(() => {
+        if (width > 0) {
+            const nextIsMobile = width < mobileBreakpoint || forceCardView;
+            if (nextIsMobile !== isMobile) {
+                setIsMobile(nextIsMobile);
+            }
+        }
+    }, [width, mobileBreakpoint, forceCardView, isMobile]);
 
     // Reset VariableSizeList cache khi data/sort/width thay đổi
     // (VariableSizeList cache item sizes — phải reset khi data hoặc width đổi)
@@ -263,6 +277,21 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         return sortedData.reduce((sum, _, i) => sum + getMobileItemHeight(i), 0);
     }, [sortedData, isMobile, getMobileItemHeight, width]);
 
+    const itemData = useMemo<RowData>(() => ({
+        items: sortedData,
+        headers,
+        loadingItems,
+        onViewDayDetails,
+        onViewOrderDetails,
+        onResyncClick: handleResyncClick,
+        onImageClick: setPreviewImage,
+        isMobile,
+        columnWidths,
+        onRowClick,
+        selectedKeys,
+        onToggleSelect
+    }), [sortedData, headers, loadingItems, onViewDayDetails, onViewOrderDetails, handleResyncClick, setPreviewImage, isMobile, columnWidths, onRowClick, selectedKeys, onToggleSelect]);
+
     // ── Early returns (AFTER all hooks) ──────────────────────────────────────
     if (data.length === 0) {
         return (
@@ -277,73 +306,23 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
     // Determine root container classes
     const rootClasses = `flex flex-col ${autoHeight ? '' : 'h-full'} bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 ${autoHeight ? '' : 'overflow-hidden'}`;
 
-    // Render Skeleton if dimensions are not yet available
-    if (!width || (!autoHeight && !height)) {
-        return (
-            <div className={rootClasses} ref={containerRef}>
-                <div style={{ width: '100%', height: autoHeight ? 400 : '100%' }} className="p-4">
-                    <div className="animate-pulse">
-                        {/* Header Skeleton */}
-                        <div className="h-12 bg-gray-100/50 dark:bg-gray-700/50 rounded-t-lg w-full mb-0.5"></div>
-
-                        {/* Row Skeletons */}
-                        {[...Array(6)].map((_, i) => (
-                            <div key={i} className="flex items-center px-4 py-3 space-x-4 border-b border-gray-100 dark:border-gray-800 bg-white/50 dark:bg-gray-800/50 h-[92px]">
-                                {/* Image Placeholder */}
-                                <div className="h-[60px] w-[60px] bg-gray-200 dark:bg-gray-700 rounded-md flex-shrink-0"></div>
-
-                                {/* Content Placeholders */}
-                                <div className="flex-1 grid grid-cols-12 gap-4">
-                                    {/* Product Name & Order ID */}
-                                    <div className="col-span-4 space-y-2">
-                                        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
-                                        <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded w-1/2"></div>
-                                    </div>
-
-                                    {/* Middle Columns (Values) */}
-                                    <div className="col-span-2 hidden md:block">
-                                        <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-full mt-1"></div>
-                                    </div>
-                                    <div className="col-span-2 hidden md:block">
-                                        <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-2/3 mt-1"></div>
-                                    </div>
-
-                                    {/* End/Actions */}
-                                    <div className="col-span-4 md:col-span-4 flex justify-end items-center gap-2">
-                                        <div className="h-8 w-20 bg-gray-100 dark:bg-gray-800 rounded"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // (isMobile, getMobileItemHeight, totalMobileHeight already declared above)
 
     // Calculate height for List
     let listHeight = 0;
+    const measuredWidth = width || (containerRef.current?.offsetWidth) || 0;
+    const measuredHeight = height || (containerRef.current?.offsetHeight) || 0;
+
     if (autoHeight) {
         listHeight = isMobile ? totalMobileHeight : sortedData.length * 92;
     } else {
-        listHeight = isMobile ? height : height - 48;
+        // Use a minimum height of 400 to prevent zero-height collapse
+        // Ensure height matches the container minus header (48px)
+        listHeight = isMobile ? Math.max(400, measuredHeight) : Math.max(400, measuredHeight - 48);
     }
-
-    // Create item data object to pass to FixedSizeList
-    const itemData: RowData = {
-        items: sortedData,
-        headers,
-        loadingItems,
-        onViewDayDetails,
-        onViewOrderDetails,
-        onResyncClick: handleResyncClick,
-        onImageClick: setPreviewImage,
-        isMobile,
-        columnWidths,
-        onRowClick
-    };
+    
+    // Safety: ensure listHeight and width are non-negative
+    const safeListHeight = Math.max(0, listHeight);
+    const safeWidth = Math.max(0, measuredWidth);
 
     return (
         <div className={rootClasses} ref={containerRef}>
@@ -352,7 +331,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                 <div
                     ref={headerRef}
                     className={`flex items-center bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 font-semibold text-xs text-gray-500 dark:text-gray-300 uppercase tracking-wider h-12 flex-shrink-0 z-20 ${useWindowScroll ? 'sticky top-0 shadow-sm' : 'pr-[8px]'}`}
-                    style={{ width: width }}
+                    style={{ width: safeWidth || '100%' }}
                 >
                     {headers.map((header, index) => {
                         const isHidden = isHiddenOnDesktopMobileView(header);
@@ -422,47 +401,51 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                 </div>
             )}
 
-            {/* Virtualized Body */}
-            <div style={{ height: useWindowScroll ? 'auto' : listHeight, width: width }}>
-                {isMobile ? (
-                    // Mobile: VariableSizeList — mỗi card tự tính chiều cao theo data
-                    <VariableSizeList
-                        ref={varListRef}
-                        height={listHeight}
-                        itemCount={sortedData.length}
-                        itemSize={getMobileItemHeight}
-                        width={width}
-                        itemData={itemData}
-                        overscanCount={10}
-                        className="scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600"
-                        style={useWindowScroll ? { overflow: 'visible' } : undefined}
-                        outerElementType={useWindowScroll ? WindowScrollerOuter : undefined}
-                    >
-                        {MobileCard}
-                    </VariableSizeList>
-                ) : (
-                    // Desktop: FixedSizeList — tất cả row 92px
-                    <List
-                        ref={listRef}
-                        height={listHeight}
-                        itemCount={sortedData.length}
-                        itemSize={92}
-                        width={width}
-                        itemData={itemData}
-                        overscanCount={40}
-                        className="scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600"
-                        style={useWindowScroll ? { overflow: 'visible' } : undefined}
-                        outerElementType={useWindowScroll ? WindowScrollerOuter : undefined}
-                    >
-                        {DesktopRow}
-                    </List>
-                )}
+            {/* Virtualized Body Wrapper */}
+            <div className={`transition-opacity duration-300 ${width > 0 ? 'opacity-100' : 'opacity-100'}`}>
+                <div style={{ height: useWindowScroll ? 'auto' : safeListHeight, width: safeWidth || '100%' }}>
+                    {isMobile ? (
+                        // Mobile: VariableSizeList — mỗi card tự tính chiều cao theo data
+                        <VariableSizeList
+                            ref={varListRef}
+                            height={safeListHeight}
+                            itemCount={sortedData.length}
+                            itemSize={getMobileItemHeight}
+                            width={safeWidth}
+                            itemData={itemData}
+                            overscanCount={10}
+                            onItemsRendered={onItemsRendered}
+                            className="scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600"
+                            style={useWindowScroll ? { overflow: 'visible' } : undefined}
+                            outerElementType={useWindowScroll ? WindowScrollerOuter : undefined}
+                        >
+                            {MobileCard}
+                        </VariableSizeList>
+                    ) : (
+                        // Desktop: FixedSizeList — tất cả row 92px
+                        <List
+                            ref={listRef}
+                            height={safeListHeight}
+                            itemCount={sortedData.length}
+                            itemSize={92}
+                            width={safeWidth}
+                            itemData={itemData}
+                            overscanCount={20}
+                            onItemsRendered={onItemsRendered}
+                            className="scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600"
+                            style={useWindowScroll ? { overflow: 'visible' } : undefined}
+                            outerElementType={useWindowScroll ? WindowScrollerOuter : undefined}
+                        >
+                            {DesktopRow}
+                        </List>
+                    )}
+                </div>
             </div>
             <ImagePreviewModal
                 imageUrl={previewImage}
                 onClose={() => setPreviewImage(null)}
             />
-        </div >
+        </div>
     );
 };
 

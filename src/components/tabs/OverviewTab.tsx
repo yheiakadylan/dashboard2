@@ -66,7 +66,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
     const { updateRate, refreshRates, resetRates, exchangeRates } = useDashboard();
 
     return (
-        <div className="p-2 md:p-6">
+        <div className="p-2 md:p-6 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
             {/* 1. KPIs Section - Conditionally render based on permissions */}
             <div className="grid grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-4 md:gap-6 mb-6">
                 {can('viewKpiOrders') && (

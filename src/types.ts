@@ -38,6 +38,7 @@ export interface OrderItem {
   transactionId?: string;
   sku?: string;
   listing_id?: string;
+  category_code?: string; // Mapped category code
 }
 
 export interface OrderDetails {
@@ -84,6 +85,24 @@ export interface Record {
   status?: 'New' | 'Refunded';
   refund_details?: RefundDetails;
   listing_id?: string; // Mapped from listing tracker based on image
+  category_code?: string; // Overall category code for the record (if applicable)
+}
+
+export interface Category {
+  id: string; // Firestore document ID
+  code: string; // Unique identifier (e.g., MUG-11OZ)
+  name: string; // Display name
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ProductMapping {
+  id?: string;
+  name: string; // Original product name
+  variant: string; // Variant string (normalized)
+  category_code: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface RefundDetails {
@@ -128,7 +147,7 @@ export interface KpiData {
 // FIX: Allowed null in TableData rows to support records with missing cost data.
 export interface TableData {
   headers: string[];
-  rows: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string, amountMap?: { [c: string]: number } } | { type: 'action_group', actions: any[] } | { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string, mainAmountMap?: { [c: string]: number }, subtitleAmountMap?: { [c: string]: number } })[][];
+  rows: (string | number | null | any | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc?: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string, amountMap?: { [c: string]: number } } | { type: 'action_group', actions: any[] } | { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string, mainAmountMap?: { [c: string]: number }, subtitleAmountMap?: { [c: string]: number } })[][];
 }
 
 export interface OverviewChartData {
@@ -151,7 +170,10 @@ export interface TopProduct {
   name: string;
   quantity: number;
   revenue: number;
-  image?: string; // Added image field
+  image?: string;
+  category?: string;
+  classification?: string;
+  size?: string;
 }
 
 export interface ProcessedData {
@@ -175,6 +197,10 @@ export interface ProcessedData {
     table: TableData;
     chartData: SummaryChartData[];
     topProductsByShop: { [shopName: string]: TopProduct[] };
+    topProductsByCategory: { [category: string]: TopProduct[] };
+    topProductsBySize: { [size: string]: TopProduct[] };
+    categoryComparison: TopProduct[];
+    unmappedKeywords: { keyword: string; count: number }[];
   };
   products: TableData; // New field for detailed products table
 }

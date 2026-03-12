@@ -152,6 +152,7 @@ export interface TopProduct {
   quantity: number;
   revenue: number;
   image?: string; // Added image field
+  code?: string; // Added code field for categories
 }
 
 export interface ProcessedData {

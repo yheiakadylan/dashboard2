@@ -15,13 +15,17 @@ interface ConnectedDashboardProviderProps {
 const ConnectedDashboardProvider: React.FC<ConnectedDashboardProviderProps> = ({ user, userProfile, logout, children }) => {
     const { timeZone, filterDateRange, selectedAccountId, searchTerm } = useUI();
 
+    // Memoize stable permissions and accounts to prevent infinite loops in DashboardProvider
+    const memoizedPermissions = React.useMemo(() => userProfile.permissions || {}, [userProfile.permissions]);
+    const memoizedAllowedAccounts = React.useMemo(() => userProfile.allowedAccounts || [], [userProfile.allowedAccounts]);
+
     return (
         <DashboardProvider
             user={user}
             teamId={userProfile.teamId}
             role={userProfile.role}
-            permissions={userProfile.permissions || {}}
-            allowedAccounts={userProfile.allowedAccounts || []}
+            permissions={memoizedPermissions}
+            allowedAccounts={memoizedAllowedAccounts}
             onLogout={logout}
             timeZone={timeZone}
             filterDateRange={filterDateRange}
