@@ -174,7 +174,6 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
                 >
                   {displayValue.value}
                 </p>
-                {renderComparison(displayValue as KpiValue)}
 
                 {(displayValue as KpiValue).conversionDetails && (
                   <ConversionModal

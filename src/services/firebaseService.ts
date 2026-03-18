@@ -236,6 +236,41 @@ export const getAllRecordsForAccount = async (teamId: string, accountEmail: stri
   return records;
 };
 
+export const getRefundRecordsForOrderIds = async (teamId: string, orderIds: string[]): Promise<Record[]> => {
+  if (!orderIds || orderIds.length === 0) return [];
+
+  const recordsRef = collection(db, 'user', teamId, 'records');
+  const results: Record[] = [];
+  
+  // Remove duplicates and empty IDs
+  const uniqueOrderIds = Array.from(new Set(orderIds.filter(id => !!id)));
+  if (uniqueOrderIds.length === 0) return [];
+
+  // Firestore 'in' query limit is 30
+  const IN_QUERY_LIMIT = 30;
+  const chunks = [];
+  for (let i = 0; i < uniqueOrderIds.length; i += IN_QUERY_LIMIT) {
+    chunks.push(uniqueOrderIds.slice(i, i + IN_QUERY_LIMIT));
+  }
+  
+  const promises = chunks.map(chunk => {
+    const q = query(recordsRef, 
+      where('source', '==', 'Etsy_Refunded'),
+      where('order_id', 'in', chunk)
+    );
+    return getDocs(q);
+  });
+  
+  const snapshots = await Promise.all(promises);
+  snapshots.forEach(snap => {
+    snap.docs.forEach(doc => {
+      results.push({ ...(doc.data() as object), id: doc.id } as Record);
+    });
+  });
+  
+  return results;
+};
+
 export const deleteRecordsForAccounts = async (teamId: string, accountEmails: string[]): Promise<void> => {
   if (accountEmails.length === 0) return;
 

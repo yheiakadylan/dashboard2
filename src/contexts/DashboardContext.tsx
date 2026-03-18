@@ -92,6 +92,7 @@ interface DashboardContextType {
   createCategory: (category: { code: string, name: string }) => Promise<void>;
   bulkSaveCategories: (categories: { code: string, name: string, oldCode?: string }[]) => Promise<void>;
   bulkUpdateMappings: (mappings: ProductMapping[]) => Promise<void>;
+  listingsMapping: { imageMap: { [key: string]: string }, nameMap: { [key: string]: string } } | null;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -111,11 +112,12 @@ interface DashboardProviderProps {
   filterDateRange: { from: string; to: string };
   selectedAccountId: string;
   searchTerm: string;
+  globalUsdMode: boolean;
 }
 
 export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   children, user, teamId, role, permissions, allowedAccounts, onLogout,
-  timeZone, filterDateRange, selectedAccountId, searchTerm
+  timeZone, filterDateRange, selectedAccountId, searchTerm, globalUsdMode
 }) => {
 
   const { addNotification } = useNotification();
@@ -235,6 +237,29 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }
   }, [teamId]);
 
+  // --- Listing Mapping Logic ---
+  const [listingsMapping, setListingsMapping] = useState<{ imageMap: { [key: string]: string }, nameMap: { [key: string]: string } } | null>(null);
+
+  const refreshListingsMapping = React.useCallback(async () => {
+    if (teamId && allAccounts.length > 0) {
+      const { getListingMappingMaps } = await import('../services/listingService');
+      const etsyAccountIds = allAccounts.filter(a => a.platforms?.includes('etsy')).map(a => a.id);
+      if (etsyAccountIds.length > 0) {
+        const mapping = await getListingMappingMaps(teamId, etsyAccountIds);
+        if (import.meta.env.DEV) {
+          console.log('[DashboardContext] Listing Mapping fetched:', 
+            Object.keys(mapping.imageMap).length, 'images,', 
+            Object.keys(mapping.nameMap).length, 'names');
+        }
+        setListingsMapping(mapping);
+      }
+    }
+  }, [teamId, allAccounts.length]); // Re-fetch only if account count changes or team changes
+
+  useEffect(() => {
+    refreshListingsMapping();
+  }, [refreshListingsMapping]);
+
   useEffect(() => {
     refreshCategories();
     refreshMappings();
@@ -341,7 +366,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     etsy: { headers: [], rows: [] },
     cases: { headers: [], rows: [] },
     help: { headers: [], rows: [] },
-    fulfill: { table: { headers: [], rows: [] }, merchizeChartData: [], printwayChartData: [], totalCost: 0 },
+    fulfill: { table: { headers: [], rows: [] }, merchizeChartData: [], printwayChartData: [], allProductChartData: [], refundedChartData: [], totalCost: 0, refundRate: 0 },
     summary: {
       kpis: {},
       table: { headers: [], rows: [] },
@@ -362,7 +387,14 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [showExportOptions, setShowExportOptions] = useState<boolean>(false);
 
-  // DON'T reset processedData - we'll show loading overlay instead (optimistic UI)
+  // Clear processed data when fetching a new range to prevent flashing old data
+  // while the worker is busy processing the new data.
+  useEffect(() => {
+    if (isFetchingNewRange) {
+      setProcessedData(initialProcessedData);
+    }
+  }, [isFetchingNewRange]);
+
 
   const workerRef = useRef<Worker | null>(null);
   const workerRequestIdRef = useRef<number>(0);
@@ -556,12 +588,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       permissions,
       manualCosts: stableManualCosts,
       exchangeRates: stableRates,
-      productMappings: stableMappings, // PASS MAPPINGS TO WORKER
-      categories: categories
+      productMappings: stableMappings,
+      categories: categories,
+      listingsMapping: listingsMapping // PASS LISTING MAPPING TO WORKER
     });
 
     return () => clearTimeout(safetyTimeout);
-  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, manualCosts, exchangeRates, productMappings, categories]);
+  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, manualCosts, exchangeRates, productMappings, categories, listingsMapping]);
 
 
 
@@ -786,7 +819,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
     // Dynamic import to reduce initial bundle size
     import('../utils/excelExport').then(({ exportDashboardToExcel }) => {
-      exportDashboardToExcel(processedData, filename, includeImages, (progress) => {
+      exportDashboardToExcel(processedData, filename, includeImages, globalUsdMode, exchangeRates, (progress) => {
         setExportProgress(progress);
       })
         .then(() => {
@@ -884,7 +917,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       updateMapping,
       createCategory,
       bulkSaveCategories,
-      bulkUpdateMappings
+      bulkUpdateMappings,
+      listingsMapping
     }}>
       {children}
     </DashboardContext.Provider>

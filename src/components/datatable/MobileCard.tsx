@@ -184,7 +184,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         const dateValue = dateIndex !== -1 ? row[dateIndex] : null;
         const bodyItems = headers
             .map((h, i) => {
-                if (specialIndexes.has(i) || h === 'DateTime' || h === 'Status') return null; // skip Status column
+                if (specialIndexes.has(i) || h === 'DateTime' || h === 'Status' || h === 'Select') return null; // skip redundant columns
                 let val = row[i];
                 if (h === 'Cost' && (val === null || val === '-' || val === '')) {
                     val = 0;
@@ -210,13 +210,38 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         return (
             <div style={{ ...style, willChange: 'transform' }} className="px-2 py-1.5">
                 <div
-                    className={`rounded-lg shadow-sm border p-3 h-full flex flex-col gap-2 transition-colors ${isRefunded
-                        ? 'bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800'
+                    className={`rounded-lg shadow-sm border-2 p-3 h-full flex flex-col gap-2 transition-colors ${isRefunded
+                        ? 'bg-red-50/80 dark:bg-red-900/10 border-red-400 dark:border-red-700 shadow-red-100 dark:shadow-none'
                         : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
                         } ${onRowClick ? 'cursor-pointer hover:border-blue-300 dark:hover:border-blue-600' : ''}`}
                     onClick={() => onRowClick && onRowClick(row)}
                 >
-                    {/* Top: Image + Order info + Product name */}
+                    {/* Top Header: Checkbox + Badges */}
+                    {(headers.includes('Select') || sourceValue || isRefunded) && (
+                        <div className="flex justify-between items-center mb-1">
+                            <div className="flex items-center gap-2">
+                                {headers.indexOf('Select') !== -1 && (
+                                    <div className="flex items-center justify-center">
+                                        {renderTextContent(row[headers.indexOf('Select')], data.selectedKeys, data.onToggleSelect)}
+                                    </div>
+                                )}
+                                {sourceValue && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
+                                        {renderTextContent(sourceValue, data.selectedKeys, data.onToggleSelect)}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {isRefunded && (
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-red-600 dark:text-red-400">
+                                        <span>↩</span><span>Refunded</span>
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Content Section: Image + Info */}
                     <div className="flex gap-3 items-start">
                         {imageCell?.src ? (
                             <CachedImage src={imageCell.src} alt={imageCell.alt} onClick={(e: React.MouseEvent) => { e.stopPropagation(); onImageClick(imageCell.fullSrc || getHighResImageUrl(imageCell.src) || imageCell.src); }} className="w-16 h-16 min-w-[64px] flex-shrink-0 object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
@@ -224,23 +249,13 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             <div className="w-16 h-16 min-w-[64px] flex-shrink-0 bg-gray-100 dark:bg-gray-700 rounded-md flex items-center justify-center text-[10px] text-gray-400 text-center">No Image</div>
                         )}
                         <div className="flex-grow min-w-0">
-                            <div className="flex justify-between items-start mb-0.5">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                    {orderIdIndex !== -1 && (
-                                        <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider truncate">#{orderIdValue}</span>
-                                    )}
-                                    {isRefunded && (
-                                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-red-600 dark:text-red-400 flex-shrink-0">
-                                            <span>↩</span><span>Refunded</span>
-                                        </span>
-                                    )}
-                                </div>
-                                {sourceValue && (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 ml-1 flex-shrink-0">
-                                        {renderTextContent(sourceValue, data.selectedKeys, data.onToggleSelect)}
+                            {orderIdIndex !== -1 && (
+                                <div className="mb-0.5">
+                                    <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider truncate">
+                                        #{typeof orderIdValue === 'object' ? orderIdValue.main : orderIdValue}
                                     </span>
-                                )}
-                            </div>
+                                </div>
+                            )}
                             <p className="text-sm font-bold text-gray-900 dark:text-white leading-tight line-clamp-2" title={String(productValue)}>
                                 {renderTextContent(productValue, data.selectedKeys, data.onToggleSelect)}
                             </p>
@@ -251,7 +266,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     <div className="flex-grow grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-gray-100 dark:border-gray-700 pt-2 content-start">
                         {bodyItems.map((item) => {
                             const isMoney = item.isMoney || (typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Cost') || item.h.includes('Amount')));
-                            const valueClass = isMoney ? 'text-gray-900 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300';
+                            const valueClass = isMoney ? `text-gray-900 dark:text-white font-bold ${isRefunded ? 'text-gray-400 dark:text-gray-500' : ''}` : 'text-gray-700 dark:text-gray-300';
                             return (
                                 <div key={item.i} className="flex flex-col min-w-0">
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate">{item.h}</span>
@@ -288,12 +303,19 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
 
         return (
             <div style={{ ...style, willChange: 'transform' }} className="px-2 py-1.5">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 h-full flex flex-col">
+                <div className={`rounded-lg shadow-sm border p-3 h-full flex flex-col transition-colors ${isRefunded ? 'bg-red-50/80 dark:bg-red-900/10 border-red-400 dark:border-red-700' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'}`}>
                     {/* Header */}
                     <div className="flex justify-between items-start mb-3">
-                        <span className="text-sm font-bold text-gray-900 dark:text-white">
-                            #{renderTextContent(orderIdValue, data.selectedKeys, data.onToggleSelect)}
-                        </span>
+                        <div className="flex items-center gap-3">
+                            {headers.indexOf('Select') !== -1 && (
+                                <div className="flex items-center justify-center">
+                                    {renderTextContent(row[headers.indexOf('Select')], data.selectedKeys, data.onToggleSelect)}
+                                </div>
+                            )}
+                            <span className="text-sm font-bold text-gray-900 dark:text-white">
+                                #{renderTextContent(orderIdValue, data.selectedKeys, data.onToggleSelect)}
+                            </span>
+                        </div>
                         {sourceValue && (
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                                 {renderTextContent(sourceValue, data.selectedKeys, data.onToggleSelect)}
@@ -332,7 +354,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         const titleValue = row[0];
 
         const bodyItems = headers.map((h, i) => {
-            if (i === 0 || i === actionIndex || h === 'DateTime') return null;
+            if (i === 0 || i === actionIndex || h === 'DateTime' || h === 'Select') return null;
             let val = row[i];
             const isFunds = h.toLowerCase().includes('funds');
             if (val === null || val === '-' || val === '' || (val === 0 && !h.toLowerCase().includes('count'))) {
@@ -350,7 +372,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                 className={`px-2 py-1.5 has-mobile-card ${onRowClick ? 'cursor-pointer' : ''}`}
                 onClick={() => onRowClick && onRowClick(row)}
             >
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 h-full flex flex-col justify-between hover:shadow-md transition-shadow">
+                <div className={`rounded-lg shadow-sm border p-3 h-full flex flex-col justify-between hover:shadow-md transition-shadow ${isRefunded ? 'bg-red-50/80 dark:bg-red-900/10 border-red-300 dark:border-red-700' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'}`}>
                     <div className="flex justify-between items-start mb-2 border-b border-gray-100 dark:border-gray-700 pb-2">
                         <div className="w-full relative flex items-center">
                             {/* Checkbox placement at the very start of Generic Layout */}

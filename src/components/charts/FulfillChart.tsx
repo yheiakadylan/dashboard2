@@ -1,14 +1,15 @@
 // components/FulfillChart.tsx
 import React from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { FulfillChartData } from '../../types';
 
 interface FulfillChartProps {
   data: FulfillChartData[];
   title: string;
+  fill?: string;
 }
 
-const FulfillChart: React.FC<FulfillChartProps> = ({ data, title }) => {
+const FulfillChart: React.FC<FulfillChartProps> = ({ data, title, fill = '#82ca9d' }) => {
   if (!data || data.length === 0) {
     return (
       <div className="flex-1 p-4 text-center text-gray-500 flex flex-col items-center justify-center min-h-[400px]">
@@ -27,16 +28,17 @@ const FulfillChart: React.FC<FulfillChartProps> = ({ data, title }) => {
             <BarChart
               layout="vertical"
               data={data}
-              margin={{ top: 5, right: 20, left: 5, bottom: 5 }}
+              margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--recharts-grid-stroke)" />
-              <XAxis type="number" stroke="var(--recharts-text-color)" />
+              <XAxis type="number" stroke="var(--recharts-text-color)" allowDecimals={false} />
               <YAxis
                 type="category"
                 dataKey="name"
-                tick={false}
-                width={10}
+                width={180}
                 stroke="var(--recharts-text-color)"
+                fontSize={10}
+                tick={{ fill: 'var(--recharts-text-color)' }}
+                tickFormatter={(value) => (value.length > 40 ? `${value.substring(0, 40)}...` : value)}
               />
               <Tooltip
                 contentStyle={{
@@ -52,11 +54,13 @@ const FulfillChart: React.FC<FulfillChartProps> = ({ data, title }) => {
               />
               <Bar
                 dataKey="count"
-                name="Fulfillment Count"
-                fill="#82ca9d"
+                name="Count"
+                fill={fill}
                 radius={[0, 4, 4, 0]}
                 animationDuration={800}
-              />
+              >
+                <LabelList dataKey="count" position="right" fill="var(--recharts-text-color)" fontSize={10} offset={10} />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>

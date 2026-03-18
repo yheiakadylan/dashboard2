@@ -2,6 +2,7 @@ import React, { useState, useMemo, useLayoutEffect, useCallback } from 'react';
 import { compareValues, SortDirection } from '../../utils/sortUtils';
 import { FixedSizeList as List, VariableSizeList } from 'react-window';
 import { HIDDEN_MOBILE_HEADERS } from '../../constants';
+import { getColumnStyle } from '../../constants/columnConfigs';
 import EmptyState from './EmptyState';
 import DesktopRow from '../datatable/DesktopRow';
 import MobileCard from '../datatable/MobileCard';
@@ -175,6 +176,21 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         const row = sortedData[index];
         if (!row) return FALLBACK_H;
 
+        // --- Helper: Count lines including subtitles ---
+        const getExtraHeight = (val: any, charsPerLine: number, lineH: number) => {
+            if (!val) return 0;
+            let str = '';
+            let subtitleExtra = 0;
+            if (typeof val === 'object' && val.type === 'text_with_subtitle') {
+                str = String(val.main || '');
+                if (val.subtitle) subtitleExtra = lineH;
+            } else {
+                str = String(val);
+            }
+            const lines = Math.ceil(str.length / charsPerLine);
+            return (Math.max(0, lines - 1) * lineH) + subtitleExtra;
+        };
+
         const findH = (name: string) => headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
 
         // === SUPPORT LAYOUT (Message / Help Kind) ===
@@ -184,7 +200,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         if (hasSupportLayout) {
             const SUPPORT_BASE = 124; // header + footer + padding
             const LINE_H = 22;  // leading-relaxed 14px ≈ 22px/line
-            const CHARS_PER_LINE = 36;  // ký tự/dòng tại font 14px, ~320px width
+            const CHARS_PER_LINE = 36;  
 
             const msgVal = String(row[msgIdx] || '');
             const estimatedLines = msgVal.split('\n').reduce((acc, line) => {
@@ -195,24 +211,26 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         }
 
         // === PRODUCT ORDER LAYOUT (Image) ===
-        const hasImage = headers.some(h => h === 'Image');
+        const imageIdx = findH('image');
+        const hasImage = imageIdx !== -1;
+
         if (!hasImage) {
             // === GENERIC LAYOUT (Fulfill, Overview, Daily Breakdown, etc.) ===
-            const GENERIC_BASE = 102; // title block + padding
-            const GENERIC_ROW_H = 40;  // 1 grid row (label + value)
+            let genericBase = 102; // title block + padding
+            const GENERIC_ROW_H = 40; 
+            const EXTRA_LINE_H = 18;
+            const CHARS_PER_CELL = 18;
 
-            // Match Tailwind breakpoints: sm: 640px, md: 768px, lg: 1024px
-            let GRID_COLS = 2;   // default fallback
+            // Detect subtitle in header (Index 0)
+            genericBase += getExtraHeight(row[0], 25, EXTRA_LINE_H);
+
+            let GRID_COLS = 2;
             if (typeof window !== 'undefined') {
                 const vw = window.innerWidth;
                 if (vw >= 1024) GRID_COLS = 5;
                 else if (vw >= 768) GRID_COLS = 4;
                 else if (vw >= 640) GRID_COLS = 3;
             }
-
-            const EXTRA_LINE_H = 20;  // extra per wrapped value line
-            const CHARS_PER_CELL = 18;  // ~148px cell / 14px font
-            const ACTION_H = 48;  // "Click for details" button: border + pt-2 + btn ~36px
 
             const actionIdx2 = findH('action') !== -1 ? findH('action') : findH('details');
             const hasAction = actionIdx2 !== -1;
@@ -224,20 +242,18 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                 const val = row[i];
                 const isFunds = h.toLowerCase().includes('funds');
                 if (!isFunds && (val === null || val === '-' || val === '' || (val === 0 && !h.toLowerCase().includes('count')))) return;
+                
                 genericBodyCount++;
-
-                // Extra height if value text wraps
-                const strVal = typeof val === 'string' ? val : String(val || '');
-                const lines = Math.ceil(strVal.length / CHARS_PER_CELL);
-                if (lines > 1) extraWrapHeight += (lines - 1) * EXTRA_LINE_H;
+                extraWrapHeight += getExtraHeight(val, CHARS_PER_CELL, EXTRA_LINE_H);
             });
 
             const genericRows = Math.max(1, Math.ceil(genericBodyCount / GRID_COLS));
-            const actionExtra = hasAction ? ACTION_H : 0;
-            return GENERIC_BASE + genericRows * GENERIC_ROW_H + extraWrapHeight + actionExtra + 8;
+            const actionExtra = hasAction ? 48 : 0;
+            return genericBase + genericRows * GENERIC_ROW_H + extraWrapHeight + actionExtra + 12;
         }
 
-        const imageIdx = findH('image');
+
+
         const productIdx = findH('product name');
         const orderIdIdx = findH('order number') !== -1 ? findH('order number') : findH('order id');
         const actionIdx = findH('action') !== -1 ? findH('action') : findH('details');
@@ -263,13 +279,26 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         });
 
         const gridRows = Math.max(1, Math.ceil(bodyCount / 2));
+        
+        // Calculate extra height for wrap/subtitle in product name or other fields
+        let extraWrapHeight = 0;
+        const EXTRA_LINE_H = 18;
+        
+        // Product name wrapping (capped at 2 lines by line-clamp-2)
+        const productVal = productIdx !== -1 ? row[productIdx] : '';
+        if (productVal) {
+            const str = typeof productVal === 'object' ? String(productVal.main || '') : String(productVal);
+            if (str.length > 30) extraWrapHeight += EXTRA_LINE_H; // ~30 chars per line in mobile layout
+            if (typeof productVal === 'object' && productVal.subtitle) extraWrapHeight += EXTRA_LINE_H;
+        }
 
-        // Footer ch\u1ec9 hi\u1ec7n khi c\u00f3 account ho\u1eb7c date \u2014 n\u1ebfu kh\u00f4ng c\u00f3, b\u1ecf footer h\u1ecfi kh\u1ecfi BASE
+        // Footer chỉ hiện khi có account hoặc date — nếu không có, bỏ footer hỏi khỏi BASE
         const FOOTER_H = 36;
         const hasFooter = accountIdx !== -1 || dateIdx !== -1;
         const effectiveBase = hasFooter ? BASE_HEIGHT : BASE_HEIGHT - FOOTER_H;
 
-        return effectiveBase + gridRows * GRID_ROW_H;
+        return effectiveBase + gridRows * GRID_ROW_H + extraWrapHeight + 8;
+
     }, [sortedData, headers, isMobile, mobileRowHeight, width]);
 
     const totalMobileHeight = useMemo(() => {
@@ -334,51 +363,19 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                     style={{ width: safeWidth || '100%' }}
                 >
                     {headers.map((header, index) => {
+                        const config = getColumnStyle(header);
                         const isHidden = isHiddenOnDesktopMobileView(header);
                         const canSort = header !== 'Image' && header !== 'Actions';
+                        
                         let headerCellClass = `${isHidden ? 'hidden lg:flex' : 'flex'} min-w-0 items-center h-full px-3 py-2 ${canSort ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600' : ''} transition-colors `;
+                        if (config.justify) headerCellClass += `justify-${config.justify} `;
 
-                        switch (header) {
-                            case 'Image':
-                                headerCellClass += 'flex-none w-[95px] justify-center';
-                                break;
-                            case 'Product Name':
-                                headerCellClass += 'flex-grow-[3] basis-1/4 ';
-                                break;
-                            case 'Order Number':
-                            case 'Order ID':
-                                headerCellClass += 'flex-1 basis-[110px]'; // Compact width for order numbers
-                                break;
-                            case 'Revenue':
-                            case 'Cost':
-                            case 'Currency':
-                            case 'Curren':
-                                headerCellClass += 'flex-1 basis-[80px]';
-                                break;
-                            case 'Message':
-                            case 'Help Kind':
-                                headerCellClass += 'flex-[2] basis-[250px]';
-                                break;
-                            case 'Fulfill':
-                            case 'Account':
-                                headerCellClass += 'flex-1 basis-[120px]';
-                                break;
-                            case 'DateTime':
-                            case 'Date':
-                                headerCellClass += 'flex-1 basis-[110px]'; // Increased width
-                                break;
-                            case 'Actions':
-                                headerCellClass += 'flex-none w-[90px] justify-center'; // Decreased width
-                                break;
-                            default:
-                                headerCellClass += 'flex-1 basis-[120px]';
-                                break;
-                        }
-
-                        // Apply custom width if provided
-                        const customHeaderStyle = columnWidths && columnWidths[header]
-                            ? { flexBasis: `${columnWidths[header]}px`, minWidth: `${columnWidths[header]}px`, width: `${columnWidths[header]}px` }
-                            : { width: undefined }; // Need to reset width if used in style tag previously
+                        const customHeaderStyle = {
+                            flexGrow: config.flexGrow ?? 1,
+                            flexShrink: 0,
+                            flexBasis: config.basis.includes('/') ? `${(eval(config.basis) * 100)}%` : config.basis,
+                            ...(columnWidths && columnWidths[header] ? { minWidth: `${columnWidths[header]}px`, width: `${columnWidths[header]}px`, flexBasis: `${columnWidths[header]}px` } : {})
+                        };
 
                         return (
                             <div

@@ -23,26 +23,37 @@ const Pagination: React.FC<PaginationProps> = ({ currentPage, totalPages, onPage
                 <ChevronLeft size={14} /> Previous
             </button>
             <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    // Show pages around current page
-                    let pageNum = i;
-                    if (totalPages > 5) {
-                        if (currentPage > 2) {
-                            pageNum = currentPage - 2 + i;
-                            if (pageNum >= totalPages) pageNum = totalPages - (5 - i);
-                        }
+                {(() => {
+                    const delta = 2; // Number of pages to show before and after current
+                    let start = Math.max(0, currentPage - delta);
+                    let end = Math.min(totalPages - 1, currentPage + delta);
+
+                    // Adjust start/end to always show 5 pages if possible
+                    if (currentPage <= delta) {
+                        end = Math.min(totalPages - 1, 4);
+                    } else if (currentPage >= totalPages - 1 - delta) {
+                        start = Math.max(0, totalPages - 5);
                     }
 
-                    return (
+                    const pages = [];
+                    for (let i = start; i <= end; i++) {
+                        pages.push(i);
+                    }
+
+                    return pages.map(pageNum => (
                         <button
                             key={pageNum}
                             onClick={() => onPageChange(pageNum)}
-                            className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold transition-all ${currentPage === pageNum ? 'bg-indigo-600 text-white shadow-md' : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'}`}
+                            className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold transition-all ${
+                                currentPage === pageNum 
+                                    ? 'bg-indigo-600 text-white shadow-md' 
+                                    : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'
+                            }`}
                         >
                             {pageNum + 1}
                         </button>
-                    );
-                })}
+                    ));
+                })()}
             </div>
             <button
                 onClick={() => onPageChange(Math.min(totalPages - 1, currentPage + 1))}

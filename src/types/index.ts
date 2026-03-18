@@ -151,8 +151,13 @@ export interface TopProduct {
   name: string;
   quantity: number;
   revenue: number;
+  revenueUSD?: number; // Normalized revenue for ranking
+  currency?: string;
   image?: string; // Added image field
   code?: string; // Added code field for categories
+  classification?: string; // Original variant string
+  size?: string; // Extracted size
+  listing_id?: string;
 }
 
 export interface ProcessedData {
@@ -169,7 +174,10 @@ export interface ProcessedData {
     table: TableData;
     merchizeChartData: FulfillChartData[];
     printwayChartData: FulfillChartData[];
+    allProductChartData: FulfillChartData[];
+    refundedChartData: FulfillChartData[];
     totalCost: number; // Sum of all costs in displayed records
+    refundRate: number; // (Refunded Orders / Total Orders) * 100
   };
   summary: {
     kpis: KpiData;

@@ -63,12 +63,7 @@ const UserManager: React.FC = () => {
 
       userList.forEach(u => {
         if (u.role === 'user' && !u.permissions) {
-          u.permissions = {
-            viewSales: false,
-            viewFunds: false,
-            viewFulfill: false,
-            canManageSettings: false,
-          };
+          u.permissions = {};
         }
       });
       setUsers(userList.sort((a, b) => a.role.localeCompare(b.role) || a.email.localeCompare(b.email)));

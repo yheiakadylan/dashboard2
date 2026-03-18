@@ -3,18 +3,13 @@ export interface UserRole {
   email: string;
   role: 'owner' | 'user';
   permissions: {
-    // Legacy permissions (for backward compatibility)
-    viewSales?: boolean;
-    viewFunds?: boolean;
-    viewFulfill?: boolean;
-    canManageSettings?: boolean;
-
     // Tab permissions
     viewOverviewTab?: boolean;
     viewOrderListTab?: boolean;
     viewProductsTab?: boolean;
     viewSupportTab?: boolean;
     viewFulfillTab?: boolean;
+    viewListingTab?: boolean;
 
     // KPI permissions
     viewKpiOrders?: boolean;
@@ -24,10 +19,22 @@ export interface UserRole {
     viewKpiCost?: boolean;
     viewKpiEarn?: boolean;
 
+    // Provider/Platform permissions
+    viewMerchizeData?: boolean;
+    viewPrintwayData?: boolean;
+    viewEbayData?: boolean;
+    viewEtsyData?: boolean;
+
     // Action permissions
     canEditCost?: boolean;
     canExportData?: boolean;
     canManageUsers?: boolean;
+    canManageMailSettings?: boolean;
+    canManageSettings?: boolean;
+    canManageMappings?: boolean;
+    canResyncOrder?: boolean;
+    canSyncData?: boolean;
+    canManageListingTracking?: boolean;
   };
   allowedAccounts?: string[];
 }

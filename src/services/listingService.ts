@@ -3,6 +3,7 @@ import { collection, query, where, getDocs, orderBy, limit, getCountFromServer, 
 import { Listing } from '../types/listing';
 import { updateRecordsInFirebase } from './firebaseService';
 import { Record, DailyStats } from '../types';
+import { decodeHTMLEntities } from '../utils/htmlDecode';
 
 export const getListingsForAccount = async (
     teamId: string,
@@ -315,6 +316,89 @@ export const applyListingIdsToRecord = (record: Record, imageMap: Map<string, st
                 items: newItems || []
             } : record.details
         }
+    };
+};
+
+const isDev = import.meta.env.DEV;
+
+ //Builds mapping maps for efficient lookup in data processing worker \u2014 optimized for partial matching
+export const getListingMappingMaps = async (teamId: string, accountIds: string[]) => {
+    if (isDev) console.log('[listingService] getListingMappingMaps called for team:', teamId, 'with', accountIds.length, 'accounts');
+    const imageMap = new Map<string, string>(); // Full Image URL -> ListingID
+    const nameMap = new Map<string, string>(); // Title -> ListingID
+
+    const normalizeForMapping = (title: string | undefined) => {
+        if (!title) return '';
+        let t = decodeHTMLEntities(title).trim().toLowerCase();
+        return t.split(/[\-\u2013\u2014\(\[,\/]/)[0].trim();
+    };
+
+    try {
+        // 1. Fetch from Manifests (Global data)
+        try {
+            const manifestsCol = collection(db, 'user', teamId, 'manifests');
+            const manifestsSnap = await getDocs(manifestsCol);
+            if (isDev) console.log('[listingService] Found', manifestsSnap.size, 'manifest documents');
+            
+            manifestsSnap.forEach(doc => {
+                const data = doc.data();
+                const listings = data.listings || {}; // ID -> Hash "title|image|price"
+                Object.entries(listings).forEach(([listingId, hash]) => {
+                    if (typeof hash === 'string') {
+                        const [title, imageUrl] = hash.split('|');
+                        if (imageUrl && imageUrl.trim()) {
+                            imageMap.set(imageUrl.trim(), listingId);
+                        }
+                        
+                        if (title) {
+                            const fullTitle = decodeHTMLEntities(title).trim().toLowerCase();
+                            const baseName = normalizeForMapping(title);
+                            if (!nameMap.has(fullTitle)) nameMap.set(fullTitle, listingId);
+                            if (baseName && !nameMap.has(baseName)) nameMap.set(baseName, listingId);
+                        }
+                    }
+                });
+            });
+        } catch (manifestErr) {
+            if (isDev) console.warn('[listingService] Manifest mapping failed:', manifestErr);
+        }
+
+        // 2. Fetch from individual account listings
+        const promises = accountIds.map(async (accId) => {
+            try {
+                const colRef = collection(db, 'user', teamId, 'accounts', accId, 'listings');
+                const snap = await getDocs(colRef);
+                
+                snap.forEach(doc => {
+                    const data = doc.data();
+                    const listingId = doc.id;
+                    
+                    if (data.image && data.image.trim()) {
+                        imageMap.set(data.image.trim(), listingId);
+                    }
+                    
+                    if (data.title) {
+                        const fullTitle = decodeHTMLEntities(data.title).trim().toLowerCase();
+                        const baseName = normalizeForMapping(data.title);
+                        if (!nameMap.has(fullTitle)) nameMap.set(fullTitle, listingId);
+                        if (baseName && !nameMap.has(baseName)) nameMap.set(baseName, listingId);
+                    }
+                });
+            } catch (accErr) {
+                if (isDev) console.warn(`[listingService] Failed to fetch listings for account ${accId}:`, accErr);
+            }
+        });
+
+        await Promise.all(promises);
+    } catch (e) {
+        console.error('[listingService] Critical error in getListingMappingMaps:', e);
+    }
+
+    if (isDev) console.log(`[listingService] Mapping built: ${imageMap.size} images, ${nameMap.size} names`);
+
+    return { 
+        imageMap: Object.fromEntries(imageMap), 
+        nameMap: Object.fromEntries(nameMap) 
     };
 };
 
@@ -737,18 +821,17 @@ function getWeekNumber(date: Date): number {
 }
 
 function comparePeriods(a: string, b: string, viewMode: ViewMode): number {
-    if (viewMode === 'daily') {
-        return a.localeCompare(b);
-    } else if (viewMode === 'weekly') {
-        const [, weekA, yearA] = a.match(/Week (\d+) (\d{4})/) || [];
-        const [, weekB, yearB] = b.match(/Week (\d+) (\d{4})/) || [];
-        if (yearA !== yearB) return parseInt(yearA) - parseInt(yearB);
-        return parseInt(weekA) - parseInt(weekB);
-    } else {
-        const [monthA, yearA] = a.split(' ');
-        const [monthB, yearB] = b.split(' ');
-        if (yearA !== yearB) return parseInt(yearA) - parseInt(yearB);
+    if (viewMode === 'daily') return a.localeCompare(b);
+    if (viewMode === 'monthly') {
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        return months.indexOf(monthA) - months.indexOf(monthB);
+        const [ma, ya] = a.split(' ');
+        const [mb, yb] = b.split(' ');
+        if (ya !== yb) return parseInt(ya) - parseInt(yb);
+        return months.indexOf(ma) - months.indexOf(mb);
     }
+    // Weekly: "Week 6 2026"
+    const [wa, numa, ya] = a.split(' ');
+    const [wb, numb, yb] = b.split(' ');
+    if (ya !== yb) return parseInt(ya) - parseInt(yb);
+    return parseInt(numa) - parseInt(numb);
 }

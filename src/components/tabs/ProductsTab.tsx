@@ -6,13 +6,12 @@ import DataTable from '../ui/DataTable';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import { useUI } from '../../contexts/UIContext';
 import { useDashboard } from '../../contexts/DashboardContext';
-import { Tag } from 'lucide-react';
+import { hasPermission } from '../../utils/permissionHelper';
 import CategoryManagementModal from '../modals/CategoryManagementModal';
 import { useNotification } from '../../contexts/NotificationContext';
-
 import TopProductsChart from '../charts/TopProductsChart';
 import Pagination from '../ui/Pagination';
-import { Search, Filter, CheckSquare, X, ChevronRight, Zap, Package, ChevronLeft } from 'lucide-react';
+import { Search, Filter, CheckSquare, X, ChevronRight, Zap, Package, ChevronLeft, Check, ChevronDown, Tag } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 200;
 
@@ -23,8 +22,10 @@ interface ProductsTabProps {
 const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
     const isDesktop = useMediaQuery('(min-width: 768px)');
     const { globalUsdMode } = useUI();
-    const { exchangeRates, categories, updateMapping, bulkSaveCategories } = useDashboard();
+    const { exchangeRates, categories, updateMapping, bulkSaveCategories, role, permissions } = useDashboard();
     const { addNotification } = useNotification();
+
+    const canManageMappings = useMemo(() => hasPermission(role, permissions, 'canManageMappings'), [role, permissions]);
     
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
     const [isSavingCategories, setIsSavingCategories] = useState(false);
@@ -128,7 +129,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
         // Apply Category Filter first (faster)
         if (categoryFilter !== 'All') {
             rows = rows.filter(row => {
-                const rowCatCode = row[9] || row[2]; // Use hidden code or fallback to display name
+                const rowCatCode = row[10] || row[3]; // Updated indices: 10 is category code, 3 is category display name
                 if (categoryFilter === 'Unmapped') {
                     return String(rowCatCode).toLowerCase() === 'unmapped' || !rowCatCode;
                 }
@@ -140,7 +141,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
         if (searchTerm) {
             rows = rows.filter(row => {
                 const name = String(row[1] || '');
-                const variant = String(row[3] || '');
+                const variant = String(row[4] || ''); // Index 4 is now Variant/Size
                 const combined = `${name} ${variant}`;
                 return filterByAdvancedSearch(combined, searchTerm);
             });
@@ -150,7 +151,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
     }, [processedData.products.rows, searchTerm, categoryFilter, filterByAdvancedSearch]);
 
     const handleSelectAll = useCallback(() => {
-        const allFilteredKeys = filteredRows.map(row => `${row[1]}|${row[3]}`);
+        const allFilteredKeys = filteredRows.map(row => `${row[1]}|${row[4]}`);
         const allSelected = allFilteredKeys.every(key => selectedIds.has(key));
 
         if (allSelected) {
@@ -170,14 +171,15 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
         }
     }, [filteredRows, selectedIds]);
 
-    // Headers: ['Checkbox', 'Image', 'Product Name', 'Category', 'Variant/Size', 'Shop', 'Quantity', 'Revenue']
+    // Headers: ['Checkbox', 'Image', 'Product Name', 'Listing ID', 'Category', 'Variant/Size', 'Shop', 'Quantity', 'Revenue']
     const displayRows = useMemo(() => {
         const rows = filteredRows;
         
         return rows.map(row => {
             const pName = row[1] as string;
-            const pCategory = row[2] as string;
-            const pVariant = row[3] as string;
+            const pListingId = row[2] as string;
+            const pCategory = row[3] as string;
+            const pVariant = row[4] as string;
             const rowKey = `${pName}|${pVariant}`;
 
             const checkbox = {
@@ -186,19 +188,19 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                 checked: selectedIds.has(rowKey)
             };
 
-            const categoryComponent = {
+            const categoryComponent = canManageMappings ? {
                 type: 'mapping_select' as const,
-                value: row[9] || pCategory, // Use code (row[9]) for select value, fallback to display name
+                value: row[10] || pCategory, // Index 10 is category code
                 name: pName,
                 variant: pVariant,
                 categories: categories,
                 onCategoryChange: handleCategoryChange
-            };
+            } : pCategory;
 
-            const currency = row[7] as string;
-            const rawRevenue = row[8] as number;
+            const currency = row[8] as string; // Index 8 is currency
+            const rawRevenue = row[9] as number; // Index 9 is raw revenue
             
-            let revenueCell = row[6];
+            let revenueCell = row[7]; // Index 7 is formatted revenue
             
             if (globalUsdMode && exchangeRates) {
                 const rate = (currency && currency !== 'USD' && exchangeRates[currency])
@@ -216,14 +218,15 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                 checkbox,
                 row[0], 
                 pName, 
+                pListingId,
                 categoryComponent, 
                 pVariant, 
-                row[4], 
-                row[5], 
+                row[5], // Shop
+                row[6], // Quantity
                 revenueCell
             ];
         });
-    }, [filteredRows, globalUsdMode, exchangeRates, categories, handleCategoryChange, selectedIds]);
+    }, [filteredRows, globalUsdMode, exchangeRates, categories, handleCategoryChange, selectedIds, canManageMappings]);
 
     const headers = ['Select', ...processedData.products.headers];
 
@@ -236,7 +239,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
         <div className="flex flex-col min-h-0 h-full bg-gray-50 dark:bg-gray-900">
             <div className="flex-1 overflow-y-auto p-2 md:p-6 pb-24 md:pb-6">
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 relative hover:z-50 transition-all duration-300">
                         <ChartErrorBoundary>
                             <TopProductsChart
                                 data={processedData.summary.topProductsByShop}
@@ -244,10 +247,11 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                             />
                         </ChartErrorBoundary>
                     </div>
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 relative hover:z-50 transition-all duration-300">
                         <ChartErrorBoundary>
                             <TopProductsChart
                                 data={{ "Comparison": processedData.summary.categoryComparison }}
+                                detailedData={processedData.summary.topProductsByCategory}
                                 title="Sales by Category"
                                 hideTitle={false}
                                 onItemClick={handleCategoryClick}
@@ -257,123 +261,144 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                 </div>
 
                 <div className="mb-8" ref={inventoryRef} id="inventory-section">
-                    <div className="flex flex-col h-[750px] border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
-                        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gray-50/50 dark:bg-gray-800/50 relative">
-                            {/* Simple Selection Overlay (Overlay Header when selecting) */}
-                            {selectedIds.size > 0 && (
-                                <div className="absolute inset-0 z-20 bg-indigo-600 text-white flex flex-col sm:flex-row items-center justify-between p-4 gap-4 animate-in fade-in duration-200">
-                                    <div className="flex items-center gap-6">
-                                        <div className="flex flex-col">
-                                            <span className="text-lg font-bold leading-tight">{selectedIds.size} Selected</span>
-                                            <div className="flex gap-4">
-                                                <button onClick={handleSelectAll} className="text-[10px] underline text-indigo-100 hover:text-white uppercase font-bold tracking-wider">Select all {filteredRows.length}</button>
-                                                <button onClick={() => setSelectedIds(new Set())} className="text-[10px] underline text-indigo-100 hover:text-white uppercase font-bold tracking-wider">Clear Selection</button>
+                    <div className="flex flex-col h-auto md:h-[800px] border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 overflow-visible md:overflow-hidden shadow-sm">
+                        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md relative z-30">
+                            {/* Improved Selection Overlay */}
+                            {selectedIds.size > 0 && canManageMappings && (
+                                <div className="absolute inset-0 z-40 bg-indigo-600 text-white flex items-center px-6 animate-in slide-in-from-top duration-300">
+                                    <div className="flex items-center justify-between w-full">
+                                        <div className="flex items-center gap-8">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                                                    <Check size={20} className="text-white" strokeWidth={3} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-base font-bold leading-none">{selectedIds.size} Selected</p>
+                                                    <p className="text-[10px] text-indigo-100 uppercase tracking-wider font-semibold mt-1">Bulk Mapping Mode</p>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="hidden md:flex items-center gap-4 border-l border-white/20 pl-8">
+                                                <button 
+                                                    onClick={handleSelectAll} 
+                                                    className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all border border-white/10 active:scale-95"
+                                                >
+                                                    Select all {filteredRows.length}
+                                                </button>
+                                                <button 
+                                                    onClick={() => setSelectedIds(new Set())} 
+                                                    className="px-4 py-2 bg-red-500/20 hover:bg-red-500/40 rounded-xl text-xs font-bold transition-all text-red-50 active:scale-95"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-4">
+                                            <span className="text-sm font-bold text-indigo-100 hidden sm:block">Assign To:</span>
+                                            <div className="relative group">
+                                                <select 
+                                                    className="bg-white text-indigo-900 text-sm font-bold rounded-xl px-5 py-2.5 min-w-[220px] outline-none ring-4 ring-black/10 cursor-pointer appearance-none pr-10 hover:shadow-lg transition-all"
+                                                    onChange={(e) => e.target.value && handleBulkApply(e.target.value)}
+                                                    defaultValue=""
+                                                >
+                                                    <option value="" disabled>Choose Category...</option>
+                                                    {[...categories].sort((a, b) => a.name.localeCompare(b.name)).map(cat => (
+                                                        <option key={cat.code} value={cat.code}>{cat.name}</option>
+                                                    ))}
+                                                </select>
+                                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                                                    <ChevronDown size={14} className="text-indigo-600" />
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3 w-full sm:w-auto">
-                                        <span className="text-xs font-semibold whitespace-nowrap">Bulk Map to:</span>
-                                        <select 
-                                            className="bg-indigo-700 border border-indigo-500 text-white text-sm rounded-lg p-2 focus:ring-2 focus:ring-white/50 outline-none w-full sm:w-56"
-                                            onChange={(e) => e.target.value && handleBulkApply(e.target.value)}
-                                            defaultValue=""
-                                        >
-                                            <option value="" disabled>-- Select Category --</option>
+                                </div>
+                            )}
+
+                            <div className="flex flex-col sm:flex-row items-center gap-6 w-full lg:w-auto">
+                                <div className="flex items-center gap-6">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2.5 bg-indigo-50 dark:bg-indigo-900/40 rounded-xl">
+                                            <Package size={20} className="text-indigo-600 dark:text-indigo-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-base font-bold text-gray-900 dark:text-white leading-none mb-1">Details</h3>
+                                            <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wider">Inventory Mapping</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Selection Control - Checkbox style */}
+                                    <div className="h-8 w-px bg-gray-200 dark:bg-gray-700 hidden sm:block"></div>
+                                    
+                                    <label className="relative flex items-center gap-2.5 cursor-pointer group select-none">
+                                        <div className="relative">
+                                            <input 
+                                                type="checkbox" 
+                                                className="peer sr-only" 
+                                                checked={filteredRows.length > 0 && filteredRows.every(row => selectedIds.has(`${row[1]}|${row[4]}`))}
+                                                onChange={handleSelectAll}
+                                            />
+                                            <div className="w-5 h-5 bg-white dark:bg-gray-900 border-2 border-gray-300 dark:border-gray-600 rounded-lg transition-all peer-checked:bg-indigo-600 peer-checked:border-indigo-600 group-hover:border-indigo-500 shadow-sm"></div>
+                                            <Check className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white opacity-0 transition-opacity peer-checked:opacity-100" strokeWidth={4} />
+                                        </div>
+                                        <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                                            {filteredRows.length > 0 && filteredRows.every(row => selectedIds.has(`${row[1]}|${row[4]}`)) ? 'Deselect' : 'Select All'}
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto flex-1 lg:justify-end">
+                                <div className="relative w-full sm:w-80 group">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <Search size={16} className="text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        placeholder="Search products..."
+                                        className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                        <span className="px-1.5 py-0.5 bg-gray-200/50 dark:bg-gray-800 rounded text-[9px] font-bold text-gray-500 uppercase tracking-tighter">
+                                            {filteredRows.length} found
+                                        </span>
+                                    </div>
+                                </div>
+                                
+                                <div className="relative w-full sm:w-52">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <Filter size={14} className="text-indigo-600" />
+                                    </div>
+                                    <select
+                                        className="w-full pl-9 pr-10 py-2 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none appearance-none cursor-pointer font-medium"
+                                        value={categoryFilter}
+                                        onChange={(e) => setCategoryFilter(e.target.value)}
+                                    >
+                                        <option value="All">All Categories</option>
+                                        <option value="Unmapped">Unmapped</option>
+                                        <optgroup label="Categories">
                                             {[...categories].sort((a, b) => a.name.localeCompare(b.name)).map(cat => (
                                                 <option key={cat.code} value={cat.code}>{cat.name}</option>
                                             ))}
-                                        </select>
+                                        </optgroup>
+                                    </select>
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                                        <ChevronDown size={14} className="text-gray-400" />
                                     </div>
                                 </div>
-                            )}
-                            <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
-                                <div className="flex items-center gap-4">
-                                    <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                                        <Package size={20} className="text-indigo-600" />
-                                        Details
-                                    </h3>
+
+                                {canManageMappings && (
                                     <button
-                                        onClick={handleSelectAll}
-                                        className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 hover:text-indigo-600 transition-all shadow-sm"
+                                        onClick={() => setIsCategoryModalOpen(true)}
+                                        className="flex items-center justify-center gap-2 h-[38px] px-5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 rounded-xl shadow-sm hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all font-bold text-xs uppercase tracking-widest active:scale-95 w-full sm:w-auto"
                                     >
-                                        {filteredRows.length > 0 && filteredRows.every(row => selectedIds.has(`${row[1]}|${row[3]}`)) ? (
-                                            <React.Fragment key="deselect">
-                                                <X size={12} className="text-red-500" />
-                                                <span>Deselect All</span>
-                                            </React.Fragment>
-                                        ) : (
-                                            <React.Fragment key="select">
-                                                <CheckSquare size={12} className="text-indigo-500" />
-                                                <span>Select All</span>
-                                            </React.Fragment>
-                                        )}
+                                        <Tag size={13} className="text-indigo-500" />
+                                        <span>Category</span>
                                     </button>
-                                </div>
-                                <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-                                    <div className="relative w-full sm:w-96 group">
-                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                            <Search size={14} className="text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
-                                        </div>
-                                        <input
-                                            type="text"
-                                            placeholder="Search (+include, -exclude)..."
-                                            className="w-full pl-9 pr-3 py-2 border border-gray-200 dark:border-gray-600 rounded-xl text-sm bg-white dark:bg-gray-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm"
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                        />
-                                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-[10px] text-gray-400 font-mono">
-                                            {filteredRows.length} found
-                                        </div>
-                                    </div>
-                                    <div className="relative w-full sm:w-48 group">
-                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                            <Filter size={14} className="text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
-                                        </div>
-                                        <select
-                                            className="w-full pl-9 pr-3 py-2 border border-gray-200 dark:border-gray-600 rounded-xl text-sm bg-white dark:bg-gray-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all appearance-none shadow-sm cursor-pointer"
-                                            value={categoryFilter}
-                                            onChange={(e) => setCategoryFilter(e.target.value)}
-                                        >
-                                            <option value="All">All Categories</option>
-                                            <option value="Unmapped">Unmapped</option>
-                                            <optgroup label="Category">
-                                                {[...categories].sort((a, b) => a.name.localeCompare(b.name)).map(cat => (
-                                                    <option key={cat.code} value={cat.code}>{cat.name}</option>
-                                                ))}
-                                            </optgroup>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3 w-full md:w-auto">
-                                {totalPages > 1 && (
-                                    <div className="flex items-center gap-2 bg-white dark:bg-gray-700 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-gray-600 shadow-sm">
-                                        <button
-                                            onClick={() => setCurrentPage(prev => Math.max(0, prev - 1))}
-                                            disabled={currentPage === 0}
-                                            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg disabled:opacity-30 transition-colors"
-                                        >
-                                            <ChevronLeft size={16} />
-                                        </button>
-                                        <span className="text-xs font-bold text-gray-600 dark:text-gray-300 min-w-[60px] text-center">
-                                            {currentPage + 1} / {totalPages}
-                                        </span>
-                                        <button
-                                            onClick={() => setCurrentPage(prev => Math.min(totalPages - 1, prev + 1))}
-                                            disabled={currentPage >= totalPages - 1}
-                                            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg disabled:opacity-30 transition-colors"
-                                        >
-                                            <ChevronRight size={16} />
-                                        </button>
-                                    </div>
                                 )}
-                                <button
-                                    onClick={() => setIsCategoryModalOpen(true)}
-                                    className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md hover:shadow-lg transition-all font-semibold text-sm flex-1 md:flex-none active:scale-95"
-                                >
-                                    <Tag size={16} />
-                                    <span>Category</span>
-                                </button>
                             </div>
                         </div>
 
@@ -389,13 +414,14 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                                     onToggleSelect={toggleSelect}
                                     onRowClick={(row) => {
                                         const pName = row[2] as string;
-                                        const pVariant = row[4] as string;
+                                        const pVariant = row[5] as string;
                                         toggleSelect(`${pName}|${pVariant}`);
                                     }}
                                     columnWidths={{
                                         'Select': 50,
                                         'Image': 80,
-                                        'Product Name': 350,
+                                        'Product Name': 300,
+                                        'Listing ID': 140,
                                         'Category': 160,
                                         'Variant/Size': 180,
                                         'Shop': 120,

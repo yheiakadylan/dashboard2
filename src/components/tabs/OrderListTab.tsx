@@ -48,17 +48,23 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
         setCurrentPage(0);
     }, [dayFilter, sourceFilter, statusFilter]);
 
-    // Identify hidden column indices
-    const variantsIndex = processedData.orders.headers.findIndex(h => h === 'Variants');
-    const sourceIndex = processedData.orders.headers.findIndex(h => h === 'Source');
-    const recordIdIndex = ORDER_LIST_INDICES.RECORD_ID; // Hidden record ID column (index 14)
+    // Identify column indices safely
+    const orderHeaders = processedData.orders.headers;
+    const variantsIndex = orderHeaders.findIndex(h => h.toLowerCase().includes('variant'));
+    const sourceIndex = orderHeaders.findIndex(h => h.toLowerCase() === 'source');
+    const recordIdIndex = ORDER_LIST_INDICES.RECORD_ID; // index 13
 
-    // Filter out Variants, Source, and hidden record ID from headers for UI display
+    // Indices of columns we actually want to show in the table
+    const displayIndices = useMemo(() => {
+        return orderHeaders
+            .map((_, i) => i)
+            .filter(i => i !== variantsIndex && i !== sourceIndex);
+    }, [orderHeaders.length, variantsIndex, sourceIndex]);
+
+    // Derived headers for UI display
     const displayHeaders = useMemo(() => {
-        return processedData.orders.headers.filter((_, i) =>
-            i !== variantsIndex && i !== sourceIndex && i !== recordIdIndex
-        );
-    }, [processedData.orders.headers, variantsIndex, sourceIndex, recordIdIndex]);
+        return displayIndices.map(i => orderHeaders[i]);
+    }, [orderHeaders, displayIndices]);
 
     // Optimizing Filtering Logic — keeps original rows intact before stripping
     const [filteredOriginalRows, displayRows] = useMemo(() => {
@@ -90,10 +96,17 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
         // Keep a reference to filtered (but not stripped) original rows for record ID lookup
         const filtered = rows;
 
-        // Strip hidden columns for display but KEEP recordId at the end for ID lookup
+        // Strip hidden columns for display but KEEP recordId and isRefunded at the end
         let stripped = rows.map(row => {
-            const displayPart = row.filter((_, i) => i !== variantsIndex && i !== sourceIndex && i !== recordIdIndex);
-            return [...displayPart, row[recordIdIndex]]; // Append recordId as last element
+            const displayPart = displayIndices.map(i => row[i]);
+            
+            // Re-append hidden metadata needed for UI logic (click & highlight)
+            // isRefunded MUST be the last element for DesktopRow/MobileCard to pick it up
+            return [
+                ...displayPart, 
+                row[recordIdIndex], 
+                row[ORDER_LIST_INDICES.IS_REFUNDED]
+            ];
         });
 
         // USD conversion: convert Revenue to USD using exchange rates
@@ -123,9 +136,10 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
         return displayRows.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE);
     }, [displayRows, currentPage]);
 
-    // When a row is clicked, the recordId is the last element of the row array
+    // When a row is clicked, the recordId is now the second to last element
+    // because isRefunded was appended afterwards at the very end.
     const handleRowClick = (row: any[]) => {
-        const recordId = row[row.length - 1] as string | undefined;
+        const recordId = row[row.length - 2] as string | undefined;
         if (recordId) {
             handleViewOrderDetails(recordId);
         }

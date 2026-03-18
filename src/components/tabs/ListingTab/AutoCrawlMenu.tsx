@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Clock, Check, ChevronDown, X } from 'lucide-react';
 import { useCrawler } from '../../../contexts/CrawlerContext';
+import { useDashboard } from '../../../contexts/DashboardContext';
+import { hasPermission } from '../../../utils/permissionHelper';
 import { CustomSelect } from '../../ui/CustomSelect';
 
 const INTERVAL_OPTIONS = [
@@ -21,6 +23,8 @@ const AutoCrawlMenu: React.FC = () => {
         autoCrawlDailyTime, setAutoCrawlDailyTime,
         nextCrawlTime
     } = useCrawler();
+    const { role, permissions } = useDashboard();
+    const canManage = hasPermission(role, permissions, 'canManageListingTracking');
 
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -81,6 +85,8 @@ const AutoCrawlMenu: React.FC = () => {
         if (hours < 1) return `${Math.round(hours * 60)}m`;
         return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
     };
+
+    if (!canManage) return null;
 
     return (
         <div className="relative" ref={menuRef}>

@@ -590,7 +590,7 @@ const ManualCostImporter: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                                         <div className="flex items-center gap-1.5">
                                                             {matchedRec.fulfill_provider && matchedRec.fulfill_provider !== row.provider ? (
                                                                 <>
-                                                                    <span className="text-gray-400 line-through decoration-red-400 decoration-2">{matchedRec.fulfill_provider}</span>
+                                                                    <span className="text-gray-400 decoration-red-400 decoration-2">{matchedRec.fulfill_provider}</span>
                                                                     <ArrowRight size={10} className="text-gray-400" />
                                                                     <span className="font-semibold text-blue-700">{row.provider}</span>
                                                                 </>
@@ -606,7 +606,7 @@ const ManualCostImporter: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                                         <div className="flex items-center gap-1.5">
                                                             {matchedRec.cost_total && Math.abs(matchedRec.cost_total - row.cost) > 0.01 ? (
                                                                 <>
-                                                                    <span className="text-gray-400 line-through text-[10px]">${matchedRec.cost_total}</span>
+                                                                    <span className="text-gray-400 text-[10px]">${matchedRec.cost_total}</span>
                                                                     <ArrowRight size={10} className="text-gray-400" />
                                                                     <span className="font-bold text-green-700 decoration-green-200 underline decoration-2">${row.cost}</span>
                                                                 </>

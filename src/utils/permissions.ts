@@ -22,7 +22,7 @@ export const getPermittedTabs = (
             case 'Fulfill':
                 return hasPermission(role, permissions, 'viewFulfillTab');
             case 'Listing':
-                return true; // All users can view Listing tab
+                return hasPermission(role, permissions, 'viewListingTab');
             default:
                 return false;
         }

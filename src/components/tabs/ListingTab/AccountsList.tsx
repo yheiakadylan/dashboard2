@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Account } from '../../../types';
 import { useDashboard } from '../../../contexts/DashboardContext';
 import { updateAccountsInFirebase } from '../../../services/firebaseService';
+import { hasPermission } from '../../../utils/permissionHelper';
 import { isExtensionInstalled, getInstallInstructions } from '../../../services/extensionCrawler'; // Removed crawlShopViaExtension
 import { Package, Play, Loader, AlertCircle, Clock, Store, Pause, ChevronDown, Download } from 'lucide-react'; // Added Pause, ChevronDown, Download
 import { formatTimeAgo } from '../../../utils/dateFormatter';
@@ -36,9 +37,10 @@ interface AccountRowProps {
     isCrawling: boolean;
     onSelectAccount: (id: string) => void;
     onToggleTracking: (id: string, enabled: boolean) => void;
+    canManage: boolean;
 }
 
-const AccountRow = React.memo(({ account, status, newCount, isCrawling, onSelectAccount, onToggleTracking }: AccountRowProps) => {
+const AccountRow = React.memo(({ account, status, newCount, isCrawling, onSelectAccount, onToggleTracking, canManage }: AccountRowProps) => {
     return (
         <tr className="hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
             <td className="px-6 py-4 whitespace-nowrap">
@@ -111,15 +113,15 @@ const AccountRow = React.memo(({ account, status, newCount, isCrawling, onSelect
             </td>
 
             <td className="px-6 py-4 whitespace-nowrap">
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className={`relative inline-flex items-center ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
                     <input
                         type="checkbox"
                         checked={account.listing_tracking_enabled || false}
-                        onChange={(e) => onToggleTracking(account.id, e.target.checked)}
-                        disabled={isCrawling}
+                        onChange={(e) => canManage && onToggleTracking(account.id, e.target.checked)}
+                        disabled={isCrawling || !canManage}
                         className="sr-only peer disabled:cursor-not-allowed"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 disabled:opacity-60"></div>
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
             </td>
             <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -134,7 +136,7 @@ const AccountRow = React.memo(({ account, status, newCount, isCrawling, onSelect
     );
 });
 
-const MobileAccountCard = React.memo(({ account, status, newCount, isCrawling, onSelectAccount, onToggleTracking }: AccountRowProps) => {
+const MobileAccountCard = React.memo(({ account, status, newCount, isCrawling, onSelectAccount, onToggleTracking, canManage }: AccountRowProps) => {
     return (
         <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
             <div className="flex justify-between items-start">
@@ -152,15 +154,15 @@ const MobileAccountCard = React.memo(({ account, status, newCount, isCrawling, o
 
             <div className="flex justify-between items-center text-sm text-gray-500">
                 <span>Listings: {account.total_listings || 0}</span>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className={`relative inline-flex items-center ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
                     <input
                         type="checkbox"
                         checked={account.listing_tracking_enabled || false}
-                        onChange={(e) => onToggleTracking(account.id, e.target.checked)}
-                        disabled={isCrawling}
+                        onChange={(e) => canManage && onToggleTracking(account.id, e.target.checked)}
+                        disabled={isCrawling || !canManage}
                         className="sr-only peer disabled:cursor-not-allowed"
                     />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 disabled:opacity-60"></div>
+                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
             </div>
 
@@ -211,7 +213,8 @@ const MobileAccountCard = React.memo(({ account, status, newCount, isCrawling, o
 });
 
 export default function AccountsList({ onSelectAccount }: AccountsListProps) {
-    const { accounts, teamId, records, setRecords, filterDateRange, timeZone } = useDashboard();
+    const { accounts, teamId, records, setRecords, filterDateRange, timeZone, role, permissions } = useDashboard();
+    const canManage = React.useMemo(() => hasPermission(role, permissions, 'canManageListingTracking'), [role, permissions]);
     // Filter accounts có platforms includes 'etsy'
     const etsyAccounts = accounts.filter(acc => acc.platforms?.includes('etsy'));
 
@@ -423,22 +426,24 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
                                 <span className="hidden sm:inline">Extension</span>
                             </a>
 
-                            <button
-                                onClick={handleMapOrders}
-                                disabled={isMapping}
-                                className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors text-sm whitespace-nowrap ${isMapping
-                                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                                    : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'
-                                    }`}
-                                title="Link Orders to Listings by Image"
-                            >
-                                {isMapping ? (
-                                    <Loader className="w-4 h-4 animate-spin" />
-                                ) : (
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-link"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
-                                )}
-                                <span className="hidden sm:inline">{isMapping ? 'Mapping...' : 'Map Orders'}</span>
-                            </button>
+                            {canManage && (
+                                <button
+                                    onClick={handleMapOrders}
+                                    disabled={isMapping}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors text-sm whitespace-nowrap ${isMapping
+                                        ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                        : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'
+                                        }`}
+                                    title="Link Orders to Listings by Image"
+                                >
+                                    {isMapping ? (
+                                        <Loader className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-link"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+                                    )}
+                                    <span className="hidden sm:inline">{isMapping ? 'Mapping...' : 'Map Orders'}</span>
+                                </button>
+                            )}
 
                             <button
                                 onClick={() => onSelectAccount('all_shops')}
@@ -450,28 +455,30 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
                                 <span className="sm:hidden">All</span>
                             </button>
 
-                            <button
-                                onClick={triggerCrawl}
-                                disabled={!isCrawling && etsyAccounts.filter(a => a.listing_tracking_enabled).length === 0}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-medium text-sm whitespace-nowrap ${isCrawling
-                                    ? 'bg-red-600 text-white hover:bg-red-700'
-                                    : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed'
-                                    }`}
-                            >
-                                {isCrawling ? (
-                                    <>
-                                        <Pause className="w-4 h-4" />
-                                        <span className="hidden sm:inline">Stop Crawl</span>
-                                        <span className="sm:hidden">Stop</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Play className="w-4 h-4" />
-                                        <span className="hidden sm:inline">Crawl</span>
-                                        <span className="sm:hidden">Crawl</span>
-                                    </>
-                                )}
-                            </button>
+                            {canManage && (
+                                <button
+                                    onClick={triggerCrawl}
+                                    disabled={!isCrawling && etsyAccounts.filter(a => a.listing_tracking_enabled).length === 0}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-medium text-sm whitespace-nowrap ${isCrawling
+                                        ? 'bg-red-600 text-white hover:bg-red-700'
+                                        : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed'
+                                        }`}
+                                >
+                                    {isCrawling ? (
+                                        <>
+                                            <Pause className="w-4 h-4" />
+                                            <span className="hidden sm:inline">Stop Crawl</span>
+                                            <span className="sm:hidden">Stop</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Play className="w-4 h-4" />
+                                            <span className="hidden sm:inline">Crawl</span>
+                                            <span className="sm:hidden">Crawl</span>
+                                        </>
+                                    )}
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -543,15 +550,15 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                 <div className="flex items-center gap-2">
                                                     Tracking
-                                                    <label className="relative inline-flex items-center cursor-pointer" title="Toggle All">
+                                                    <label className={`relative inline-flex items-center ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`} title={canManage ? "Toggle All" : "Permission Denied"}>
                                                         <input
                                                             type="checkbox"
                                                             checked={etsyAccounts.length > 0 && etsyAccounts.every(acc => acc.listing_tracking_enabled)}
-                                                            onChange={handleToggleAllTracking}
-                                                            disabled={isCrawling}
+                                                            onChange={() => canManage && handleToggleAllTracking()}
+                                                            disabled={isCrawling || !canManage}
                                                             className="sr-only peer disabled:cursor-not-allowed"
                                                         />
-                                                        <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 disabled:opacity-60"></div>
+                                                        <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
                                                     </label>
                                                 </div>
                                             </th>
@@ -570,6 +577,7 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
                                                 isCrawling={isCrawling}
                                                 onSelectAccount={onSelectAccount}
                                                 onToggleTracking={handleToggleTracking}
+                                                canManage={canManage}
                                             />
                                         ))}
                                     </tbody>
@@ -586,6 +594,7 @@ export default function AccountsList({ onSelectAccount }: AccountsListProps) {
                                         isCrawling={isCrawling}
                                         onSelectAccount={onSelectAccount}
                                         onToggleTracking={handleToggleTracking}
+                                        canManage={canManage}
                                     />
                                 ))}
                             </div>

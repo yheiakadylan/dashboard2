@@ -12,6 +12,7 @@ export interface UserPermissions {
     viewProductsTab?: boolean;      // Tab: Products
     viewSupportTab?: boolean;       // Tab: Support (Messages/Cases)
     viewFulfillTab?: boolean;       // Tab: Fulfill
+    viewListingTab?: boolean;       // Tab: Listing (Listing Tracker)
 
     // === KPI PERMISSIONS ===
     viewKpiOrders?: boolean;        // KPI Card: Total Orders
@@ -21,11 +22,22 @@ export interface UserPermissions {
     viewKpiCost?: boolean;          // KPI Card: Cost
     viewKpiEarn?: boolean;          // KPI Card: Earn (Funds - Cost)
 
+    // === PROVIDER/PLATFORM PERMISSIONS ===
+    viewMerchizeData?: boolean;     // Data: Merchize provider info/charts
+    viewPrintwayData?: boolean;     // Data: Printway provider info/charts
+    viewEbayData?: boolean;         // Data: Ebay sales data
+    viewEtsyData?: boolean;         // Data: Etsy sales data
+
     // === ACTION PERMISSIONS ===
-    canEditCost?: boolean;
-    canExportData?: boolean;
-    canManageUsers?: boolean;
-    canManageSettings?: boolean;    // Mail Edit permission
+    canEditCost?: boolean;          // Edit manual costs
+    canExportData?: boolean;        // Export Excel/CSV
+    canManageUsers?: boolean;       // Admin: User management
+    canManageMailSettings?: boolean; // Admin: Mail account management / Resync all
+    canManageSettings?: boolean;    // Admin: General settings (USD mode, etc)
+    canManageMappings?: boolean;    // Admin: Category/Product mappings
+    canResyncOrder?: boolean;       // Action: Resync single order
+    canSyncData?: boolean;          // Action: Manual sync from email/API
+    canManageListingTracking?: boolean; // Action: Toggle listing tracking for shops
 
     // Allow any other custom permissions
     [key: string]: boolean | undefined;

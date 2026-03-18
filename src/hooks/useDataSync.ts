@@ -14,6 +14,7 @@ import {
     getRecordsForDateRange,
     getAccountsFromFirebase,
     getManualCosts,
+    getRefundRecordsForOrderIds,
     db
 } from '../services/firebaseService';
 import { splitDateRange } from '../utils/dateChunking';
@@ -654,8 +655,36 @@ export const useDataSync = ({
                     return;
                 }
 
+                // Cross-check refunds (Level 1: check orders for refunds outside range)
+                const finalRecords = [...fbRecords];
+                const orderIdsToCrossCheck = fbRecords
+                    .filter(r => r.kind === 'order' && r.order_id && r.source !== 'Etsy_Refunded')
+                    .map(r => r.order_id!);
+
+                if (orderIdsToCrossCheck.length > 0) {
+                    setSyncState('Cross-checking refunds...');
+                    try {
+                        const crossCheckRefunds = await getRefundRecordsForOrderIds(teamId, orderIdsToCrossCheck);
+                        if (crossCheckRefunds.length > 0 && !signal.aborted) {
+                            const existingIds = new Set(fbRecords.map(r => r.id));
+                            let added = false;
+                            crossCheckRefunds.forEach(refRecord => {
+                                if (!existingIds.has(refRecord.id)) {
+                                    finalRecords.push(refRecord);
+                                    added = true;
+                                }
+                            });
+                            if (added) {
+                                finalRecords.sort((a, b) => (b.dt_local || '').localeCompare(a.dt_local || ''));
+                            }
+                        }
+                    } catch (ccError) {
+                        console.error("Refund cross-check failed:", ccError);
+                    }
+                }
+
                 // Update state with new data
-                setRecords(fbRecords);
+                setRecords(finalRecords);
                 setPreviousPeriodRecords(prevRecords);
 
                 // Schedule realtime sync after data stabilizes (10 second delay)

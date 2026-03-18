@@ -4,6 +4,7 @@ import CachedImage from './CachedImage';
 import { getHighResImageUrl } from '../../utils/imageUtils';
 import { ListChildComponentProps, RowData } from './types';
 import { HIDDEN_MOBILE_HEADERS } from '../../constants';
+import { getColumnStyle } from '../../constants/columnConfigs';
 
 // Helper to check if a header should be hidden on mobile (Only applied in Desktop View now)
 const isHiddenOnDesktopMobileView = (header: string) => HIDDEN_MOBILE_HEADERS.includes(header);
@@ -161,9 +162,9 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
     // isRefunded is stored as last hidden element (index 16)
     const isRefunded = row[row.length - 1] === true;
 
-    // Row background: refunded = đỏ nhạt, còn lại alternating trắng/xám
+    // Row background: refunded = light red, others = alternating white/gray
     const rowBg = isRefunded
-        ? 'bg-red-50/70 dark:bg-red-950/20'
+        ? 'bg-red-50 dark:bg-red-900/15'
         : (index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/50 dark:bg-gray-800/80');
 
     return (
@@ -190,54 +191,31 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                 const cellClassBase = `${hiddenClass} text-sm items-center h-full overflow-hidden px-3 py-2 text-gray-700 dark:text-gray-300 min-w-0 `;
                 let cellClass = cellClassBase;
 
-                // --- NEW: Column-specific styling ---
-                switch (header) {
-                    case 'Select':
-                    case 'Checkbox':
-                        cellClass += 'flex-none w-[50px] justify-center';
-                        break;
-                    case 'Image':
-                        cellClass += 'flex-none w-[95px] justify-center'; // 75px + padding
-                        break;
-                    case 'Product Name':
-                        cellClass += 'flex-grow-[3] basis-1/4 font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200'; // Added hover effect
-                        break;
-                    case 'Order Number':
-                    case 'Order ID':
-                        cellClass += 'flex-1 basis-[110px] font-semibold text-gray-500 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200';
-                        break;
-                    case 'Revenue':
-                    case 'Cost':
-                    case 'Currency':
-                    case 'Curren':
-                        cellClass += 'flex-1 basis-[80px] font-medium group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors'; // Added revenue hover color
-                        break;
-                    case 'Message':
-                    case 'Help Kind':
-                        cellClass += 'flex-[2] basis-[250px] italic text-gray-500';
-                        break;
-                    case 'Status':
-                        cellClass += 'flex-none w-[95px] justify-center'; // Reduced width for badge
-                        break;
-                    case 'DateTime':
-                    case 'Date':
-                        cellClass += 'flex-1 basis-[110px]'; // Increased width for full timestamp
-                        break;
-                    case 'Actions':
-                    case 'Action':
-                        cellClass += 'flex-none w-[90px] justify-center'; // Decreased width
-                        break;
-                    default:
-                        cellClass += 'flex-1 basis-[120px]';
-                        break;
+                // Use centralized column config
+                const config = getColumnStyle(header);
+                if (config.justify) cellClass += `justify-${config.justify} `;
+
+                // Special styling based on column type
+                if (header === 'Product Name') {
+                    cellClass += 'font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200';
+                } else if (header === 'Order Number' || header === 'Order ID') {
+                    cellClass += 'font-semibold text-gray-500 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200';
+                } else if (['Revenue', 'Cost', 'Cost (USD)', 'Currency', 'Curren'].includes(header)) {
+                    cellClass += `font-medium group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors ${isRefunded ? 'text-gray-400 dark:text-gray-500' : ''}`;
+                } else if (header === 'Message' || header === 'Help Kind') {
+                    cellClass += 'italic text-gray-500';
                 }
 
-                // Apply custom width if provided
-                const customStyle = columnWidths && columnWidths[header]
-                    ? { flexBasis: `${columnWidths[header]}px`, minWidth: `${columnWidths[header]}px` }
-                    : undefined;
+                // Apply dynamic flex styles
+                const customStyle = {
+                    flexGrow: config.flexGrow ?? 1,
+                    flexShrink: 0,
+                    flexBasis: config.basis.includes('/') ? `${(eval(config.basis) * 100)}%` : config.basis,
+                    ...(columnWidths && columnWidths[header] ? { minWidth: `${columnWidths[header]}px`, flexBasis: `${columnWidths[header]}px` } : {})
+                };
 
-                // Check if complex object
+
+                // 1. First Priority: Check for complex object types
                 if (cell && typeof cell === 'object') {
                     if (cell.type === 'image') {
                         return (
@@ -264,23 +242,27 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             </div>
                         )
                     }
+                    if (cell.type === 'text_with_subtitle') {
+                         return (
+                            <div key={cellIndex} className={cellClass} style={customStyle}>
+                                <div className="flex flex-col min-w-0">
+                                    <span className="font-semibold truncate">{cell.main}</span>
+                                    <span className={`text-[10px] mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis ${cell.subtitleClass || 'text-gray-500 dark:text-gray-400'}`}>
+                                        {cell.subtitle}
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    }
                 }
 
-                if (cell === 'Click for detail') {
-                    return (
-                        <div key={cellIndex} className={cellClass} style={customStyle}>
-                            {renderActionCell(cell, cellIndex, loadingItems, onResyncClick, onViewOrderDetails, onViewDayDetails, row)}
-                        </div>
-                    );
-                }
-
-                // Render Order ID with optional Refund badge
+                // 2. Second Priority: Special Headers with specific layout but potentially simple values
                 if (header === 'Order ID' || header === 'Order Number') {
                     return (
                         <div key={cellIndex} className={cellClass} style={customStyle}>
                             <div className="flex flex-col min-w-0">
-                                <span className="truncate">{String(cell || '')}</span>
-                                {isRefunded && (
+                                <span className="truncate">{typeof cell === 'object' ? cell.main : String(cell || '')}</span>
+                                {isRefunded && !cell?.type && (
                                     <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400">
                                         <span>↩</span>
                                         <span>Refunded</span>
@@ -291,19 +273,14 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     );
                 }
 
-                // Render text with subtitle
-                if (cell && typeof cell === 'object' && cell.type === 'text_with_subtitle') {
+                if (cell === 'Click for detail') {
                     return (
                         <div key={cellIndex} className={cellClass} style={customStyle}>
-                            <div className="flex flex-col">
-                                <span className="font-medium">{cell.main}</span>
-                                <span className={`text-[10px] mt-0.5 ${cell.subtitleClass || 'text-gray-500 dark:text-gray-400'}`}>
-                                    {cell.subtitle}
-                                </span>
-                            </div>
+                            {renderActionCell(cell, cellIndex, loadingItems, onResyncClick, onViewOrderDetails, onViewDayDetails, row)}
                         </div>
                     );
                 }
+
 
                 // Default cell rendering
                 return (

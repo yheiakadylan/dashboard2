@@ -5,12 +5,14 @@ import { TopProduct } from '../../types';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import { saveAs } from 'file-saver';
 import ImagePreviewModal from '../modals/ImagePreviewModal';
+import { useUI } from '../../contexts/UIContext';
 
 interface TopProductsChartProps {
   data: { [shopName: string]: TopProduct[] };
   title?: string;
   hideTitle?: boolean;
   onItemClick?: (item: TopProduct) => void;
+  detailedData?: { [name: string]: TopProduct[] };
 }
 
 // 1. Custom Tick: Xử lý sự kiện chuột trái (onClick)
@@ -48,24 +50,59 @@ const CustomYAxisTick = ({ x, y, payload, data, onClick }: any) => {
   );
 };
 
-const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top Products", hideTitle = false, onItemClick }) => {
-  const { role, permissions } = useDashboard();
+const CustomTooltip = ({ active, payload, isCategoryChart, isVariantChart }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="bg-white dark:bg-gray-800 p-3 border border-gray-200 dark:border-gray-700 shadow-xl rounded-lg z-50 min-w-[200px]">
+        <p className="font-bold text-gray-900 dark:text-white mb-1 border-b pb-1 border-gray-100 dark:border-gray-700">{data.name}</p>
+        
+        {!isCategoryChart && !isVariantChart && data.listing_id && (
+           <div className="mb-2">
+            <span className="text-[10px] uppercase font-bold text-gray-400 dark:text-gray-500 block">Listing ID</span>
+            <span className="text-xs font-mono font-semibold text-blue-600 dark:text-blue-400">{data.listing_id}</span>
+          </div>
+        )}
+
+        <div className="space-y-1">
+          <div className="flex justify-between items-center gap-4">
+            <span className="text-xs text-gray-500 dark:text-gray-400">Sold:</span>
+            <span className="text-sm font-bold text-gray-900 dark:text-white">{data.quantity} units</span>
+          </div>
+          <div className="flex justify-between items-center gap-4">
+            <span className="text-xs text-gray-500 dark:text-gray-400">Revenue:</span>
+            <span className="text-sm font-bold text-green-600 dark:text-green-400">{data.formattedRevenue}</span>
+          </div>
+          {data.percentage && (
+            <div className="flex justify-between items-center gap-4">
+              <span className="text-xs text-gray-500 dark:text-gray-400">Rate:</span>
+              <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{data.percentage}%</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
+const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top Products", hideTitle = false, onItemClick, detailedData }) => {
+  const { role, permissions, exchangeRates } = useDashboard();
+  const { globalUsdMode } = useUI();
   // Add null safety check for data
   if (!data || typeof data !== 'object') {
     return null;
   }
-
-  // Create combined data for "All Shops" option
   const allShopsData = useMemo(() => {
     const combined: { [name: string]: TopProduct } = {};
     Object.values(data).flat().forEach(product => {
-      if (!combined[product.name]) {
-        combined[product.name] = { ...product };
+      const name = product.name;
+      if (!combined[name]) {
+        combined[name] = { ...product };
       } else {
-        combined[product.name].quantity += product.quantity;
-        // Merge other fields if necessary (like revenue if it's a number, but it seems to be formatted string sometimes or we need raw data)
-        // For now, simple quantity aggregation. Revenue string aggregation is tricky without raw numbers.
-        // Let's assume quantity is key.
+        combined[name].quantity += product.quantity;
+        combined[name].revenue += (product.revenue || 0);
+        combined[name].revenueUSD += (product.revenueUSD || 0);
       }
     });
     return Object.values(combined).sort((a, b) => b.quantity - a.quantity);
@@ -88,6 +125,19 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
     }
   }, [data, shopNames, selectedShop, allLabel]);
 
+  // Helper to format currency based on current mode
+  const displayRevenue = (item: TopProduct) => {
+    const value = globalUsdMode ? (item.revenueUSD || 0) : (item.revenue || 0);
+    const currency = globalUsdMode ? 'USD' : (item.currency || 'USD');
+    
+    return `${new Intl.NumberFormat('en-US', { 
+        style: 'currency', 
+        currency: 'USD',
+        minimumFractionDigits: 2, 
+        maximumFractionDigits: 2 
+    }).format(value).replace('$', '$ ')} ${currency}`;
+  };
+
   const handleExportXLSX = async () => {
     if (!data) {
       alert("No data available to export.");
@@ -96,7 +146,27 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
 
     const { exportTopProductsToExcel } = await import('../../utils/excelExport');
     const filename = `${title.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    await exportTopProductsToExcel(allShopsData, data, filename);
+    
+    // If detailedData is provided (like for Categories), use it for the sheets
+    // but keep allShopsData (summary of current view) as the first sheet
+    const summaryTitle = isCategoryChart ? 'Category Summary' : (isVariantChart ? 'Variant Summary' : 'Product Summary');
+    
+    // Map data to include currency/conversion for export
+    const convertData = (items: TopProduct[]) => items.map(p => ({
+        ...p,
+        revenue: globalUsdMode ? (p.revenueUSD || p.revenue) : p.revenue,
+        currency: globalUsdMode ? 'USD' : (p.currency || 'USD')
+    }));
+
+    const finalSummaryData = convertData(allShopsData);
+    const sourceData = detailedData || data;
+    const finalSheetData: { [key: string]: any[] } = {};
+    
+    Object.entries(sourceData).forEach(([key, items]) => {
+        finalSheetData[key] = convertData(items);
+    });
+    
+    await exportTopProductsToExcel(finalSummaryData, finalSheetData, filename, summaryTitle);
   };
 
   // Determine current dataset
@@ -109,9 +179,10 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
   const chartData = useMemo(() => {
     return fullChartData.slice(0, limit).map(item => ({
       ...item,
-      percentage: totalQuantity > 0 ? ((item.quantity / totalQuantity) * 100).toFixed(1) : '0'
+      percentage: totalQuantity > 0 ? ((item.quantity / totalQuantity) * 100).toFixed(1) : '0',
+      formattedRevenue: displayRevenue(item)
     }));
-  }, [fullChartData, limit, totalQuantity]);
+  }, [fullChartData, limit, totalQuantity, globalUsdMode]);
 
   // Check if ANY shop/item has data
   const hasAnyData = Object.values(data).some(items => items.length > 0) || allShopsData.length > 0;
@@ -169,23 +240,28 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
       {/* Podium Base (Decorative) */}
       <div className={`
                mt-[-10px] w-full flex flex-col items-center justify-start pt-4 rounded-t-lg
-               ${rank === 1 ? 'h-32 bg-gradient-to-b from-yellow-100 to-yellow-50 dark:from-yellow-900/40 dark:to-transparent' : ''}
-               ${rank === 2 ? 'h-24 bg-gradient-to-b from-gray-100 to-gray-50 dark:from-gray-800 dark:to-transparent' : ''}
-               ${rank === 3 ? 'h-20 bg-gradient-to-b from-amber-100 to-amber-50 dark:from-amber-900/40 dark:to-transparent' : ''}
+               ${rank === 1 ? 'h-40 bg-gradient-to-b from-yellow-100 to-yellow-50 dark:from-yellow-900/40 dark:to-transparent' : ''}
+               ${rank === 2 ? 'h-32 bg-gradient-to-b from-gray-100 to-gray-50 dark:from-gray-800 dark:to-transparent' : ''}
+               ${rank === 3 ? 'h-28 bg-gradient-to-b from-amber-100 to-amber-50 dark:from-amber-900/40 dark:to-transparent' : ''}
           `}>
         <h4 className="text-xs md:text-sm font-bold text-center px-2 line-clamp-2 text-gray-800 dark:text-gray-100 max-w-[120px]">
           {item.name}
         </h4>
-        <span className="text-sm md:text-base font-black text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1.5">
-          {item.quantity} sold
-          {(item as any).percentage && <span className="text-[10px] opacity-60 font-bold">({(item as any).percentage}%)</span>}
-        </span>
+        <div className="flex flex-col items-center mt-1">
+            <span className="text-sm md:text-base font-black text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                {item.quantity} sold
+                {(item as any).percentage && <span className="text-[10px] opacity-60 font-bold">({(item as any).percentage}%)</span>}
+            </span>
+            <span className="text-[10px] md:text-xs font-semibold text-green-600 dark:text-green-400">
+                {displayRevenue(item)}
+            </span>
+        </div>
       </div>
     </div>
   );
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-2 md:p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col relative animate-fade-in-up transition-all duration-300">
+    <div className="bg-white dark:bg-gray-800 p-2 md:p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col relative animate-fade-in-up transition-all duration-300 hover:z-50">
 
       {/* --- HEADER --- */}
       <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-4 gap-4">
@@ -270,13 +346,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
                   />
                   <Tooltip
                     cursor={{ fill: 'rgba(0,0,0,0.03)' }}
-                    contentStyle={{
-                      backgroundColor: 'var(--recharts-tooltip-bg)',
-                      border: '1px solid var(--recharts-tooltip-border)',
-                      color: 'var(--recharts-text-color)',
-                      borderRadius: '0.5rem',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                    }}
+                    content={<CustomTooltip isCategoryChart={isCategoryChart} isVariantChart={isVariantChart} />}
                   />
                     <Bar
                       dataKey="quantity"
@@ -295,6 +365,8 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
                         style={{ fontSize: '10px', fill: 'var(--recharts-text-color)', fontWeight: '600' }}
                       />
                     </Bar>
+                    {/* Ghost bar for tooltip to handle revenue */}
+                    <Bar dataKey="revenue" name="Revenue" hide />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -302,7 +374,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
             <div className="flex flex-col gap-8 pb-4">
               {/* PODIUM VIEW (Top 3) */}
               {chartData.length >= 3 && (
-                <div className="flex justify-center items-end gap-2 md:gap-8 pb-4 border-b border-dashed border-gray-200 dark:border-gray-700 min-h-[340px]">
+                <div className="flex justify-center items-end gap-2 md:gap-8 pb-4 border-b border-dashed border-gray-200 dark:border-gray-700 min-h-[380px]">
                   {/* Rank 2 */}
                   <PodiumItem item={chartData[1]} rank={2} className="order-1" />
                   {/* Rank 1 (Bigger now) */}
@@ -337,7 +409,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
 
                         {/* Image Container */}
                         <div className="w-full aspect-square rounded-lg bg-gray-50 dark:bg-gray-900 mb-3 overflow-hidden relative border border-gray-100 dark:border-gray-700">
-                          {item.image ? (
+                           {item.image ? (
                             <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" loading="lazy" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-gray-300"><svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></div>
@@ -351,11 +423,16 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
                           <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-200 line-clamp-2 leading-tight mb-1 min-h-[2.5em] group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" title={item.name}>
                             {item.name}
                           </h4>
-                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-bold mt-1">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                              <path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H6.28l-.31-1.243A1 1 0 005 1H3zM16 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM6.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" />
-                            </svg>
-                            {item.quantity} sold {(item as any).percentage && <span className="opacity-70">({(item as any).percentage}%)</span>}
+                          <div className="flex flex-col items-center gap-1 mt-1">
+                            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-[10px] md:text-xs font-bold w-fit">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H6.28l-.31-1.243A1 1 0 005 1H3zM16 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM6.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" />
+                                </svg>
+                                {item.quantity} sold {(item as any).percentage && <span className="opacity-70">({(item as any).percentage}%)</span>}
+                            </div>
+                            <span className="text-[10px] md:text-[11px] font-bold text-green-600 dark:text-green-400">
+                                {displayRevenue(item)}
+                            </span>
                           </div>
                         </div>
                       </div>

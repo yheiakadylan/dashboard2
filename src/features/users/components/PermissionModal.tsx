@@ -14,20 +14,21 @@ const PermissionModal: React.FC<PermissionModalProps> = ({ user, onSave, onClose
 
   const permissionGroups = {
     tabs: {
-      title: 'Tab Permissions',
-      description: 'Which tabs user can see in sidebar',
-      keys: ['viewOverviewTab', 'viewOrderListTab', 'viewProductsTab', 'viewSupportTab', 'viewFulfillTab'] as const,
+      title: 'Tabs',
+      description: 'Which sections user can see in sidebar',
+      keys: ['viewOverviewTab', 'viewOrderListTab', 'viewProductsTab', 'viewSupportTab', 'viewFulfillTab', 'viewListingTab'] as const,
       labels: {
         viewOverviewTab: 'Overview',
         viewOrderListTab: 'Order List',
         viewProductsTab: 'Products',
         viewSupportTab: 'Support',
         viewFulfillTab: 'Fulfill',
+        viewListingTab: 'Listing Tracker',
       }
     },
     kpis: {
-      title: 'KPI Permissions',
-      description: 'Which KPI cards user can view',
+      title: 'KPIs',
+      description: 'Which summary data blocks user can view',
       keys: ['viewKpiOrders', 'viewKpiShops', 'viewKpiRevenue', 'viewKpiFunds', 'viewKpiCost', 'viewKpiEarn'] as const,
       labels: {
         viewKpiOrders: 'Total Orders',
@@ -39,14 +40,23 @@ const PermissionModal: React.FC<PermissionModalProps> = ({ user, onSave, onClose
       }
     },
     actions: {
-      title: 'Action Permissions',
-      description: 'What user can do',
-      keys: ['canEditCost', 'canExportData', 'canManageUsers', 'canManageSettings'] as const,
+      title: 'Actions',
+      description: 'System actions & Data access',
+      keys: ['canEditCost', 'canExportData', 'canResyncOrder', 'canSyncData', 'canManageListingTracking', 'canManageUsers', 'canManageMailSettings', 'canManageSettings', 'canManageMappings', 'viewMerchizeData', 'viewPrintwayData', 'viewEbayData', 'viewEtsyData'] as const,
       labels: {
-        canEditCost: 'Edit Cost',
+        canEditCost: 'Edit Manual Cost',
         canExportData: 'Export Data',
-        canManageUsers: 'Manage Users',
-        canManageSettings: 'Mail Edit',
+        canResyncOrder: 'Resync Single Order',
+        canSyncData: 'Sync All/New Data',
+        canManageListingTracking: 'Admin Listing Config',
+        canManageUsers: 'Admin Users',
+        canManageMailSettings: 'Admin Mail Accounts',
+        canManageSettings: 'Admin General Settings',
+        canManageMappings: 'Admin Mappings (Category)',
+        viewMerchizeData: 'Merchize POD Data',
+        viewPrintwayData: 'Printway POD Data',
+        viewEbayData: 'Ebay Sales Data',
+        viewEtsyData: 'Etsy Sales Data',
       }
     }
   };
@@ -74,7 +84,6 @@ const PermissionModal: React.FC<PermissionModalProps> = ({ user, onSave, onClose
 
   const currentGroup = permissionGroups[activeTab];
   const allChecked = currentGroup.keys.every(key => localPermissions[key] === true);
-  const someChecked = currentGroup.keys.some(key => localPermissions[key] === true);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4" onClick={onClose}>
@@ -92,28 +101,17 @@ const PermissionModal: React.FC<PermissionModalProps> = ({ user, onSave, onClose
           </button>
         </div>
 
-
-
         {/* Tabs */}
         <div className="flex border-b border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => setActiveTab('tabs')}
-            className={`flex-1 py-3 px-4 text-sm font-semibold ${activeTab === 'tabs' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600' : 'text-gray-500 dark:text-gray-400'}`}
-          >
-            {permissionGroups.tabs.title}
-          </button>
-          <button
-            onClick={() => setActiveTab('kpis')}
-            className={`flex-1 py-3 px-4 text-sm font-semibold ${activeTab === 'kpis' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600' : 'text-gray-500 dark:text-gray-400'}`}
-          >
-            {permissionGroups.kpis.title}
-          </button>
-          <button
-            onClick={() => setActiveTab('actions')}
-            className={`flex-1 py-3 px-4 text-sm font-semibold ${activeTab === 'actions' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600' : 'text-gray-500 dark:text-gray-400'}`}
-          >
-            {permissionGroups.actions.title}
-          </button>
+          {(['tabs', 'kpis', 'actions'] as const).map((tabId) => (
+            <button
+              key={tabId}
+              onClick={() => setActiveTab(tabId)}
+              className={`flex-1 py-3 px-2 text-xs md:text-sm font-semibold transition-all ${activeTab === tabId ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+            >
+              {permissionGroups[tabId].title}
+            </button>
+          ))}
         </div>
 
         {/* Content */}

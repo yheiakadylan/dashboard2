@@ -170,10 +170,13 @@ export interface TopProduct {
   name: string;
   quantity: number;
   revenue: number;
+  revenueUSD?: number;
+  currency?: string;
   image?: string;
   category?: string;
   classification?: string;
   size?: string;
+  listing_id?: string;
 }
 
 export interface ProcessedData {
@@ -190,7 +193,10 @@ export interface ProcessedData {
     table: TableData;
     merchizeChartData: FulfillChartData[];
     printwayChartData: FulfillChartData[];
+    allProductChartData: FulfillChartData[];
+    refundedChartData: FulfillChartData[];
     totalCost: number; // Sum of all costs in displayed records
+    refundRate: number; // (Refunded Orders / Total Orders) * 100
   };
   summary: {
     kpis: KpiData;

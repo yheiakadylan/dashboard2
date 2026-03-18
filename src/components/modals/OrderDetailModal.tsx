@@ -3,6 +3,7 @@ import { Record } from '../../types';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useUI } from '../../contexts/UIContext';
 import ImagePreviewModal from './ImagePreviewModal';
+import { resolveListingId } from '../../utils/dataProcessing';
 
 interface OrderDetailModalProps {
   record: Record;
@@ -12,7 +13,7 @@ interface OrderDetailModalProps {
 }
 
 const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, onResync, allRecords = [] }) => {
-  const { accounts, exchangeRates } = useDashboard();
+  const { accounts, exchangeRates, listingsMapping } = useDashboard();
   const { timeZone, globalUsdMode } = useUI();
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isResyncing, setIsResyncing] = useState(false);
@@ -233,17 +234,21 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 whitespace-pre-wrap">{item.variant}</p>
                       )}
                       {item.transactionId && <p className="text-xs text-gray-400 mt-1">ID: {item.transactionId}</p>}
-                      {item.listing_id && (
-                        <p
-                          className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 mt-1 cursor-pointer hover:underline inline-flex items-center gap-1"
-                          onClick={() => window.open(`https://www.etsy.com/listing/${item.listing_id}`, '_blank')}
-                        >
-                          Listing: {item.listing_id}
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                          </svg>
-                        </p>
-                      )}
+                      {(() => {
+                        const lId = resolveListingId(item, listingsMapping);
+                        if (!lId || lId === 'None') return null;
+                        return (
+                          <p
+                            className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 mt-1 cursor-pointer hover:underline inline-flex items-center gap-1"
+                            onClick={() => window.open(`https://www.etsy.com/listing/${lId}`, '_blank')}
+                          >
+                            Listing: {lId}
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                          </p>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -307,17 +312,21 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                               </div>
                             )}
                             {item.transactionId && <p className="text-xs text-gray-400 mt-1">ID: {item.transactionId}</p>}
-                            {item.listing_id && (
-                              <p
-                                className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 mt-1 cursor-pointer hover:underline inline-flex items-center gap-1"
-                                onClick={() => window.open(`https://www.etsy.com/listing/${item.listing_id}`, '_blank')}
-                              >
-                                Listing: {item.listing_id}
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                </svg>
-                              </p>
-                            )}
+                            {(() => {
+                              const lId = resolveListingId(item, listingsMapping);
+                              if (!lId || lId === 'None') return null;
+                              return (
+                                <p
+                                  className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 mt-1 cursor-pointer hover:underline inline-flex items-center gap-1"
+                                  onClick={() => window.open(`https://www.etsy.com/listing/${lId}`, '_blank')}
+                                >
+                                  Listing: {lId}
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                </p>
+                              );
+                            })()}
                           </div>
                         </div>
                       </td>
