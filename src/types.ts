@@ -177,6 +177,7 @@ export interface TopProduct {
   classification?: string;
   size?: string;
   listing_id?: string;
+  shop?: string;
 }
 
 export interface ProcessedData {

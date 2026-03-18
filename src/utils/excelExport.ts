@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
-import { ProcessedData, TableData, KpiData } from '../types';
+import { ProcessedData, TableData, KpiData, TopProduct } from '../types';
 
 export interface ExportProgress {
     stage: 'collecting' | 'downloading' | 'generating' | 'saving';
@@ -705,5 +705,60 @@ export const exportDashboardToExcel = async (
     if (onProgress) onProgress({ stage: 'generating', stageLabel: 'Generating Excel file...', current: 0, total: 100, percentage: 100 });
     const buffer = await workbook.xlsx.writeBuffer();
     if (onProgress) onProgress({ stage: 'saving', stageLabel: 'Saving file...', current: 0, total: 100, percentage: 100 });
+    saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
+};
+
+export const exportTopProductsToExcel = async (
+    summaryData: TopProduct[],
+    sheetData: { [key: string]: TopProduct[] },
+    filename: string,
+    summaryTitle: string = 'Summary'
+) => {
+    const workbook = new ExcelJS.Workbook();
+    
+    // Add Summary Sheet
+    const summarySheet = workbook.addWorksheet(summaryTitle);
+    const headers = ['Product Name', 'Quantity Sold', 'Revenue', 'Currency', 'Listing ID', 'Shop'];
+    
+    const headerRow = summarySheet.addRow(headers);
+    styleHeaderRow(headerRow);
+    
+    summaryData.forEach(p => {
+        summarySheet.addRow([
+            p.name,
+            p.quantity,
+            p.revenue,
+            p.currency || 'USD',
+            p.listing_id || '',
+            p.shop || ''
+        ]);
+    });
+    
+    setColumnWidths(summarySheet, headers);
+    
+    // Add Detail Sheets
+    Object.entries(sheetData).forEach(([sheetName, items]) => {
+        // Excel sheet naming limits
+        const safeName = sheetName.replace(/[:\\/?*[\]]/g, '').slice(0, 31) || 'Sheet';
+        const sheet = workbook.addWorksheet(safeName);
+        
+        const detailHeaderRow = sheet.addRow(headers);
+        styleHeaderRow(detailHeaderRow);
+        
+        items.forEach(p => {
+            sheet.addRow([
+                p.name,
+                p.quantity,
+                p.revenue,
+                p.currency || 'USD',
+                p.listing_id || '',
+                p.shop || ''
+            ]);
+        });
+        
+        setColumnWidths(sheet, headers);
+    });
+    
+    const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
 };
