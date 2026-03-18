@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useUI } from '../../contexts/UIContext';
-import { LayoutDashboard, Users, ChevronDown, Check } from 'lucide-react';
+import { LayoutDashboard, Users, ChevronDown, Check, LogOut, Settings } from 'lucide-react';
+
+import { getImageFromDB } from '../../utils/indexedDB';
 
 import { timezones } from '../../utils/timezones';
 import ThemeToggle from '../ui/ThemeToggle';
@@ -104,6 +106,7 @@ const Header: React.FC = () => {
     boards,
     selectedBoardId,
     setSelectedBoardId,
+    user,
   } = useDashboard();
 
   const {
@@ -124,6 +127,7 @@ const Header: React.FC = () => {
     globalUsdMode,
     setGlobalUsdMode,
     isSidebarCollapsed,
+    toggleSidebar,
     isMobileMenuOpen,
     setIsMobileMenuOpen,
     toggleMobileMenu,
@@ -151,6 +155,32 @@ const Header: React.FC = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const profileDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target as Node)) {
+        setIsProfileDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const [localPhotoURL, setLocalPhotoURL] = useState(user?.photoURL || '');
+
+  useEffect(() => {
+      if (user) {
+          setLocalPhotoURL(user.photoURL || '');
+          getImageFromDB(user.uid).then((blob) => {
+              if (blob) {
+                  setLocalPhotoURL(URL.createObjectURL(blob));
+              }
+          }).catch(e => console.error("Header avatar load failed", e));
+      }
+  }, [user]);
 
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -430,23 +460,64 @@ const Header: React.FC = () => {
 
           <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
 
-          {/* Export Button */}
-          {(role === 'owner' || permissions.canExportData) && (
-            <div className="relative">
-              <button
-                onClick={handleExport}
-                disabled={isExporting}
-                className={`text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors flex items-center justify-center ${isSidebarCollapsed ? 'px-3 py-1.5' : 'p-2'
-                  } ${isExporting ? 'opacity-50 cursor-not-allowed' : ''}`}
-                title={isExporting ? 'Exporting...' : 'Export Excel'}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                </svg>
-                <span className={`${isSidebarCollapsed ? 'block' : 'hidden'} ml-2 text-sm font-medium`}>Export</span>
-              </button>
-            </div>
-          )}
+          {/* Profile Dropdown */}
+          <div className="relative ml-2" ref={profileDropdownRef}>
+            <button
+              onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
+              className="flex items-center gap-2 focus:outline-none"
+            >
+              <div className="relative flex-shrink-0">
+                  {localPhotoURL ? (
+                      <img
+                          src={localPhotoURL}
+                          alt="User"
+                          className="w-8 h-8 rounded-full object-cover border border-gray-200 dark:border-gray-600 hover:ring-2 hover:ring-blue-500 transition-all"
+                      />
+                  ) : (
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold hover:ring-2 hover:ring-blue-500 transition-all">
+                          {user?.displayName ? user.displayName.charAt(0).toUpperCase() : (user?.email?.charAt(0).toUpperCase() || 'U')}
+                      </div>
+                  )}
+                  <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full"></span>
+              </div>
+            </button>
+
+            {isProfileDropdownOpen && (
+              <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 py-1">
+                <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                    {user?.displayName || 'User'}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {user?.email}
+                  </p>
+                </div>
+                
+                <div className="py-1">
+                  <button
+                    onClick={() => {
+                        setIsProfileDropdownOpen(false);
+                        setIsAccountManagerOpen(true);
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50 flex items-center transition-colors"
+                  >
+                    <Settings className="w-4 h-4 mr-3 text-gray-500" />
+                    Settings
+                  </button>
+                  <button
+                    onClick={() => {
+                        setIsProfileDropdownOpen(false);
+                        handleLogout();
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center transition-colors"
+                  >
+                    <LogOut className="w-4 h-4 mr-3 text-red-500" />
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
         </div>
 

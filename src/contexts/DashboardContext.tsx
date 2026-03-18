@@ -497,6 +497,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     rates: any;
     mappings: any;
     categories: any;
+    listingsMapping: any;
   }>({
     records: null,
     prevRecords: null,
@@ -506,7 +507,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     manual: null,
     rates: null, // This will store the stableRates reference
     mappings: null,
-    categories: null
+    categories: null,
+    listingsMapping: null
   });
 
   // Sync ref for safety timeout check
@@ -544,7 +546,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       stableManualCosts === prevTrigger.manual &&
       stableRates === prevTrigger.rates &&
       stableMappings === prevTrigger.mappings &&
-      categories === prevTrigger.categories
+      categories === prevTrigger.categories &&
+      listingsMapping === prevTrigger.listingsMapping
     ) {
       return;
     }
@@ -558,7 +561,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       manual: stableManualCosts,
       rates: stableRates,
       mappings: stableMappings,
-      categories: categories
+      categories: categories,
+      listingsMapping: listingsMapping
     };
 
     // Set processing state

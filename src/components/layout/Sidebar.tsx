@@ -12,14 +12,16 @@ import {
     Tag,
     ChevronLeft,
     ChevronRight,
+    ChevronsLeft,
+    ChevronsRight,
     SlidersHorizontal,
     Settings,
-    LogOut,
     FileSpreadsheet,
     LayoutDashboard,
     Users,
     Package,
-    Map
+    Map,
+    Download
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -28,7 +30,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
-    const { role, permissions, handleLogout, user, boards, selectedBoardId, setSelectedBoardId } = useDashboard();
+    const { role, permissions, user, boards, selectedBoardId, setSelectedBoardId, handleExport, isExporting } = useDashboard();
     const {
         activeTab,
         handleTabClick,
@@ -42,38 +44,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
         setGlobalUsdMode
     } = useUI();
 
-    const [localPhotoURL, setLocalPhotoURL] = useState(user?.photoURL || '');
 
-    // --- Custom Dropdown State ---
-    const [isBoardDropdownOpen, setIsBoardDropdownOpen] = useState(false);
-    const boardDropdownRef = React.useRef<HTMLDivElement>(null);
-
-    // Click outside handler for board dropdown
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (boardDropdownRef.current && !boardDropdownRef.current.contains(event.target as Node)) {
-                setIsBoardDropdownOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
-    // Load avatar (prefer local IndexedDB if available)
-    useEffect(() => {
-        if (user) {
-            // Start with Firebase URL (or previous state)
-            // We don't necessarily reset to user.photoURL immediately to avoid flash if local exists?
-            // But user.photoURL is the "source of truth" fallback.
-            setLocalPhotoURL(user.photoURL || '');
-
-            getImageFromDB(user.uid).then((blob) => {
-                if (blob) {
-                    setLocalPhotoURL(URL.createObjectURL(blob));
-                }
-            }).catch(e => console.error("Sidebar avatar load failed", e));
-        }
-    }, [user, isAccountManagerOpen]); // Refresh when user changes or Settings modal closes (potential update)
 
     // Filter tabs logic
     const permittedTabs = getPermittedTabs(tabOrder, role, permissions);
@@ -115,15 +86,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
                         </h1>
                     )}
                 </div>
-                {!isCollapsed && (
-                    <button
-                        onClick={toggleSidebar}
-                        className="p-1 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none ml-auto"
-                        title="Collapse Sidebar"
-                    >
-                        <ChevronLeft className="h-5 w-5" />
-                    </button>
-                )}
             </div>
 
             <nav className="flex-1 overflow-y-auto overflow-x-hidden py-4">
@@ -215,6 +177,37 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
 
                 {hasPermission(role, permissions, 'canExportData') && (
                     <button
+                        onClick={handleExport}
+                        disabled={isExporting}
+                        className={`
+                        w-full flex items-center py-2.5 rounded-lg transition-colors group relative
+                        ${isCollapsed ? 'justify-center px-0' : 'px-3'}
+                        text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 hover:text-green-700 dark:hover:text-green-300
+                        ${isExporting ? 'opacity-50 cursor-not-allowed' : ''}
+                    `}
+                        title={isCollapsed ? (isExporting ? 'Exporting...' : 'Export Excel') : undefined}
+                    >
+                        <div className="flex-shrink-0">
+                            <Download className="h-5 w-5" />
+                        </div>
+                        <span
+                            className={`
+                          font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300
+                          ${isCollapsed ? 'opacity-0 max-w-0 ml-0' : 'opacity-100 max-w-[150px] ml-3'}
+                        `}
+                        >
+                            {isExporting ? 'Exporting...' : 'Export Excel'}
+                        </span>
+                        {isCollapsed && (
+                            <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 shadow-lg">
+                                {isExporting ? 'Exporting...' : 'Export Excel'}
+                            </div>
+                        )}
+                    </button>
+                )}
+
+                {hasPermission(role, permissions, 'canExportData') && (
+                    <button
                         onClick={() => {
                             if (activeTab !== 'Order List') handleTabClick('Order List');
                             setIsOrderSelectorOpen(true);
@@ -272,30 +265,18 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
                     )}
                 </button>
 
-                {/* Settings - All users can access for notification preferences */}
+                {/* Sidebar Collapse/Expand Toggle (Bottom) */}
                 <button
-                    onClick={() => setIsAccountManagerOpen(true)}
-                    className={`
-                    w-full flex items-center py-2.5 rounded-lg transition-colors group relative
-                    ${isCollapsed ? 'justify-center px-0' : 'px-3'}
-                    text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-200
-                `}
-                    title={isCollapsed ? "Settings" : undefined}
+                    onClick={toggleSidebar}
+                    className="w-full flex items-center justify-center py-3 rounded-lg transition-colors group relative text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-200"
+                    title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
                 >
                     <div className="flex-shrink-0">
-                        <Settings className="h-5 w-5" />
+                        {isCollapsed ? <ChevronsRight className="h-5 w-5" /> : <ChevronsLeft className="h-5 w-5" />}
                     </div>
-                    <span
-                        className={`
-                      font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300
-                      ${isCollapsed ? 'opacity-0 max-w-0 ml-0' : 'opacity-100 max-w-[150px] ml-3'}
-                    `}
-                    >
-                        Settings
-                    </span>
                     {isCollapsed && (
                         <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 shadow-lg">
-                            Settings
+                            Expand Sidebar
                         </div>
                     )}
                 </button>
@@ -303,62 +284,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
 
 
 
-                {/* Profile & Logout Section (Card Style) */}
-                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                    <div className={`
-                        flex items-center justify-between 
-                         ${isCollapsed ? 'flex-col gap-4' : ''}
-                    `}>
-                        {/* Avatar & Info - Click to Settings */}
-                        <div
-                            onClick={() => setIsAccountManagerOpen(true)}
-                            className={`
-                                flex items-center gap-3 cursor-pointer 
-                                hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg p-2 transition-colors
-                                ${isCollapsed ? 'justify-center p-1' : 'flex-1 min-w-0'}
-                            `}
-                            title="Profile Settings"
-                        >
-                            <div className="relative flex-shrink-0">
-                                {localPhotoURL ? (
-                                    <img
-                                        src={localPhotoURL}
-                                        alt="User"
-                                        className="w-9 h-9 rounded-full object-cover border border-gray-200 dark:border-gray-600"
-                                    />
-                                ) : (
-                                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">
-                                        {user?.displayName ? user.displayName.charAt(0).toUpperCase() : (user?.email?.charAt(0).toUpperCase() || 'U')}
-                                    </div>
-                                )}
-                                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full"></span>
-                            </div>
-
-                            {!isCollapsed && (
-                                <div className="min-w-0">
-                                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
-                                        {user?.displayName || 'User'}
-                                    </p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                                        {role === 'owner' ? 'Owner' : 'Staff'}
-                                    </p>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Separate Logout Button */}
-                        <button
-                            onClick={handleLogout}
-                            className={`
-                                flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors
-                                ${isCollapsed ? '' : 'px-2'}
-                            `}
-                            title="Logout"
-                        >
-                            <LogOut className="h-5 w-5" />
-                        </button>
-                    </div>
-                </div>
             </div>
         </aside>
     );

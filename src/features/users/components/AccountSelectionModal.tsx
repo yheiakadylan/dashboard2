@@ -98,7 +98,7 @@ const AccountSelectionModal: React.FC<AccountSelectionModalProps> = ({ user, all
                 {account.provider === 'gmail' ? (
                   <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-5 h-5 flex-shrink-0" />
                 ) : (
-                  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/512px-Microsoft_logo.svg.png?20210729021049" alt="Microsoft" className="w-5 h-5 flex-shrink-0" />
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/960px-Microsoft_logo.svg.png" alt="Microsoft" className="w-5 h-5 flex-shrink-0" />
                 )}
                 <div className="flex-grow min-w-0">
                   <p className="font-medium text-gray-800 dark:text-gray-100 truncate" title={account.label || account.email}>{account.label || account.email}</p>

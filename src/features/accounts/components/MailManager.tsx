@@ -375,7 +375,7 @@ export const MailManager: React.FC = () => {
                     {acc.provider === 'gmail' ? (
                       <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-5 h-5 md:w-6 md:h-6" />
                     ) : (
-                      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/512px-Microsoft_logo.svg.png?20210729021049" alt="Microsoft" className="w-5 h-5 md:w-6 md:h-6" />
+                      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/960px-Microsoft_logo.svg.png" alt="Microsoft" className="w-5 h-5 md:w-6 md:h-6" />
                     )}
                   </div>
                   <div className="flex-grow space-y-1 min-w-0">
@@ -484,7 +484,7 @@ export const MailManager: React.FC = () => {
             onClick={() => handleAuth('microsoft')}
             disabled={!!isAuthenticating}
             className="w-full bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600 font-bold py-2.5 px-4 rounded-lg transition-all shadow-sm hover:shadow flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-wait">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/512px-Microsoft_logo.svg.png?20210729021049" alt="Microsoft" className="w-5 h-5" />
+            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/960px-Microsoft_logo.svg.png" alt="Microsoft" className="w-5 h-5" />
             {isAuthenticating === 'microsoft' ? 'Authenticating...' : 'Sign in with Microsoft'}
           </button>
         </div>
