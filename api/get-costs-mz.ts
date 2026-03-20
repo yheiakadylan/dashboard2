@@ -107,7 +107,7 @@ async function fetchMerchizeCosts(orderIds: string[]): Promise<CostData[]> {
     for (const chunk of chunks) {
         try {
             const requestBody = {
-                orders: chunk.map(id => ({ code:"", external_number: id, identifier: "" }))
+                orders: chunk.map(id => ({ code:"", external_number: id.startsWith('#') ? id : `#${id}`, identifier: "" }))
             };
             
             const apiUrl = `${merchizeConfig.base_url}/order/external/orders/list-orders-detail`;
@@ -133,8 +133,9 @@ async function fetchMerchizeCosts(orderIds: string[]): Promise<CostData[]> {
                 const data = JSON.parse(responseText);
                 if (data.success && Array.isArray(data.data)) {
                     for (const orderData of data.data) {
-                        const externalNumber = orderData.external_number?.trim();
-                        if (externalNumber) {
+                        const rawExternalNumber = orderData.external_number?.trim();
+                        if (rawExternalNumber) {
+                            const externalNumber = rawExternalNumber.startsWith('#') ? rawExternalNumber.slice(1) : rawExternalNumber;
 
                             // --- BẮT ĐẦU THAY ĐỔI: Lấy product_name ---
                             let product_name = 'N/A';
@@ -211,7 +212,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 costMap[item.order_id] = { ...item };
             }
         }
-        // --- KẾT THÚC CẬP NHẬT ---
 
         return res.status(200).json(costMap);
     } catch (error) {
