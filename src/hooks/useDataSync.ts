@@ -561,8 +561,10 @@ export const useDataSync = ({
         // STEP 1: Abort all ongoing operations immediately
         abortAllOperations();
 
-        // STEP 2: Reset data immediately for better UX 
-        setRecords([]);
+        // STEP 2: Reset previous period immediately (not visible in main UI)
+        // NOTE: We intentionally do NOT reset `records` here.
+        // Keeping stale records visible during fetch is better UX than flashing empty/null.
+        // The worker's `isFetchingNewRange` guard prevents it from processing while fetching.
         setPreviousPeriodRecords(null);
 
         // STEP 3: Abort previous date range fetch controller

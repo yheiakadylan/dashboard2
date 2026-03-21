@@ -172,14 +172,14 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                             // SOUND EFFECT: Play 'Ting' for ALL fresh notifications
                             const isFresh = (Date.now() - new Date(firestoreNotification.createdAt).getTime()) < 30000; // 30s window
                             if (isFresh) {
-                                console.log('[NotificationCenter] Playing sound for new notification:', firestoreNotification.id);
                                 try {
-                                    // User preferred 'Ting' sound
                                     const audio = new Audio('/noti-sound.mp3');
                                     audio.volume = 0.7;
-                                    audio.play().catch(e => console.warn('[NotificationCenter] Audio play prevented (interaction needed?):', e));
+                                    // onerror handles 404 silently — sound is non-critical
+                                    audio.onerror = () => { /* file missing, skip sound */ };
+                                    audio.play().catch(() => { /* autoplay blocked, skip sound */ });
                                 } catch (e) {
-                                    console.error('[NotificationCenter] Sound error', e);
+                                    // Sound not critical — ignore silently
                                 }
                             }
 

@@ -14,11 +14,11 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       VitePWA({
-        registerType: 'prompt', // Changed from autoUpdate to prevent reload loop
+        registerType: 'autoUpdate', // Auto-update SW so new deploys take effect immediately
         devOptions: {
           enabled: false, // Disable in development to prevent MIME type errors
         },
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg', 'noti-sound.mp3'],
         manifest: {
           name: 'Sales Dashboard',
           short_name: 'Dashboard',
@@ -51,8 +51,8 @@ export default defineConfig(({ mode }) => {
           // IMPORTANT: Disable skipWaiting to prevent reload loop!
           // With skipWaiting:true + autoUpdate, new SW immediately takes over
           // and triggers reload, creating an infinite loop in production
-          skipWaiting: false, // Changed from true to prevent reload loop
-          clientsClaim: true,
+          skipWaiting: true,  // New SW takes over immediately on next navigation
+          clientsClaim: true, // New SW claims all open tabs right away
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/i\.etsystatic\.com\/.*/,
@@ -141,7 +141,7 @@ export default defineConfig(({ mode }) => {
       minify: 'terser',
       terserOptions: {
         compress: {
-          drop_console: true, // Remove console.logs in production
+          drop_console: true, // ⚠️ TEMP: Re-enable to true after debugging production issue
           drop_debugger: true,
           passes: 2,
         },

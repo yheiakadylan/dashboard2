@@ -239,6 +239,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   // --- Listing Mapping Logic ---
   const [listingsMapping, setListingsMapping] = useState<{ imageMap: { [key: string]: string }, nameMap: { [key: string]: string } } | null>(null);
+  // Tracks whether the listing mapping has been fetched at least once.
+  // until this is true, the worker should wait to avoid a double-process (null → data).
+  const [isListingsMappingReady, setIsListingsMappingReady] = useState(false);
 
   const refreshListingsMapping = React.useCallback(async () => {
     if (teamId && allAccounts.length > 0) {
@@ -252,7 +255,15 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
             Object.keys(mapping.nameMap).length, 'names');
         }
         setListingsMapping(mapping);
+      } else {
+        // No Etsy accounts — mapping is not applicable, mark as ready immediately
+        setIsListingsMappingReady(true);
       }
+      // Always mark ready after the fetch attempt completes
+      setIsListingsMappingReady(true);
+    } else if (!teamId || allAccounts.length === 0) {
+      // No accounts yet — mark ready so worker isn't blocked forever
+      setIsListingsMappingReady(true);
     }
   }, [teamId, allAccounts.length]); // Re-fetch only if account count changes or team changes
 
@@ -388,13 +399,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [showExportOptions, setShowExportOptions] = useState<boolean>(false);
 
-  // Clear processed data when fetching a new range to prevent flashing old data
-  // while the worker is busy processing the new data.
-  useEffect(() => {
-    if (isFetchingNewRange) {
-      setProcessedData(initialProcessedData);
-    }
-  }, [isFetchingNewRange]);
+  // NOTE: We intentionally do NOT reset processedData when isFetchingNewRange is true.
+  // Keeping stale data visible is better UX than flashing null/empty state.
+  // The worker will update processedData as soon as new records arrive.
 
 
   const workerRef = useRef<Worker | null>(null);
@@ -538,7 +545,18 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       return;
     }
 
-    // Debounce worker trigger: wait for 300ms of inactivity before processing.
+    // Debounce worker trigger: skip processing if records are empty and we are still fetching.
+    // This prevents the worker from processing empty data and flashing null to the UI.
+    if (filteredRecords.length === 0 && isFetchingNewRange) {
+      return;
+    }
+
+    // Wait for listings mapping to be ready to avoid double-processing (null → data flicker).
+    if (!isListingsMappingReady) {
+      return;
+    }
+
+    // Debounce worker trigger: wait for inactivity before processing.
     const debounceTimer = setTimeout(() => {
         lastTriggeredRef.current = {
             records: filteredRecords,
@@ -590,7 +608,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }, 1500); // 1s debounce to catch initial waterfall of async data
 
     return () => clearTimeout(debounceTimer);
-  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, stableMappings, categories, listingsMapping]);
+  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, stableMappings, categories, listingsMapping, isFetchingNewRange, isListingsMappingReady]);
 
 
 
