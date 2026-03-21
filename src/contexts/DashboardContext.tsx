@@ -557,6 +557,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }
 
     // Debounce worker trigger: wait for inactivity before processing.
+    // Set processing state IMMEDIATELY to prevent the 0-record UI flicker before skeleton
+    setIsProcessing(true);
+
     const debounceTimer = setTimeout(() => {
         lastTriggeredRef.current = {
             records: filteredRecords,
@@ -570,9 +573,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
             categories: categories,
             listingsMapping: listingsMapping
         };
-
-        // Set processing state
-        setIsProcessing(true);
 
         // Safety timeout: If worker doesn't respond in 15s, force unlock UI
         const safetyHandler = setTimeout(() => {
@@ -605,7 +605,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
         // Store safety timeout in ref to allow cleanup if needed (though requestId check handles it)
         // For simplicity, we just clear the debounce timer on effect cleanup below
-    }, 1500); // 1s debounce to catch initial waterfall of async data
+    }, 300); // reduced to 300ms to allow smooth UI transition without long skeleton flashes
 
     return () => clearTimeout(debounceTimer);
   }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, stableMappings, categories, listingsMapping, isFetchingNewRange, isListingsMappingReady]);

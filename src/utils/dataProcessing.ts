@@ -324,7 +324,7 @@ export function processData(
                         const c = pc.get(name); c.qty += item.quantity; c.rev += item.quantity * item.price; c.revUSD += itemRevenueUSD;
 
                         // Detailed Products Tab Map
-                        const prodKey = `${name.toLowerCase()}|${groupedKey}|${shopEmail.toLowerCase()}`;
+                        const prodKey = `${name.toLowerCase()}|${displayedVariant}|${shopEmail.toLowerCase()}`;
                         
                         if (!productStatsTableMap.has(prodKey)) {
                             productStatsTableMap.set(prodKey, { 
@@ -345,7 +345,7 @@ export function processData(
                         pt.quantity += item.quantity; pt.revenue += itemRevenue; pt.revenueUSD += itemRevenueUSD;
 
                         // Variant aggregation - smarter grouping (no spaces)
-                        const varKey = `${catCode}|${groupedKey}`;
+                        const varKey = `${catName}|${displayedVariant}`;
                         
                         if (!variantStatsTableMap.has(varKey)) {
                             variantStatsTableMap.set(varKey, { 
