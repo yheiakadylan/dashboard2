@@ -218,12 +218,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (isRefund) {
               notificationEvents.push({
                 type: 'refund',
-                text: `Refund: #${record.order_id || 'Unknown'} - $${Math.abs(record.amount || 0)} (${shopName})`
+                text: `Refund: #${record.order_id || 'Unknown'} - $${Math.abs(record.refund_details.refundAmount)} ${record.refund_details.refundCurrency} (${shopName})`
               });
             } else {
               notificationEvents.push({
                 type: 'order',
-                text: `New Order: #${record.order_id || 'Unknown'} - $${record.amount} (${shopName})`
+                text: `New Order: #${record.order_id || 'Unknown'} - $${record.amount} ${record.currency} (${shopName})`
               });
             }
           } else if (record.kind === 'Funds') {

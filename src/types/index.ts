@@ -184,8 +184,13 @@ export interface ProcessedData {
     table: TableData;
     chartData: SummaryChartData[];
     topProductsByShop: { [shopName: string]: TopProduct[] };
+    topProductsByCategory: { [categoryName: string]: TopProduct[] };
+    topProductsBySize: { [size: string]: TopProduct[] };
+    categoryComparison: any[];
+    unmappedKeywords: { keyword: string; count: number }[];
   };
-  products: TableData; // New field for detailed products table
+  products: TableData;
+  variants: TableData; // New field for detailed variants table
 }
 
 

@@ -176,7 +176,7 @@ export interface TopProduct {
   category?: string;
   classification?: string;
   size?: string;
-  listing_id?: string;
+  listing_id?: string | { type: 'listing_link' | 'loading_mapping'; id?: string };
   shop?: string;
 }
 
@@ -209,7 +209,8 @@ export interface ProcessedData {
     categoryComparison: TopProduct[];
     unmappedKeywords: { keyword: string; count: number }[];
   };
-  products: TableData; // New field for detailed products table
+  products: TableData;
+  variants: TableData;
 }
 
 

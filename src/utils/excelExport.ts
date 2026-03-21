@@ -188,6 +188,12 @@ const cleanCellData = (cell: any, useUsdMode: boolean = false, exchangeRates: { 
             const subStr = totalSub ? (typeof totalSub === 'number' ? `(Refund: $${totalSub.toFixed(2)})` : `(Refund: ${totalSub})`) : '';
             return subStr ? `${mainStr} ${subStr}` : mainStr;
         }
+        if (cell.type === 'listing_link') {
+            return cell.id || '';
+        }
+        if (cell.type === 'loading_mapping') {
+            return 'Processing...';
+        }
         // Fallback for other objects
         return JSON.stringify(cell);
     }
@@ -759,6 +765,33 @@ export const exportTopProductsToExcel = async (
         setColumnWidths(sheet, headers);
     });
     
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
+};
+
+/**
+ * Exports the Inventory Mapping table as a 2-sheet Excel file.
+ * Sheet 1: "By Product"  — one row per product+variant combination
+ * Sheet 2: "By Variant"  — aggregated rows grouped by variant type
+ */
+export const exportInventoryToExcel = async (
+    productsData: TableData,
+    variantsData: TableData,
+    includeImages: boolean = true,
+    useUsdMode: boolean = false,
+    exchangeRates: { [key: string]: number } | null = null,
+    filename: string = 'products_export.xlsx'
+): Promise<void> => {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'VIK Dashboard';
+    workbook.created = new Date();
+
+    // Use shared logic for consistent high-quality export
+    const pPromise = addStandardSheet(workbook, 'By Product', productsData, includeImages, useUsdMode, exchangeRates);
+    const vPromise = addStandardSheet(workbook, 'By Variant', variantsData, false, useUsdMode, exchangeRates);
+    
+    await Promise.all([pPromise, vPromise]);
+
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
 };

@@ -1,5 +1,12 @@
 import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../types';
 import { decodeHTMLEntities } from './htmlDecode';
+import { 
+    parseEtsyVariants, 
+    normalizeVariantForKey, 
+    formatVariantForDisplay, 
+    cleanVariantForAggregation,
+    removeAccents 
+} from './variantHelpers';
 
 const isDev = import.meta.env.DEV;
 
@@ -60,21 +67,6 @@ function slimImage(src: string | undefined): string | undefined {
     return src;
 }
 
-function cleanVariantForAggregation(v: string): string {
-    if (!v) return 'Standard';
-    const lowerV = v.toLowerCase();
-    const markers = ['personalization:', 'personalization', 'personalised:', 'personalised', 'custom:', 'customization:', 'note to seller', 'text:'];
-    let firstIndex = -1;
-    markers.forEach(marker => {
-        const idx = lowerV.indexOf(marker);
-        if (idx !== -1 && (firstIndex === -1 || idx < firstIndex)) firstIndex = idx;
-    });
-    if (firstIndex !== -1) {
-        let cleaned = v.substring(0, firstIndex).trim();
-        return cleaned.replace(/[,|\-|\||:|/|\\]\s*$/, '').trim() || 'Standard';
-    }
-    return v.trim() || 'Standard';
-}
 
 function isRefundedStatus(r: Record): boolean {
     if (!r) return false;
@@ -152,8 +144,20 @@ export function processData(
     const mappingsLookup = new Map<string, string>();
     if (productMappings && Array.isArray(productMappings)) {
         productMappings.forEach(m => {
-            const key = `${m.name.trim().toLowerCase()}|${(m.variant || '').trim().toLowerCase()}`;
-            mappingsLookup.set(key, m.category_code);
+            const rawName = m.name.trim().toLowerCase();
+            const rawVariant = (m.variant || '').trim().toLowerCase();
+            
+            // KEY 1: Original key as saved (for backward compatibility)
+            mappingsLookup.set(`${rawName}|${rawVariant}`, m.category_code);
+            
+            // KEY 2: Normalized key — same algorithm used at lookup time
+            const normalizedKey = normalizeVariantForKey(m.variant || '');
+            mappingsLookup.set(`${rawName}||norm||${normalizedKey}`, m.category_code);
+            
+            // KEY 3: Product-level fallback (no variant)
+            if (!mappingsLookup.has(`${rawName}|`)) {
+                mappingsLookup.set(`${rawName}|`, m.category_code);
+            }
         });
     }
 
@@ -171,6 +175,7 @@ export function processData(
         });
         return Array.from(uniqueMap.values());
     };
+
 
     const uniqueRecords = deduplicate(records);
     const uniquePrevRecords = previousRecords ? deduplicate(previousRecords) : [];
@@ -211,6 +216,7 @@ export function processData(
     const pByShop = new Map<string, Map<string, any>>();
     const pByCat = new Map<string, Map<string, any>>();
     const productStatsTableMap = new Map<string, any>();
+    const variantStatsTableMap = new Map<string, any>();
     
     const ordersTabRows: any[][] = [];
     const ebayRows: any[][] = [];
@@ -282,11 +288,25 @@ export function processData(
 
                     r.details.items.forEach(item => {
                         const name = decodeHTMLEntities(item.name.trim());
-                        const variant = decodeHTMLEntities(item.variant?.trim() || 'Standard');
+                        const variant = decodeHTMLEntities(item.variant?.trim() || '');
                         const cleaned = cleanVariantForAggregation(variant);
-                        const catCode = mappingsLookup.get(`${name.toLowerCase()}|${cleaned.toLowerCase()}`) || mappingsLookup.get(`${name.toLowerCase()}|`) || item.category_code || r.category_code || 'Unmapped';
+                        const displayedVariant = formatVariantForDisplay(cleaned);
+                        const resolvedId = resolveListingId(item, listingsMapping);
+                        const listingId = resolvedId 
+                            ? { type: 'listing_link' as const, id: resolvedId } 
+                            : (listingsMapping ? 'None' : { type: 'loading_mapping' as const });
+                        const groupedKey = normalizeVariantForKey(cleaned);
+                        
+                        // Multi-level mapping lookup: ListingID > NormKey > Display > Cleaned > Product-level
+                        const nameLower = name.toLowerCase();
+                        const catCode = (resolvedId ? mappingsLookup.get(resolvedId) : undefined) ||
+                                         mappingsLookup.get(`${nameLower}||norm||${groupedKey}`) ||
+                                         mappingsLookup.get(`${nameLower}|${displayedVariant.toLowerCase()}`) ||
+                                         mappingsLookup.get(`${nameLower}|${cleaned.toLowerCase()}`) || 
+                                         mappingsLookup.get(`${nameLower}|`) || 
+                                         item.category_code || r.category_code || 'Unmapped';
+
                         const catName = categoryNameMap.get(catCode) || catCode;
-                        const listingId = resolveListingId(item, listingsMapping) || 'None';
                         const weight = totalListValue > 0 ? (item.price * item.quantity) / totalListValue : (1 / r.details!.items.length);
                         const itemRevenue = netRevenue * weight;
                         const itemRevenueUSD = (currency === 'USD' ? itemRevenue : (exchangeRates?.[currency] ? itemRevenue * exchangeRates[currency] : itemRevenue));
@@ -304,12 +324,42 @@ export function processData(
                         const c = pc.get(name); c.qty += item.quantity; c.rev += item.quantity * item.price; c.revUSD += itemRevenueUSD;
 
                         // Detailed Products Tab Map
-                        const prodKey = `${name.toLowerCase()}|${cleaned.toLowerCase()}|${shopEmail.toLowerCase()}`;
+                        const prodKey = `${name.toLowerCase()}|${groupedKey}|${shopEmail.toLowerCase()}`;
+                        
                         if (!productStatsTableMap.has(prodKey)) {
-                            productStatsTableMap.set(prodKey, { image: item.image, name, listingId, variant: cleaned, category: catName, categoryCode: catCode, shop: shopLabel, quantity: 0, revenue: 0, revenueUSD: 0, currency });
+                            productStatsTableMap.set(prodKey, { 
+                                image: item.image, 
+                                name, 
+                                listingId, 
+                                variant: displayedVariant, 
+                                category: catName, 
+                                categoryCode: catCode, 
+                                shop: shopLabel, 
+                                quantity: 0, 
+                                revenue: 0, 
+                                revenueUSD: 0, 
+                                currency 
+                            });
                         }
                         const pt = productStatsTableMap.get(prodKey);
                         pt.quantity += item.quantity; pt.revenue += itemRevenue; pt.revenueUSD += itemRevenueUSD;
+
+                        // Variant aggregation - smarter grouping (no spaces)
+                        const varKey = `${catCode}|${groupedKey}`;
+                        
+                        if (!variantStatsTableMap.has(varKey)) {
+                            variantStatsTableMap.set(varKey, { 
+                                category: catName, 
+                                categoryCode: catCode, 
+                                variant: displayedVariant, 
+                                quantity: 0, 
+                                revenue: 0, 
+                                revenueUSD: 0, 
+                                currency 
+                            });
+                        }
+                        const vt = variantStatsTableMap.get(varKey);
+                        vt.quantity += item.quantity; vt.revenue += itemRevenue; vt.revenueUSD += itemRevenueUSD;
 
                         // Keywords for unmapped
                         if (catCode === 'Unmapped') {
@@ -602,6 +652,12 @@ export function processData(
         p.currency, p.revenue, p.categoryCode
     ]);
 
+    const finalVariantRows = Array.from(variantStatsTableMap.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 3000).map(v => [
+        v.category, v.variant, v.quantity,
+        { type: 'value_with_unit', value: v.revenue, display: `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v.revenue)} ${v.currency}` },
+        v.currency, v.revenue, v.categoryCode
+    ]);
+
     return {
         overview: { table: { headers: overviewHeaders, rows: overviewRows as any }, chartData: overviewChartData },
         orders: { headers: ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Curren", "Cost", "FF Code", "Case", "Help", "Account", "Date", "Source"], rows: ordersTabRows.sort((a, b) => new Date(b[14]).getTime() - new Date(a[14]).getTime()) },
@@ -621,6 +677,7 @@ export function processData(
             chartData: summaryChartData, topProductsByShop: transformStats(pByShop), topProductsByCategory: transformStats(pByCat), topProductsBySize: {}, categoryComparison: catComp, 
             unmappedKeywords: Array.from(unmappedKwCounts.entries()).map(([keyword, count]) => ({ keyword, count })).sort((a, b) => b.count - a.count).slice(0, 50)
         },
-        products: { headers: ['Image', 'Product Name', 'Listing ID', 'Category', 'Variant/Size', 'Shop', 'Quantity', 'Revenue'], rows: finalProductRows }
+        products: { headers: ['Image', 'Product Name', 'Listing ID', 'Category', 'Variant/Size', 'Shop', 'Quantity', 'Revenue'], rows: finalProductRows },
+        variants: { headers: ['Category', 'Variant/Size', 'Quantity', 'Revenue'], rows: finalVariantRows }
     };
 }

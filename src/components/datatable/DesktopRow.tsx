@@ -1,4 +1,5 @@
 import React from 'react';
+import { Check, ExternalLink } from 'lucide-react';
 import Spinner from '../ui/Spinner';
 import CachedImage from './CachedImage';
 import { getHighResImageUrl } from '../../utils/imageUtils';
@@ -98,13 +99,31 @@ const renderTextContent = (cell: any, selectedKeys?: Set<string>, onToggleSelect
         };
 
         return (
-            <input
-                type="checkbox"
-                checked={isChecked}
-                onChange={handleCheck}
-                onClick={(e) => e.stopPropagation()} // Prevent row click
-                className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-            />
+            <div className="relative flex items-center justify-center">
+                <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={handleCheck}
+                    onClick={(e) => e.stopPropagation()} 
+                    className="peer sr-only"
+                />
+                <div 
+                    className={`w-6 h-6 rounded-lg border-2 transition-all cursor-pointer shadow-sm flex-shrink-0
+                        ${isChecked 
+                            ? 'bg-indigo-600 border-indigo-600' 
+                            : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 group-hover:border-indigo-500'}
+                    `}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (onToggleSelect && cell.idKey) onToggleSelect(cell.idKey);
+                    }}
+                >
+                    <Check 
+                        className={`w-4 h-4 text-white absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-200 pointer-events-none ${isChecked ? 'opacity-100' : 'opacity-0'}`} 
+                        strokeWidth={4}
+                    />
+                </div>
+            </div>
         );
     }
 
@@ -254,6 +273,37 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             </div>
                         );
                     }
+                    if (cell.type === 'loading_mapping') {
+                        return (
+                            <div key={cellIndex} className={cellClass} style={customStyle}>
+                                <div className="flex items-center gap-2 animate-pulse text-blue-400 dark:text-blue-500">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400 dark:bg-blue-500"></div>
+                                    <span className="text-[10px] font-bold uppercase tracking-widest italic">Mapping...</span>
+                                </div>
+                            </div>
+                        );
+                    }
+                    if (cell.type === 'listing_link') {
+                        return (
+                            <div key={cellIndex} className={cellClass} style={customStyle}>
+                                <a 
+                                    href={`https://www.etsy.com/listing/${cell.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-700 transition-all font-mono group/link"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        window.open(`https://www.etsy.com/listing/${cell.id}`, 'etsy_listing', 'width=1000,height=800,scrollbars=yes');
+                                    }}
+                                    title={`Open Etsy Listing ${cell.id}`}
+                                >
+                                    <span>{cell.id}</span>
+                                    <ExternalLink size={10} className="text-blue-400 group-hover/link:text-blue-600 transition-colors" />
+                                </a>
+                            </div>
+                        );
+                    }
                 }
 
                 // 2. Second Priority: Special Headers with specific layout but potentially simple values
@@ -272,6 +322,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         </div>
                     );
                 }
+
 
                 if (cell === 'Click for detail') {
                     return (

@@ -377,7 +377,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       categoryComparison: [],
       unmappedKeywords: []
     },
-    products: { headers: [], rows: [] }
+    products: { headers: [], rows: [] },
+    variants: { headers: [], rows: [] }
   };
 
   const [processedData, setProcessedData] = useState<ProcessedData>(initialProcessedData);
@@ -519,23 +520,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   useEffect(() => {
     if (!workerRef.current) return;
 
-    const triggerKey = {
-      records: filteredRecords,
-      prevRecords: previousPeriodRecords,
-      accountsHash: processingAccountsHash,
-      filter: filterDateRange,
-      tz: timeZone,
-      manual: manualCosts,
-      rates: exchangeRates,
-      mappings: productMappings,
-      categories: categories
-    };
-
     // Optimized comparison to avoid redundant worker runs
     const prevTrigger = lastTriggeredRef.current;
-
-    // Deep compare rates as they are rarely changed but new objects
-    const ratesChanged = JSON.stringify(exchangeRates) !== JSON.stringify(prevTrigger.rates);
 
     if (
       filteredRecords === prevTrigger.records &&
@@ -552,53 +538,59 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       return;
     }
 
-    lastTriggeredRef.current = {
-      records: filteredRecords,
-      prevRecords: previousPeriodRecords,
-      accountsHash: processingAccountsHash,
-      filter: filterDateRange,
-      tz: timeZone,
-      manual: stableManualCosts,
-      rates: stableRates,
-      mappings: stableMappings,
-      categories: categories,
-      listingsMapping: listingsMapping
-    };
+    // Debounce worker trigger: wait for 300ms of inactivity before processing.
+    const debounceTimer = setTimeout(() => {
+        lastTriggeredRef.current = {
+            records: filteredRecords,
+            prevRecords: previousPeriodRecords,
+            accountsHash: processingAccountsHash,
+            filter: filterDateRange,
+            tz: timeZone,
+            manual: stableManualCosts,
+            rates: stableRates,
+            mappings: stableMappings,
+            categories: categories,
+            listingsMapping: listingsMapping
+        };
 
-    // Set processing state
-    setIsProcessing(true);
+        // Set processing state
+        setIsProcessing(true);
 
-    // Safety timeout: If worker doesn't respond in 15s, force unlock UI
-    const safetyTimeout = setTimeout(() => {
-      if (isProcessingRef.current) {
-        console.warn("Worker timed out, forcing UI unlock.");
-        setIsProcessing(false);
-      }
-    }, 15000);
+        // Safety timeout: If worker doesn't respond in 15s, force unlock UI
+        const safetyHandler = setTimeout(() => {
+            if (isProcessingRef.current) {
+                console.warn("Worker timed out, forcing UI unlock.");
+                setIsProcessing(false);
+            }
+        }, 15000);
 
-    // Increment request ID
-    workerRequestIdRef.current += 1;
-    const currentRequestId = workerRequestIdRef.current;
+        // Increment request ID
+        workerRequestIdRef.current += 1;
+        const currentRequestId = workerRequestIdRef.current;
 
-    // Use stable accounts for worker
-    workerRef.current.postMessage({
-      requestId: currentRequestId,
-      records: filteredRecords,
-      previousRecords: previousPeriodRecords,
-      accounts: stableProcessingAccounts,
-      filterDateRange,
-      timeZone,
-      role,
-      permissions,
-      manualCosts: stableManualCosts,
-      exchangeRates: stableRates,
-      productMappings: stableMappings,
-      categories: categories,
-      listingsMapping: listingsMapping // PASS LISTING MAPPING TO WORKER
-    });
+        // Use stable accounts for worker
+        workerRef.current!.postMessage({
+            requestId: currentRequestId,
+            records: filteredRecords,
+            previousRecords: previousPeriodRecords,
+            accounts: stableProcessingAccounts,
+            filterDateRange,
+            timeZone,
+            role,
+            permissions,
+            manualCosts: stableManualCosts,
+            exchangeRates: stableRates,
+            productMappings: stableMappings,
+            categories: categories,
+            listingsMapping: listingsMapping
+        });
 
-    return () => clearTimeout(safetyTimeout);
-  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, manualCosts, exchangeRates, productMappings, categories, listingsMapping]);
+        // Store safety timeout in ref to allow cleanup if needed (though requestId check handles it)
+        // For simplicity, we just clear the debounce timer on effect cleanup below
+    }, 1500); // 1s debounce to catch initial waterfall of async data
+
+    return () => clearTimeout(debounceTimer);
+  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, stableMappings, categories, listingsMapping]);
 
 
 

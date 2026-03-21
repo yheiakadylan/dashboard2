@@ -131,15 +131,32 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         });
     }, [data, sortColumn, sortDirection]);
 
-    // isMobile depends on width which may be 0 initially - that's fine, hooks still run
-    // Stabilize isMobile: only change if width is non-zero to prevent flickering/resetting scroll
-    const [isMobile, setIsMobile] = useState(forceCardView);
+    // isMobile detection: more robust by checking both container and window width
+    // Initialize with a safe guess to avoid flickering
+    const [isMobile, setIsMobile] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return window.innerWidth < mobileBreakpoint || forceCardView;
+        }
+        return forceCardView;
+    });
+
     React.useEffect(() => {
-        if (width > 0) {
-            const nextIsMobile = width < mobileBreakpoint || forceCardView;
-            if (nextIsMobile !== isMobile) {
-                setIsMobile(nextIsMobile);
+        const updateDeviceType = () => {
+            const currentWidth = (width > 0) ? width : (typeof window !== 'undefined' ? window.innerWidth : 0);
+            if (currentWidth > 0) {
+                const nextIsMobile = currentWidth < mobileBreakpoint || forceCardView;
+                if (nextIsMobile !== isMobile) {
+                    setIsMobile(nextIsMobile);
+                }
             }
+        };
+
+        updateDeviceType();
+        
+        // Window resize specifically to handle manual browser scaling
+        if (typeof window !== 'undefined') {
+            window.addEventListener('resize', updateDeviceType);
+            return () => window.removeEventListener('resize', updateDeviceType);
         }
     }, [width, mobileBreakpoint, forceCardView, isMobile]);
 
@@ -333,7 +350,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
     }
 
     // Determine root container classes
-    const rootClasses = `flex flex-col ${autoHeight ? '' : 'h-full'} bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 ${autoHeight ? '' : 'overflow-hidden'}`;
+    const rootClasses = `flex flex-col w-full h-full min-h-0 overflow-hidden bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 ${autoHeight ? 'auto-height' : ''}`;
 
 
     // Calculate height for List
@@ -359,7 +376,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
             {!isMobile && (
                 <div
                     ref={headerRef}
-                    className={`flex items-center bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 font-semibold text-xs text-gray-500 dark:text-gray-300 uppercase tracking-wider h-12 flex-shrink-0 z-20 ${useWindowScroll ? 'sticky top-0 shadow-sm' : 'pr-[8px]'}`}
+                    className={`flex items-center bg-indigo-50/40 dark:bg-indigo-950/20 border-b border-gray-200 dark:border-gray-700 font-bold text-xs text-gray-700 dark:text-gray-300 uppercase tracking-wider h-14 flex-shrink-0 z-20 ${useWindowScroll ? 'sticky top-0 shadow-sm backdrop-blur-md' : 'pr-[8px]'}`}
                     style={{ width: safeWidth || '100%' }}
                 >
                     {headers.map((header, index) => {
@@ -367,7 +384,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                         const isHidden = isHiddenOnDesktopMobileView(header);
                         const canSort = header !== 'Image' && header !== 'Actions';
                         
-                        let headerCellClass = `${isHidden ? 'hidden lg:flex' : 'flex'} min-w-0 items-center h-full px-3 py-2 ${canSort ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600' : ''} transition-colors `;
+                        let headerCellClass = `${isHidden ? 'hidden lg:flex' : 'flex'} min-w-0 items-center h-full px-4 py-2 ${canSort ? 'cursor-pointer hover:bg-indigo-500/5 dark:hover:bg-indigo-500/10' : ''} transition-all duration-200 group `;
                         if (config.justify) headerCellClass += `justify-${config.justify} `;
 
                         const customHeaderStyle = {
@@ -412,7 +429,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                             itemData={itemData}
                             overscanCount={10}
                             onItemsRendered={onItemsRendered}
-                            className="scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600"
+                            className={isMobile ? "scrollbar-hide" : "scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600"}
                             style={useWindowScroll ? { overflow: 'visible' } : undefined}
                             outerElementType={useWindowScroll ? WindowScrollerOuter : undefined}
                         >
@@ -429,7 +446,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                             itemData={itemData}
                             overscanCount={20}
                             onItemsRendered={onItemsRendered}
-                            className="scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600"
+                            className={isMobile ? "scrollbar-hide" : "scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600"}
                             style={useWindowScroll ? { overflow: 'visible' } : undefined}
                             outerElementType={useWindowScroll ? WindowScrollerOuter : undefined}
                         >

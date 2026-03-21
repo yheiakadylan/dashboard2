@@ -125,12 +125,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 if (isRefund) {
                   notificationEvents.push({
                     type: 'refund',
-                    text: `Refund: #${newRecord.order_id || 'Unknown'} - $${Math.abs(newRecord.amount || 0)} (${shopName})`
+                    text: `Refund: #${newRecord.order_id || 'Unknown'} - $${Math.abs(newRecord.refund_details.refundAmount)} ${newRecord.refund_details.refundCurrency} (${shopName})`
                   });
                 } else {
                   notificationEvents.push({
                     type: 'order',
-                    text: `New Order: #${newRecord.order_id || 'Unknown'} - $${newRecord.amount} (${shopName})`
+                    text: `New Order: #${newRecord.order_id || 'Unknown'} - $${newRecord.amount} ${newRecord.currency} (${shopName})`
                   });
                 }
               } else if (newRecord.kind === 'Funds') {

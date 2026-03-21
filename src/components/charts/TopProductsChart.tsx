@@ -60,7 +60,25 @@ const CustomTooltip = ({ active, payload, isCategoryChart, isVariantChart }: any
         {!isCategoryChart && !isVariantChart && data.listing_id && (
            <div className="mb-2">
             <span className="text-[10px] uppercase font-bold text-gray-400 dark:text-gray-500 block">Listing ID</span>
-            <span className="text-xs font-mono font-semibold text-blue-600 dark:text-blue-400">{data.listing_id}</span>
+            {typeof data.listing_id === 'object' ? (
+              data.listing_id.type === 'loading_mapping' ? (
+                <span className="text-xs italic text-blue-400 animate-pulse">Mapping...</span>
+              ) : (
+                <a 
+                  href={`https://www.etsy.com/listing/${data.listing_id.id}`}
+                  className="text-xs font-mono font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.open(`https://www.etsy.com/listing/${(data.listing_id as any).id}`, 'etsy_listing', 'width=1000,height=800,scrollbars=yes');
+                  }}
+                >
+                  {data.listing_id.id}
+                </a>
+              )
+            ) : (
+              <span className="text-xs font-mono font-semibold text-blue-600 dark:text-blue-400">{data.listing_id}</span>
+            )}
           </div>
         )}
 
