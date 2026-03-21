@@ -271,7 +271,8 @@ export const getImageMapFromManifests = async (teamId: string): Promise<Map<stri
             Object.entries(listings).forEach(([listingId, hash]) => {
                 if (typeof hash === 'string') {
                     const parts = hash.split('|');
-                    const imageUrl = parts[1]; // Index 1 is Image
+                    const imgIndex = parts.findIndex(p => p.startsWith('http'));
+                    const imageUrl = imgIndex > 0 ? parts[imgIndex] : parts[1];
                     const imgId = extractEtsyImageId(imageUrl);
                     if (imgId) {
                         imageMap.set(imgId, listingId);
@@ -349,7 +350,11 @@ export const getListingMappingMaps = async (teamId: string, accountIds: string[]
                 const listings = data.listings || {}; // ID -> Hash "title|image|price"
                 Object.entries(listings).forEach(([listingId, hash]) => {
                     if (typeof hash === 'string') {
-                        const [title, imageUrl] = hash.split('|');
+                        const parts = hash.split('|');
+                        const imgIndex = parts.findIndex(p => p.startsWith('http'));
+                        const title = imgIndex > 0 ? parts.slice(0, imgIndex).join('|') : parts[0];
+                        const imageUrl = imgIndex > 0 ? parts[imgIndex] : parts[1];
+
                         if (imageUrl && imageUrl.trim()) {
                             imageMap.set(imageUrl.trim(), listingId);
                         }

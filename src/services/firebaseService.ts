@@ -236,17 +236,66 @@ export const getAllRecordsForAccount = async (teamId: string, accountEmail: stri
   return records;
 };
 
-export const getRefundRecordsForOrderIds = async (teamId: string, orderIds: string[]): Promise<Record[]> => {
+export const getRefundRecordsForOrderIds = async (
+  teamId: string, 
+  orderIds: string[], 
+  rangeFromStr?: string,
+  rangeToStr?: string
+): Promise<Record[]> => {
   if (!orderIds || orderIds.length === 0) return [];
 
   const recordsRef = collection(db, 'user', teamId, 'records');
   const results: Record[] = [];
   
   // Remove duplicates and empty IDs
-  const uniqueOrderIds = Array.from(new Set(orderIds.filter(id => !!id)));
-  if (uniqueOrderIds.length === 0) return [];
+  const uniqueOrderIdsSet = new Set(orderIds.filter(id => !!id));
+  if (uniqueOrderIdsSet.size === 0) return [];
 
-  // Firestore 'in' query limit is 30
+  if (rangeFromStr) {
+    let constraints: any[] = [
+      where('source', '==', 'Etsy_Refunded'),
+      where('dt_local', '>=', rangeFromStr)
+    ];
+
+    if (rangeToStr) {
+      // Add a 60-day buffer to the end date (because refunds rarely happen >60 days after order)
+      const toDate = new Date(rangeToStr);
+      toDate.setDate(toDate.getDate() + 60);
+
+      // Prevent querying into the future
+      const now = new Date();
+      const upperBound = toDate > now ? now.toISOString() : toDate.toISOString();
+      
+      constraints.push(where('dt_local', '<=', upperBound));
+      
+      if (import.meta.env.DEV) {
+        console.log(`[firebaseService] 🔍 Fast cross-checking ${uniqueOrderIdsSet.size} orders for refunds between ${rangeFromStr} and ${upperBound}`);
+      }
+    } else {
+      if (import.meta.env.DEV) {
+        console.log(`[firebaseService] 🔍 Fast cross-checking ${uniqueOrderIdsSet.size} orders for refunds strictly after ${rangeFromStr}`);
+      }
+    }
+
+    const q = query(recordsRef, ...constraints);
+    const snapshot = await getDocs(q);
+    
+    snapshot.docs.forEach(doc => {
+      const data = { ...(doc.data() as object), id: doc.id } as Record;
+      if (data.order_id && uniqueOrderIdsSet.has(data.order_id)) {
+        results.push(data);
+      }
+    });
+
+    if (import.meta.env.DEV) {
+      console.log(`[firebaseService] 📬 Found ${snapshot.size} total refunds in range. Matched ${results.length} related refunds.`);
+    }
+
+    return results;
+  }
+
+  // Fallback: chunked query for absolute safety if rangeFromStr is not provided
+  const uniqueOrderIds = Array.from(uniqueOrderIdsSet);
   const IN_QUERY_LIMIT = 30;
   const chunks = [];
   for (let i = 0; i < uniqueOrderIds.length; i += IN_QUERY_LIMIT) {
@@ -264,7 +313,10 @@ export const getRefundRecordsForOrderIds = async (teamId: string, orderIds: stri
   const snapshots = await Promise.all(promises);
   snapshots.forEach(snap => {
     snap.docs.forEach(doc => {
-      results.push({ ...(doc.data() as object), id: doc.id } as Record);
+      // Still ensure uniqueness
+      if(uniqueOrderIdsSet.has((doc.data() as Record).order_id as string)) {
+        results.push({ ...(doc.data() as object), id: doc.id } as Record);
+      }
     });
   });
   

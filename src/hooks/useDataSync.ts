@@ -666,7 +666,7 @@ export const useDataSync = ({
                 if (orderIdsToCrossCheck.length > 0) {
                     setSyncState('Cross-checking refunds...');
                     try {
-                        const crossCheckRefunds = await getRefundRecordsForOrderIds(teamId, orderIdsToCrossCheck);
+                        const crossCheckRefunds = await getRefundRecordsForOrderIds(teamId, orderIdsToCrossCheck, filterDateRange.from, filterDateRange.to);
                         if (crossCheckRefunds.length > 0 && !signal.aborted) {
                             const existingIds = new Set(fbRecords.map(r => r.id));
                             let added = false;
