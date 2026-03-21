@@ -552,7 +552,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }
 
     // Wait for listings mapping to be ready to avoid double-processing (null → data flicker).
-    if (!isListingsMappingReady) {
+    const hasEtsyAccounts = allAccounts.some(a => a.platforms?.includes('etsy'));
+    if (!isListingsMappingReady || (hasEtsyAccounts && !listingsMapping)) {
       return;
     }
 

@@ -4,10 +4,10 @@
  * Supports both localStorage (offline) and Firestore (realtime sync)
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Notification } from '../../../types/notification';
 import { cleanupOldNotifications } from '../utils/notificationCleanup';
-import { collection, query, onSnapshot, orderBy, limit, updateDoc, doc, deleteDoc, arrayUnion } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, limit, updateDoc, doc, deleteDoc, arrayUnion, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../services/firebaseService';
 import { UserProfile } from '../../auth/hooks/useAuthLogic';
 import { filterNotificationsByPermissions } from '../utils/notificationPermissions';
@@ -26,7 +26,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
     const { teamId, enableFirestoreSync = true, userProfile } = options;
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isOpen, setIsOpen] = useState(false);
-    const [processedFirestoreIds, setProcessedFirestoreIds] = useState<Set<string>>(new Set());
+    const processedFirestoreIds = useRef<Set<string>>(new Set());
 
     const [limitCount, setLimitCount] = useState(20);
     const [hasMore, setHasMore] = useState(true);
@@ -65,6 +65,18 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
         console.log('[NotificationCenter] Setting up Firestore listener for teamId:', teamId, 'limit:', limitCount);
 
         const notificationsRef = collection(db, 'user', teamId, 'notifications');
+
+        // Background Sweeper: Find and delete ONLY expired notifications in Firestore.
+        // This stops old documents from accumulating beyond the 'limitCount' window.
+        const cutoffDateISO = new Date(Date.now() - AUTO_CLEANUP_DAYS * 24 * 60 * 60 * 1000).toISOString();
+        const cleanupQ = query(notificationsRef, where('createdAt', '<', cutoffDateISO), limit(50));
+        getDocs(cleanupQ).then(snap => {
+            if (snap.size > 0) {
+                console.log(`[NotificationCenter] Auto-sweeping ${snap.size} expired notifications from Firestore DB`);
+                snap.forEach(d => deleteDoc(d.ref).catch(() => {}));
+            }
+        }).catch(err => { /* Soft fail background cleanups */ });
+
         const q = query(
             notificationsRef,
             orderBy('createdAt', 'desc'),
@@ -80,7 +92,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
 
                     if (change.type === 'added') {
                         // Check if we've already processed this Firestore notification
-                        if (processedFirestoreIds.has(firestoreId)) {
+                        if (processedFirestoreIds.current.has(firestoreId)) {
                             return;
                         }
 
@@ -94,22 +106,6 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                             isRead: data.isRead || false,
                             createdAt: data.createdAt,
                         };
-
-                        // FILTER: Check if notification is too old (Auto-cleanup)
-                        const cutoffDate = new Date(Date.now() - AUTO_CLEANUP_DAYS * 24 * 60 * 60 * 1000);
-                        const notifDate = new Date(firestoreNotification.createdAt);
-
-                        if (notifDate < cutoffDate) {
-                            console.log('[NotificationCenter] Found expired notification, auto-deleting from DB:', firestoreNotification.id);
-
-                            // Lazy cleanup: Delete from Firestore in background
-                            // This keeps the DB clean without needing a separate backend cron job
-                            const notifRef = doc(db, 'user', teamId, 'notifications', firestoreNotification.id);
-                            deleteDoc(notifRef).catch(err => console.error("[NotificationCenter] Failed to auto-delete expired notification:", err));
-
-                            return;
-                        }
-
 
                         // Add to state and ensuring sorting
                         setNotifications((prev) => {
@@ -143,7 +139,10 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                             );
 
                             if (isDuplicateContent) {
-                                console.log('[NotificationCenter] Skipped duplicate content (1m window):', firestoreNotification.id);
+                                console.log('[NotificationCenter] Found duplicate content, auto-deleting from DB:', firestoreNotification.id);
+                                // Self-heal: Permanently remove the duplicate from Firestore so it doesn't trigger on every reload
+                                const notifRef = doc(db, 'user', teamId, 'notifications', firestoreNotification.id);
+                                deleteDoc(notifRef).catch(err => console.error("[NotificationCenter] Failed to clean duplicate:", err));
                                 return prev;
                             }
 
@@ -192,8 +191,8 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                             return newList.slice(0, limitCount);
                         });
 
-                        // Mark as processed
-                        setProcessedFirestoreIds((prev) => new Set([...prev, firestoreId]));
+                        // Mark as processed immediately in the ref to avoid closure staleness
+                        processedFirestoreIds.current.add(firestoreId);
                     }
 
                     if (change.type === 'modified') {
@@ -210,11 +209,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                     if (change.type === 'removed') {
                         // Remove from state
                         setNotifications((prev) => prev.filter((n) => n.id !== firestoreId));
-                        setProcessedFirestoreIds((prev) => {
-                            const newSet = new Set(prev);
-                            newSet.delete(firestoreId);
-                            return newSet;
-                        });
+                        processedFirestoreIds.current.delete(firestoreId);
                     }
                 });
             },

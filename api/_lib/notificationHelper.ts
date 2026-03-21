@@ -19,6 +19,27 @@ export async function createNotificationDocument(params: CreateNotificationParam
     const db = getDb();
     const notificationsRef = db.collection('user').doc(teamId).collection('notifications');
 
+    // DEDUPLICATION GATEWAY: Prevent creating identical notifications within 2 minutes.
+    // This stops "rác" (garbage) right at the backend source before it even reaches Firestore.
+    try {
+        const twoMinsAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+        const recentDocs = await notificationsRef
+            .where('type', '==', type)
+            .where('createdAt', '>=', twoMinsAgo)
+            .get();
+
+        for (const doc of recentDocs.docs) {
+            const data = doc.data();
+            if (data.title === title && data.content === content) {
+                console.log(`[Notification] 🛡️ Backend Deduplication Blocked Duplicate Event: ${title}`);
+                return doc.id; // Return the existing ID to fake success, but don't duplicate
+            }
+        }
+    } catch (err) {
+        console.error('[Notification] Error checking duplicates:', err);
+        // If query fails (e.g., missing index), fall through to just add the notification
+    }
+
     const notificationDoc = await notificationsRef.add({
         type,
         title,
