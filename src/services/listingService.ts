@@ -334,11 +334,15 @@ export const getListingMappingMaps = async (teamId: string, accountIds: string[]
     };
 
     try {
-        // 1. Fetch from Manifests (Global data)
+        // Strict Fetch ONLY from Manifests (Global data)
         try {
+            const dbPath = `user/${teamId}/manifests`;
+            if (isDev) console.log(`[listingService] 🚀 EXACT DB FETCH PATH: ${dbPath}`);
+            
             const manifestsCol = collection(db, 'user', teamId, 'manifests');
             const manifestsSnap = await getDocs(manifestsCol);
-            if (isDev) console.log('[listingService] Found', manifestsSnap.size, 'manifest documents');
+            
+            if (isDev) console.log(`[listingService] 📬 Received ${manifestsSnap.size} manifest documents from ${dbPath}`);
             
             manifestsSnap.forEach(doc => {
                 const data = doc.data();
@@ -363,38 +367,11 @@ export const getListingMappingMaps = async (teamId: string, accountIds: string[]
             if (isDev) console.warn('[listingService] Manifest mapping failed:', manifestErr);
         }
 
-        // 2. Fetch from individual account listings
-        const promises = accountIds.map(async (accId) => {
-            try {
-                const colRef = collection(db, 'user', teamId, 'accounts', accId, 'listings');
-                const snap = await getDocs(colRef);
-                
-                snap.forEach(doc => {
-                    const data = doc.data();
-                    const listingId = doc.id;
-                    
-                    if (data.image && data.image.trim()) {
-                        imageMap.set(data.image.trim(), listingId);
-                    }
-                    
-                    if (data.title) {
-                        const fullTitle = decodeHTMLEntities(data.title).trim().toLowerCase();
-                        const baseName = normalizeForMapping(data.title);
-                        if (!nameMap.has(fullTitle)) nameMap.set(fullTitle, listingId);
-                        if (baseName && !nameMap.has(baseName)) nameMap.set(baseName, listingId);
-                    }
-                });
-            } catch (accErr) {
-                if (isDev) console.warn(`[listingService] Failed to fetch listings for account ${accId}:`, accErr);
-            }
-        });
-
-        await Promise.all(promises);
     } catch (e) {
         console.error('[listingService] Critical error in getListingMappingMaps:', e);
     }
 
-    if (isDev) console.log(`[listingService] Mapping built: ${imageMap.size} images, ${nameMap.size} names`);
+    if (isDev) console.log(`[listingService] Mapping built strictly from manifests: ${imageMap.size} images, ${nameMap.size} names`);
 
     return { 
         imageMap: Object.fromEntries(imageMap), 
