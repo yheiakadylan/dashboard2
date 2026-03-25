@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Etsy Listing Tracker",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Track Etsy shop listings automatically from your browser",
     "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxG98n7N7Gjw9c6ibPr8kXjPgzpWyzOMD2e6aJpgZ2DZAb47WYK4Iw2TydywoqPCv8/rtmZ6j4C5/bswdJ4/6RxB0ad518IBuvn4biUG1q+S9R43oMSbaUXn7JaD38Xm3RvHphJHt+1f1phcTi/jqJwd2tBoVREQ4fF2SiXibtzIBSopQTvrG/ENSemHFtA9VMi+gx8XpAyHXPbJBAes6Bq7nx1dY9JkBiWV15E9nJLuWbmK0nq/F9jLk3wztST3C0L7xr3E7cYqkpXvCgoBsfX+vzlcU4Txf6kJAiuXzf8y/9aHhdPNzdzj9t0bKki20mtxFLHOg4xjSMCkRk4G9PQIDAQAB",
     "permissions": [
