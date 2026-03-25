@@ -322,8 +322,10 @@ async function performAutoCrawl(force = false) {
                 successCount++; // Still count as success (empty shop)
             }
 
-            // Wait 5s between shops
-            await new Promise(r => setTimeout(r, 5000));
+            // Wait longer between shops to avoid Etsy protections (Random 20 - 30 seconds)
+            const delayMs = 20000 + Math.random() * 10000;
+            console.log(`[Background] Waiting ${Math.round(delayMs / 1000)}s before next shop to avoid rate limits...`);
+            await new Promise(r => setTimeout(r, delayMs));
 
         } catch (err) {
             console.error(`[Background] Failed to crawl ${shop.label}:`, err);
@@ -584,10 +586,15 @@ function handleCrawlResult(msg, sender) {
         task.page = task.page + 1;
         task.pageRetries = 0;
 
-        console.log(`[Background] [${shopName}] Advancing to page ${task.page} -> ${msg.nextPageUrl}`);
+        console.log(`[Background] [${shopName}] Advancing to page ${task.page} -> ${msg.nextPageUrl} in 6 seconds (anti-bot delay)...`);
 
-        // Use the URL from content script (which has all the right params)
-        chrome.tabs.update(task.tabId, { url: msg.nextPageUrl });
+        // Anti-bot delay: Wait 6-8 seconds organically between pages
+        const pageDelay = 6000 + Math.random() * 2000;
+        setTimeout(() => {
+            if (pendingCrawls.has(shopName)) {
+                chrome.tabs.update(task.tabId, { url: msg.nextPageUrl });
+            }
+        }, pageDelay);
     } else {
         // Done
         console.log(`[Background] [${shopName}] Crawl finished. Reason: ${!msg.nextPageUrl ? 'No next page' : 'Limit reached'}. Total: ${task.accumulatedListings.length} listings`);

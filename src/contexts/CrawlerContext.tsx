@@ -191,8 +191,12 @@ export const CrawlerProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         // SYNC TO EXTENSION (Background Logic)
         if (teamId && auth.currentUser) {
-            // Use ALL Etsy accounts to allow extension to see disabled ones (unchecked)
-            const etsyAccounts = allAccounts.filter(acc => acc.platforms?.includes('etsy'));
+            // Use ALL Etsy accounts, sorted by last_listing_crawl (oldest first) so extension prioritizes neglected shops
+            const etsyAccounts = [...allAccounts].filter(acc => acc.platforms?.includes('etsy')).sort((a, b) => {
+                const timeA = a.last_listing_crawl ? (typeof a.last_listing_crawl === 'object' && 'seconds' in a.last_listing_crawl ? (a.last_listing_crawl.seconds as number) * 1000 : new Date(a.last_listing_crawl as any).getTime()) : 0;
+                const timeB = b.last_listing_crawl ? (typeof b.last_listing_crawl === 'object' && 'seconds' in b.last_listing_crawl ? (b.last_listing_crawl.seconds as number) * 1000 : new Date(b.last_listing_crawl as any).getTime()) : 0;
+                return timeA - timeB;
+            });
 
             auth.currentUser.getIdToken().then(token => {
                 syncConfigToExtension({
