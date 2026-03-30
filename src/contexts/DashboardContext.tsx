@@ -165,7 +165,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       unsubscribe = listenForSettings(teamId, (settings) => {
         if (settings.autoSyncToSheet !== undefined) {
           setAutoSyncEnabled(settings.autoSyncToSheet);
-          console.log(`[Auto-Sync] Settings updated: ${settings.autoSyncToSheet ? 'ENABLED' : 'DISABLED'}`);
         }
       });
     });

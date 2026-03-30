@@ -201,7 +201,6 @@ const DashboardLayout: React.FC = () => {
                     addNotification(notification.body || notification.title || 'New notification', 'info');
                 });
 
-                console.log('[FCM] Foreground listener setup complete');
             } catch (error) {
                 console.error('[FCM] Error setting up foreground listener:', error);
             }
