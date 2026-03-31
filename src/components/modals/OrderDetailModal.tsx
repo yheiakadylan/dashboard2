@@ -4,6 +4,8 @@ import { useDashboard } from '../../contexts/DashboardContext';
 import { useUI } from '../../contexts/UIContext';
 import ImagePreviewModal from './ImagePreviewModal';
 import { resolveListingId } from '../../utils/dataProcessing';
+import { addSkuJob, listenToSkuJob } from '../../services/skuQueueService';
+import { useNotification } from '../../contexts/NotificationContext';
 
 interface OrderDetailModalProps {
   record: Record;
@@ -13,11 +15,59 @@ interface OrderDetailModalProps {
 }
 
 const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, onResync, allRecords = [] }) => {
-  const { accounts, exchangeRates, listingsMapping } = useDashboard();
+  const { accounts, exchangeRates, listingsMapping, teamId } = useDashboard();
   const { timeZone, globalUsdMode } = useUI();
+  const { addNotification } = useNotification();
+
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isResyncing, setIsResyncing] = useState(false);
   const [isConfirmingResync, setIsConfirmingResync] = useState(false);
+  const [skuJobStatus, setSkuJobStatus] = useState<any>(null);
+  const [isFetchingSku, setIsFetchingSku] = useState(false);
+  const [localFetchedSku, setLocalFetchedSku] = useState<string | null>(null);
+
+  const previousSkuStatus = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (record.source === 'Etsy_Sales' && record.order_id && teamId) {
+      const unsubscribe = listenToSkuJob(teamId, record.order_id, (job) => {
+        setSkuJobStatus(job.status);
+
+        if (job.status === 'completed' || job.status === 'failed') {
+          setIsFetchingSku(false);
+
+          if (previousSkuStatus.current === 'pending' || previousSkuStatus.current === 'processing') {
+            if (job.status === 'completed') {
+              if (job.sku && job.sku !== 'NULL' && job.sku !== 'NULL_RATE_LIMIT') {
+                addNotification(`Success: Fetched SKU ${job.sku}`, 'success');
+                setLocalFetchedSku(job.sku);
+              } else {
+                addNotification(`Warning: SKU not found for this order`, 'warning');
+              }
+            } else {
+              addNotification(`Error: Failed to fetch SKU ( ${job.error || 'Unknown'} )`, 'error');
+            }
+          }
+        } else if (job.status === 'pending' || job.status === 'processing') {
+          setIsFetchingSku(true);
+        }
+
+        previousSkuStatus.current = job.status;
+      });
+      return () => unsubscribe();
+    }
+  }, [record.order_id, record.source, teamId, addNotification]);
+
+  const handleFetchSKU = async () => {
+    if (!record.order_id || !record.account || !teamId) return;
+    setIsFetchingSku(true);
+    try {
+      await addSkuJob(teamId, record.order_id, record.account, true);
+    } catch (err) {
+      console.error("Fetch SKU error:", err);
+      setIsFetchingSku(false);
+    }
+  };
 
   if (!record.details) return null;
 
@@ -64,8 +114,23 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
     };
   }, [allRecords, record, exchangeRates]);
 
+  // Find Unique SKUs to display in header
+  const uniqueSkus = React.useMemo(() => {
+    if (!record.details?.items) return [];
+    const skus = new Set<string>();
+    record.details.items.forEach(i => {
+      if (i.sku && i.sku !== 'NULL' && i.sku !== 'NULL_RATE_LIMIT') skus.add(i.sku);
+    });
+    return Array.from(skus);
+  }, [record.details?.items]);
+
   const { details, order_id, dt_local, account } = record;
   const { customerName, customerEmail, shippingAddress, items, financials } = details;
+
+  const displayItems = React.useMemo(() => {
+    if (!localFetchedSku) return items;
+    return items.map(item => ({ ...item, sku: localFetchedSku }));
+  }, [items, localFetchedSku]);
 
   // Helper to format prices with USD conversion
   const formatPrice = (amount: number | undefined | null, currency: string = 'USD') => {
@@ -129,6 +194,27 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
             </p>
           </div>
           <div className="flex items-center gap-1 ml-3 flex-shrink-0">
+            {/* Fetch SKU Icon */}
+            {record.source === 'Etsy_Sales' && record.order_id && teamId && (
+              <button
+                onClick={handleFetchSKU}
+                disabled={isFetchingSku}
+                title={skuJobStatus === 'processing' ? 'Processing SKU...' : (skuJobStatus === 'failed' ? 'Failed - Retry' : 'Fetch SKU from Extension')}
+                className={`p-1.5 rounded-full transition-colors disabled:opacity-40 
+                  ${isFetchingSku
+                    ? 'text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 cursor-wait'
+                    : 'text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30'}
+                `}
+                aria-label="Fetch SKU"
+              >
+                {isFetchingSku ? (
+                  <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
+                )}
+              </button>
+            )}
+
             {/* Resync icon — header, inline confirm */}
             {onResync && record.email_id && (
               isConfirmingResync ? (
@@ -212,11 +298,13 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
 
           {/* Items Section */}
           <div>
-            <h3 className="font-bold text-gray-900 dark:text-white mb-2 text-sm">Items ({items.length})</h3>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-bold text-gray-900 dark:text-white text-sm">Items ({items.length})</h3>
+            </div>
 
             {/* Mobile Card Layout */}
             <div className="md:hidden space-y-3">
-              {items.map((item, idx) => (
+              {displayItems.map((item, idx) => (
                 <div key={idx} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600 p-3">
                   <div className="flex gap-3">
                     {item.image && (
@@ -230,9 +318,23 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-white break-words">{item.name}</p>
+                      {item.sku && (
+                        <p className={`text-xs mt-0.5 font-semibold ${item.sku === 'NULL' ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                          SKU: {item.sku}
+                        </p>
+                      )}
                       {item.variant && (
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 whitespace-pre-wrap">{item.variant}</p>
                       )}
+                      {item.variant2 && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 whitespace-pre-wrap">{item.variant2}</p>
+                      )}
+                      {item.personalization && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 whitespace-pre-wrap">
+                          {item.personalization}
+                        </p>
+                      )}
+
                       {item.transactionId && <p className="text-xs text-gray-400 mt-1">ID: {item.transactionId}</p>}
                       {(() => {
                         const lId = resolveListingId(item, listingsMapping);
@@ -251,12 +353,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                       })()}
                     </div>
                   </div>
-
-                  {item.personalization && (
-                    <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs text-gray-700 dark:text-gray-300 border border-yellow-100 dark:border-yellow-900/30">
-                      <span className="font-semibold">Personalization:</span> {item.personalization}
-                    </div>
-                  )}
 
                   <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 grid grid-cols-3 gap-2 text-sm">
                     <div>
@@ -288,7 +384,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                  {items.map((item, idx) => (
+                  {displayItems.map((item, idx) => (
                     <tr key={idx}>
                       <td className="px-4 py-4">
                         <div className="flex items-start space-x-4">
@@ -303,14 +399,23 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                           )}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-gray-900 dark:text-white break-words">{item.name}</p>
+                            {item.sku && (
+                              <p className={`text-xs mt-0.5 font-semibold ${item.sku === 'NULL' ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                                SKU: {item.sku}
+                              </p>
+                            )}
                             {item.variant && (
                               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 whitespace-pre-wrap">{item.variant}</p>
                             )}
-                            {item.personalization && (
-                              <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs text-gray-700 dark:text-gray-300 border border-yellow-100 dark:border-yellow-900/30">
-                                <span className="font-semibold">Personalization:</span> {item.personalization}
-                              </div>
+                            {item.variant2 && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 whitespace-pre-wrap">{item.variant2}</p>
                             )}
+                            {item.personalization && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 whitespace-pre-wrap">
+                                {item.personalization}
+                              </p>
+                            )}
+
                             {item.transactionId && <p className="text-xs text-gray-400 mt-1">ID: {item.transactionId}</p>}
                             {(() => {
                               const lId = resolveListingId(item, listingsMapping);

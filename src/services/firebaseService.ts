@@ -430,6 +430,21 @@ export const saveRecordsToFirebase = async (
         addBatch = writeBatch(db);
         addCount = 0;
       }
+
+      // [NEW] Auto Push SKU Job for new Etsy Sales
+      if (record.source === 'Etsy_Sales' && record.order_id && record.account) {
+        const jobsRef = collection(db, 'user', teamId, 'sku_jobs');
+        const jobDocRef = doc(jobsRef, record.order_id);
+        // We write to batch as well to ensure it commits together!
+        addBatch.set(jobDocRef, {
+            order_id: record.order_id,
+            account: record.account,
+            status: 'pending',
+            priority: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        }, { merge: true });
+      }
     });
     if (addCount > 0) {
       addPromises.push(addBatch.commit());
@@ -527,6 +542,20 @@ export const addRecord = async (teamId: string, record: Record): Promise<Record>
     : doc(recordsCollectionRef); // Fallback: Auto ID
 
   await setDoc(docRef, data);
+
+  // [NEW] Auto Push SKU Job for new Etsy Sales
+  if (record.source === 'Etsy_Sales' && record.order_id && record.account) {
+    const jobDocRef = doc(collection(db, 'user', teamId, 'sku_jobs'), record.order_id);
+    await setDoc(jobDocRef, {
+        order_id: record.order_id,
+        account: record.account,
+        status: 'pending',
+        priority: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+    }, { merge: true });
+  }
+
   return { ...record, id: docRef.id };
 };
 

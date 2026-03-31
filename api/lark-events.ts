@@ -314,7 +314,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // =====================================================================
-  // 🟢 HIJACK 1: LẤY CHI TIẾT ĐƠN HÀNG CHO TAMPERMONKEY
+  // 🟢 HIJACK 1: LẤY CHI TIẾT ĐƠN HÀNG 
   // Gọi bằng: /api/lark-events?action=get-order-detail&secret=<CRON_SECRET2>&orderId=...
   // =====================================================================
   if (action === 'get-order-detail') {
@@ -363,7 +363,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const lastName = nameParts.pop() || '';
       const firstName = nameParts.join(' ') || '';
 
+      let accountLabel = bestRecord.account;
+      if (accountLabel && accountLabel !== "all") {
+         try {
+            const accountsRef = db.collection('user').doc(SHARED_USER_ID).collection('accounts');
+            const accSnap = await accountsRef.get();
+            const accounts = accSnap.docs.map(d => d.data() as { email: string; label: string; });
+            const foundAccount = accounts.find(acc => acc.email === bestRecord?.account);
+            if (foundAccount && foundAccount.label) {
+              accountLabel = foundAccount.label;
+            }
+         } catch(e) {
+            console.error("[lark-events] Failed to fetch account label", e);
+         }
+      }
+
       return res.status(200).json({
+        order_id: bestRecord.order_id,
+        account: accountLabel,
         firstName,
         lastName,
         email: customerEmail || '',

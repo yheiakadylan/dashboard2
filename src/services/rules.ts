@@ -531,8 +531,41 @@ const extractEtsyDetails = (html: string): OrderDetails => {
       return true;
     });
 
-    // Mỗi div 1 dòng
-    const variant = variantLines.join("\n");
+    // 🚀 IN RA RAW 
+    console.log(`\n\n[raw_variant_data] => Item: "${title}" =>`, variantLines);
+
+    let variant = "";
+    let variant2 = "";
+    let personalizationArr: string[] = [];
+    let isPersonalizationBlock = false;
+
+    for (const [idx, line] of variantLines.entries()) {
+      // Bắt đầu khối personalization nếu dòng có chữ Personalization: hoặc các từ đa ngôn ngữ
+      if (/^(personalization|personnalisation|wunschtext|personalizzazioni|personalización)/i.test(line)) {
+        isPersonalizationBlock = true;
+      }
+      
+      // Bỏ qua hẳn dòng rác "Personalized item" hoặc "Personalised item"
+      if (/personali[zs]ed\s*item/i.test(line)) {
+        continue;
+      }
+
+      if (isPersonalizationBlock) {
+        personalizationArr.push(line);
+      } else {
+        // Dòng đầu tiên là variant, dòng thứ hai là variant2
+        if (idx === 0) {
+          variant = line;
+        } else if (idx === 1) {
+          variant2 = line;
+        } else {
+          // Từ dòng thứ 3 trở đi coi như là Personalization (nếu Etsy thiếu tag Personalization)
+          personalizationArr.push(line);
+        }
+      }
+    }
+
+    const personalization = personalizationArr.join('\n').trim();
 
     // ===== 3) Clean text để lấy Transaction ID / Qty / Price =====
     let clean = blockHtml;
@@ -568,6 +601,8 @@ const extractEtsyDetails = (html: string): OrderDetails => {
     items.push({
       name: title,
       variant,
+      variant2,
+      personalization,
       quantity,
       price,
       transactionId,

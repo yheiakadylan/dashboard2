@@ -30,7 +30,8 @@ export interface Account {
 
 export interface OrderItem {
   name: string;
-  variant?: string; // Material & Size, etc.
+  variant?: string; 
+  variant2?: string;
   personalization?: string;
   quantity: number;
   price: number;
