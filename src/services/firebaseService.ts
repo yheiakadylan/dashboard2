@@ -167,9 +167,18 @@ export const saveAccountsToFirebase = async (teamId: string, accounts: Account[]
   if (accounts.length > 0) {
     accounts.forEach(acc => {
       const docRef = doc(db, 'user', teamId, 'accounts', acc.id);
+      
+      // Clean up undefined values which Firestore WriteBatch rejects
+      const safeAcc: any = { ...acc };
+      Object.keys(safeAcc).forEach(key => {
+        if (safeAcc[key] === undefined) {
+          delete safeAcc[key];
+        }
+      });
+
       // Use set to overwrite or create. 
       // Ensuring we write the full object as provided.
-      batch.set(docRef, acc);
+      batch.set(docRef, safeAcc);
     });
   }
 
@@ -404,6 +413,20 @@ export const saveRecordsToFirebase = async (
 
   const recordsCollectionRef = collection(db, 'user', teamId, 'records');
   const BATCH_LIMIT = 500;
+  
+  // Pre-fetch all accounts to avoid await inside forEach loop
+  const accountsMap: { [email: string]: string } = {};
+  try {
+     const accountsRef = collection(db, 'user', teamId, 'accounts');
+     const accSnap = await getDocs(accountsRef);
+     accSnap.docs.forEach(doc => {
+         const data = doc.data();
+         if (data.email && data.label) {
+             accountsMap[data.email] = data.label;
+         }
+     });
+  } catch(e) { console.error("Could not pre-fetch accounts for mapping", e); }
+
   try {
     const addPromises: Promise<void>[] = [];
     let addBatch = writeBatch(db);
@@ -431,11 +454,11 @@ export const saveRecordsToFirebase = async (
         addCount = 0;
       }
 
-      // [NEW] Auto Push SKU Job for new Etsy Sales
+      // [NEW] Auto Push SKU Job & Create Draft Tasks for new Etsy Sales
       if (record.source === 'Etsy_Sales' && record.order_id && record.account) {
+        // 1. Push to Sku Job Queue
         const jobsRef = collection(db, 'user', teamId, 'sku_jobs');
         const jobDocRef = doc(jobsRef, record.order_id);
-        // We write to batch as well to ensure it commits together!
         addBatch.set(jobDocRef, {
             order_id: record.order_id,
             account: record.account,
@@ -444,6 +467,43 @@ export const saveRecordsToFirebase = async (
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         }, { merge: true });
+
+        // 2. Stage 1 Sync: Create 'pending_sku' tasks in vikcomltd for EACH item
+        if (record.details && record.details.items && record.details.items.length > 0) {
+           const tasksRef = collection(db, 'tasks');
+           
+           // Use pre-fetched account label
+           let accountLabel = accountsMap[record.account] || record.account;
+           
+           record.details.items.forEach((item: any, index: number) => {
+               // Append -1, -2 etc. for multi-item orders
+               const taskId = record.details!.items!.length > 1 
+                  ? `${record.order_id}-${index + 1}` 
+                  : record.order_id;
+                  
+               const taskDocRef = doc(tasksRef, taskId);
+               addBatch.set(taskDocRef, {
+                  id: taskId,
+                  readableId: taskId, // Hiển thị trên Board
+                  orderId: record.order_id, // Bổ sung để Extension query cho nhanh
+                  title: record.product_name || item.name || 'New Etsy Order',
+                  sku: item.sku || '', // Sẽ được Update ở Stage 2 bởi Extension
+                  // description: item.variant || '', // Variant/Size (OLD)
+                  variant1: item.variant1 || item.variant || '', // NEW FIELD
+                  variant2: item.variant2 || '', // NEW FIELD
+                  personalization: item.personalization || '', // NEW FIELD
+                  quantity: item.quantity || 1, // Store quantity
+                  status: 'draft', // Ném thẳng vào Draft, Extension sẽ bổ sung SKU sau
+                  isUrgent: false,
+                  createdBy: 'system_sync',
+                  mockupUrl: item.image || '', // Ảnh thumbnail từ email
+                  created_at: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                  account: accountLabel, // Lấy Label của Shop thay vì Email
+                  collectionName: 'tasks' // Quan trọng cho Security Rules cũ
+               }, { merge: true });
+           });
+        }
       }
     });
     if (addCount > 0) {
@@ -543,8 +603,9 @@ export const addRecord = async (teamId: string, record: Record): Promise<Record>
 
   await setDoc(docRef, data);
 
-  // [NEW] Auto Push SKU Job for new Etsy Sales
+  // [NEW] Auto Push SKU Job & Create Draft Tasks for new Etsy Sales
   if (record.source === 'Etsy_Sales' && record.order_id && record.account) {
+    // 1. Push to SKU Job Queue
     const jobDocRef = doc(collection(db, 'user', teamId, 'sku_jobs'), record.order_id);
     await setDoc(jobDocRef, {
         order_id: record.order_id,
@@ -554,6 +615,51 @@ export const addRecord = async (teamId: string, record: Record): Promise<Record>
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
     }, { merge: true });
+
+    // 2. Stage 1 Sync: Create 'pending_sku' tasks in vikcomltd for EACH item
+    if (record.details && record.details.items && record.details.items.length > 0) {
+        const tasksRef = collection(db, 'tasks');
+        const batch = writeBatch(db); // Use batch for multiple items to ensure atomicity
+        
+        // Fetch account label
+        let accountLabel = record.account;
+        try {
+            const accountsRef = collection(db, 'user', teamId, 'accounts');
+            const accSnap = await getDocs(accountsRef);
+            const foundAcc = accSnap.docs.map(d => d.data()).find(a => a.email === record.account);
+            if (foundAcc && foundAcc.label) {
+                accountLabel = foundAcc.label;
+            }
+        } catch(e) { console.error("Could not fetch account label for task sync", e); }
+        
+        record.details.items.forEach((item: any, index: number) => {
+            const taskId = record.details!.items!.length > 1 
+               ? `${record.order_id}-${index + 1}` 
+               : record.order_id;
+               
+            const taskDocRef = doc(tasksRef, taskId);
+            batch.set(taskDocRef, {
+               id: taskId,
+               readableId: taskId,
+               orderId: record.order_id, // Bổ sung để Extension query cho nhanh
+               title: record.product_name || item.name || 'New Etsy Order',
+               sku: item.sku || '',
+               variant1: item.variant1 || item.variant || '', // NEW FIELD
+               variant2: item.variant2 || '', // NEW FIELD
+               personalization: item.personalization || '', // NEW FIELD
+               quantity: item.quantity || 1, // Store quantity
+               status: 'draft', 
+               isUrgent: false,
+               createdBy: 'auto_sync',
+               mockupUrl: item.image || '',
+               created_at: new Date().toISOString(),
+               updatedAt: new Date().toISOString(),
+               account: accountLabel, // Lấy Label của shop thay vì Email
+               collectionName: 'tasks'
+            }, { merge: true });
+        });
+        await batch.commit();
+    }
   }
 
   return { ...record, id: docRef.id };

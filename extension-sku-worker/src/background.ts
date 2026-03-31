@@ -204,6 +204,40 @@ async function processQueue(teamId: string) {
                             });
                         }
                     }
+
+                    // --- [STAGE 2 SYNC] Enrich `draft` tasks with SKUs in vikcomltd ---
+                    try {
+                        console.log(`[Stage 2 Sync] Starting SKU enrichment for orderId: ${job.order_id}`);
+                        const tasksRef = collection(db, 'tasks');
+                        
+                        // Query by orderId for efficiency (MUCH better than status query)
+                        const qTasks = query(tasksRef, where('orderId', '==', job.order_id));
+                        const taskSnap = await getDocs(qTasks);
+                        
+                        let updatedCount = 0;
+                        for (const taskDoc of taskSnap.docs) {
+                            const taskData = taskDoc.data();
+                            // Only update if SKU is missing or different, and we are in draft 
+                            // (We don't want to overwrite if user has already moved it to 'new' or 'in-progress' possibly, 
+                            // but in POD Etsy it usually updates once. Let's stick to updating any draft)
+                            if (taskData.status === 'draft') {
+                                console.log(`[Stage 2 Sync] Enriching task: ${taskDoc.id} with SKU: ${sku}`);
+                                await updateDoc(doc(db, 'tasks', taskDoc.id), {
+                                    sku: sku, // The fetched SKU
+                                    updatedAt: new Date().toISOString()
+                                });
+                                console.log(`[Stage 2 Sync] Successfully updated SKU for task ${taskDoc.id}`);
+                                updatedCount++;
+                            }
+                        }
+                        
+                        if (updatedCount === 0) {
+                            console.warn(`[Stage 2 Sync] Found 0 'draft' tasks matching orderId: ${job.order_id}`);
+                        }
+                    } catch (taskErr) {
+                        console.error("Failed to enrich tasks. Possible missing Firestore Index or Permission Error:", taskErr);
+                    }
+
                 } catch (err) {
                     console.error("Failed to update record with SKU:", err);
                 }
