@@ -523,17 +523,60 @@ export function processData(
         return res;
     };
 
-    const addUSDToKpi = (kpiMap: any, rawMap: Map<string, number>) => {
+    /**
+     * Enhances a per-currency KPI map with USD totals and refund info.
+     * Type-safe, immutable, and handles conversion for all currencies.
+     */
+    const addUSDToKpi = (
+        kpiMap: { [currency: string]: KpiValue },
+        rawMap: Map<string, number>,
+        refundMap?: Map<string, number>
+    ): { [currency: string]: KpiValue } => {
         if (!exchangeRates) return kpiMap;
+
         let totalUSD = 0;
-        Object.entries(kpiMap).forEach(([c, val]: [any, any]) => {
-            const rate = exchangeRates[c] || (c === 'USD' ? 1 : 0);
-            const usd = (rawMap.get(c) || 0) * rate;
+        let totalRefundUSD = 0;
+        const result: { [currency: string]: KpiValue } = {};
+
+        // 1. Process main currency entries
+        Object.entries(kpiMap).forEach(([currency, val]) => {
+            const rate = exchangeRates[currency] || (currency === 'USD' ? 1 : 0);
+            const usd = (rawMap.get(currency) || 0) * rate;
             totalUSD += usd;
-            kpiMap[c] = { ...val, usdValue: usd, conversionRate: rate };
+
+            const refundOriginal = refundMap?.get(currency) || 0;
+            const refundUSD = refundOriginal * rate;
+
+            result[currency] = {
+                ...val,
+                usdValue: usd,
+                conversionRate: rate,
+                ...(refundOriginal > 0 ? { refundOriginal, refundUSD } : {})
+            };
         });
-        kpiMap['USD_TOTAL'] = { value: formatCurrency(totalUSD), conversionDetails: { originalAmounts: Object.fromEntries(rawMap), rates: exchangeRates } };
-        return kpiMap;
+
+        // 2. Global refund calculation (includes currencies not in rawMap/kpiMap)
+        if (refundMap) {
+            refundMap.forEach((amt, curr) => {
+                const rate = exchangeRates[curr] || (curr === 'USD' ? 1 : 0);
+                totalRefundUSD += amt * rate;
+            });
+        }
+
+        // 3. Add USD_TOTAL entry
+        result['USD_TOTAL'] = {
+            value: formatCurrency(totalUSD),
+            conversionDetails: { 
+                originalAmounts: Object.fromEntries(rawMap), 
+                rates: exchangeRates 
+            },
+            ...(totalRefundUSD > 0 ? { 
+                refundInfo: `${formatCurrency(totalRefundUSD)} refunded`,
+                refundUSD: totalRefundUSD 
+            } : {})
+        };
+
+        return result;
     };
 
     const kpis: KpiData = {
@@ -543,7 +586,7 @@ export function processData(
             refundInfo: kpiRaw.refOrderIds.size > 0 ? `${kpiRaw.refOrderIds.size} refunded` : undefined 
         },
         'Shops': { value: kpiRaw.shops.size.toString() },
-        'Revenue': addUSDToKpi(transformKpiMap(kpiRaw.revenue, pKpiRaw.revenue), kpiRaw.revenue)
+        'Revenue': addUSDToKpi(transformKpiMap(kpiRaw.revenue, pKpiRaw.revenue), kpiRaw.revenue, kpiRaw.refund)
     };
     if (role === 'owner' || permissions.viewKpiFunds) kpis['Funds'] = addUSDToKpi(transformKpiMap(kpiRaw.funds, pKpiRaw.funds), kpiRaw.funds);
     if (role === 'owner' || permissions.viewKpiCost) kpis['Cost'] = transformKpiMap(kpiRaw.cost, pKpiRaw.cost);

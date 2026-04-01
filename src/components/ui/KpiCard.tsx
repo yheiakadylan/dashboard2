@@ -125,9 +125,12 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
   let displayValue = value;
   let displayRefundInfo = refundInfo;
 
-  if (globalUsdMode && !('value' in value) && value['USD_TOTAL']) {
-    displayValue = value['USD_TOTAL'];
-    displayRefundInfo = (value['USD_TOTAL'] as any).refundInfo;
+  if (globalUsdMode && !('value' in value)) {
+    const usdTotal = value['USD_TOTAL'];
+    if (usdTotal) {
+      displayValue = usdTotal;
+      displayRefundInfo = usdTotal.refundInfo;
+    }
   }
 
   const handleRefundClick = (e: React.MouseEvent) => {
@@ -278,7 +281,11 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
                       </div>
                       {/* Refund info for multi-currency with conversion */}
                       {(kpiVal.refundOriginal || (displayRefundInfo && typeof displayRefundInfo === 'object' && displayRefundInfo[currency])) && (
-                        <div className="pl-1 text-[11px] text-red-600 dark:text-red-400 font-medium flex items-center gap-1.5">
+                        <div 
+                          className="pl-1 text-[11px] text-red-600 dark:text-red-400 font-medium flex items-center gap-1.5 cursor-pointer hover:underline decoration-dotted"
+                          onClick={handleRefundClick}
+                          title="Click to view refunded orders"
+                        >
                           <span>↩</span>
                           {kpiVal.refundOriginal && kpiVal.refundUSD !== undefined ? (
                             <span>{currency} {formatCurrency(kpiVal.refundOriginal)}</span>
@@ -320,7 +327,11 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
                       </span>
                     </div>
                     {usdTotal.refundInfo && (
-                      <p className="text-xs text-red-600 dark:text-red-400 font-medium text-right pr-2 -mt-1">
+                      <p
+                        className="text-xs text-red-600 dark:text-red-400 font-medium text-right pr-2 -mt-1 cursor-pointer hover:underline decoration-dotted"
+                        onClick={handleRefundClick}
+                        title="Click to view refunded orders"
+                      >
                         ↩ {usdTotal.refundInfo}
                       </p>
                     )}

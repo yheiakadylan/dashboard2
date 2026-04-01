@@ -76,7 +76,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                     <KpiCard title="Shops" value={kpiValues.shops} />
                 )}
                 {can('viewKpiRevenue') && (
-                    <KpiCard title="Revenue" value={kpiValues.revenue} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
+                    <KpiCard title="Total Revenue" value={kpiValues.revenue} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
                 )}
                 {can('viewKpiFunds') && (
                     <KpiCard title="Funds" value={kpiValues.funds} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
