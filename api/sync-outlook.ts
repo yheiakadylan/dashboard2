@@ -8,6 +8,7 @@ import type { Account, Record } from './_lib/types.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 import { processTeamSync } from './_lib/syncService.js';
 import { applyCategoryMappings } from './_lib/mappingHelper.js';
+import { processNewEtsyOrder } from './_lib/orderService.js';
 
 // --- Helpers ---
 /*
@@ -201,13 +202,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // --- CHUẨN BỊ THÔNG BÁO ---
         const notificationEvents: { type: 'order' | 'refund' | 'funds', text: string }[] = [];
 
-        mappedRecords.forEach(record => {
+        for (const record of mappedRecords) {
           const docRef = record.email_id
             ? recordsRef.doc(record.email_id)
             : recordsRef.doc();
           // Xóa id ảo nếu có trong object record
           const { id, ...recordData } = record as any;
           batch.set(docRef, recordData);
+
+          // --- TRIGGER SKU JOB & TASK CREATION ---
+          await processNewEtsyOrder(db, batch, SHARED_USER_ID, record as any, accountLabelMap);
 
           // --- TẠO NỘI DUNG THÔNG BÁO ---
           // Lấy tên Shop từ Map
@@ -232,7 +236,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               text: `Funds Received: $${record.amount} ${record.currency} (${shopName})`
             });
           }
-        });
+        }
 
         // Cập nhật last_synced_at cho các tài khoản đã sync
         outlookAccounts.forEach(account => {

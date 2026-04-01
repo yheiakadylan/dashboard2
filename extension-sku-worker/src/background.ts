@@ -24,6 +24,13 @@ let isEtsyLoggedOut = false;
 // Queue mechanism (runs in memory, flushed only if SW entirely sleeps when idle)
 const localQueue: any[] = [];
 
+interface ExtractedItem {
+    sku: string;
+    title: string;
+    quantity: number;
+    variations: { name: string; value: string }[] | string;
+}
+
 chrome.runtime.onInstalled.addListener(() => {
     console.log("Etsy SKU Worker installed.");
     maintainOffscreen();
@@ -172,25 +179,24 @@ async function processQueue(teamId: string) {
             const jobRef = doc(db, 'user', teamId, 'sku_jobs', job.id);
             await updateDoc(jobRef, { status: 'processing', updated_at: new Date().toISOString() });
 
-            const sku = await fetchSKU(job.order_id);
-            console.log(`Order ${job.order_id} fetched SKU: ${sku}`);
+            const skuResult = await fetchSKU(job.order_id);
+            console.log(`Order ${job.order_id} fetched SKUs:`, skuResult);
 
-            if (sku === "NULL_AUTH_REQUIRED") {
+            if (skuResult === "NULL_AUTH_REQUIRED") {
                 await updateDoc(jobRef, { status: 'failed', error: 'Etsy Account Logged Out', sku: 'NULL', updated_at: new Date().toISOString() });
-                // We break out naturally because isEtsyLoggedOut is now true
                 continue;
             }
 
-            if (sku === "NULL_RATE_LIMIT") {
+            if (skuResult === "NULL_RATE_LIMIT") {
                 await updateDoc(jobRef, { status: 'failed', error: '429 Rate Limit (Cloudflare / Etsy)', sku: 'NULL', updated_at: new Date().toISOString() });
-                // Return item to back of the queue to retry later
                 localQueue.push(job);
                 continue;
             }
 
             // Sync successfully fetched SKU 
-            if (sku !== "NULL") {
+            if (skuResult !== "NULL") {
                 try {
+                    const skuString = Array.isArray(skuResult) ? skuResult.map(i => i.sku).join(', ') : skuResult;
                     const recordsRef = collection(db, 'user', teamId, 'records');
                     const qRecords = query(recordsRef, where('order_id', '==', job.order_id), where('source', '==', 'Etsy_Sales'));
                     const snap = await getDocs(qRecords);
@@ -198,7 +204,12 @@ async function processQueue(teamId: string) {
                     for (const recordDoc of snap.docs) {
                         const data = recordDoc.data();
                         if (data.details && data.details.items) {
-                            const newItems = data.details.items.map((item: any) => ({ ...item, sku }));
+                            const newItems = data.details.items.map((item: any, idx: number) => {
+                                if (Array.isArray(skuResult) && skuResult[idx]) {
+                                    return { ...item, sku: skuResult[idx].sku };
+                                }
+                                return { ...item, sku: skuString };
+                            });
                             await updateDoc(doc(db, 'user', teamId, 'records', recordDoc.id), {
                                 'details.items': newItems
                             });
@@ -206,45 +217,70 @@ async function processQueue(teamId: string) {
                     }
 
                     // --- [STAGE 2 SYNC] Enrich `draft` tasks with SKUs in vikcomltd ---
-                    try {
-                        console.log(`[Stage 2 Sync] Starting SKU enrichment for orderId: ${job.order_id}`);
-                        const tasksRef = collection(db, 'tasks');
+                    console.log(`[Stage 2 Sync] Starting SKU enrichment for orderId: ${job.order_id}`);
+                    const tasksRef = collection(db, 'tasks');
+                    const qTasks = query(tasksRef, where('orderId', '==', job.order_id));
+                    const taskSnap = await getDocs(qTasks);
+                    const tasks = taskSnap.docs.map(d => ({ id: d.id, ...d.data() as any }));
+
+                    if (tasks.length > 0) {
+                        const extractedItems = Array.isArray(skuResult) ? skuResult : [];
                         
-                        // Query by orderId for efficiency (MUCH better than status query)
-                        const qTasks = query(tasksRef, where('orderId', '==', job.order_id));
-                        const taskSnap = await getDocs(qTasks);
-                        
-                        let updatedCount = 0;
-                        for (const taskDoc of taskSnap.docs) {
-                            const taskData = taskDoc.data();
-                            // Only update if SKU is missing or different, and we are in draft 
-                            // (We don't want to overwrite if user has already moved it to 'new' or 'in-progress' possibly, 
-                            // but in POD Etsy it usually updates once. Let's stick to updating any draft)
-                            if (taskData.status === 'draft') {
-                                console.log(`[Stage 2 Sync] Enriching task: ${taskDoc.id} with SKU: ${sku}`);
-                                await updateDoc(doc(db, 'tasks', taskDoc.id), {
-                                    sku: sku, // The fetched SKU
+                        // --- Fallback: plain string SKU (JSON parse failed) ---
+                        if (extractedItems.length === 0 && typeof skuResult === 'string' && skuResult !== 'NULL') {
+                            // Apply the same SKU to all draft tasks for this order
+                            for (const task of tasks) {
+                                if (task.status !== 'draft') continue;
+                                await updateDoc(doc(db, 'tasks', task.id), {
+                                    sku: skuResult,
                                     updatedAt: new Date().toISOString()
                                 });
-                                console.log(`[Stage 2 Sync] Successfully updated SKU for task ${taskDoc.id}`);
-                                updatedCount++;
+                            }
+                        } else if (extractedItems.length === 1 && tasks.length === 1) {
+                            await updateDoc(doc(db, 'tasks', tasks[0].id), {
+                                sku: extractedItems[0].sku,
+                                updatedAt: new Date().toISOString()
+                            });
+                        } else if (extractedItems.length > 0) {
+                            for (const task of tasks) {
+                                if (task.status !== 'draft') continue;
+                                let bestMatch: ExtractedItem | null = null;
+                                let maxScore = -1;
+
+                                for (const ext of extractedItems) {
+                                    let score = 0;
+                                    if (task.title && ext.title && ext.title.toLowerCase().includes(task.title.toLowerCase().substring(0, 10))) {
+                                        score += 10;
+                                    }
+                                    const taskVars = [(task.variant1 || "").toLowerCase(), (task.variant2 || "").toLowerCase(), (task.personalization || "").toLowerCase()].filter(Boolean);
+                                    if (Array.isArray(ext.variations)) {
+                                        const extVars = ext.variations.map(v => v.value.toLowerCase()).filter(Boolean);
+                                        const matches = taskVars.filter(tv => extVars.some(ev => ev.includes(tv) || tv.includes(ev)));
+                                        score += matches.length * 50;
+                                    }
+                                    if (score > maxScore) {
+                                        maxScore = score;
+                                        bestMatch = ext;
+                                    }
+                                }
+
+                                if (bestMatch && maxScore > 0) {
+                                    await updateDoc(doc(db, 'tasks', task.id), {
+                                        sku: bestMatch.sku,
+                                        updatedAt: new Date().toISOString()
+                                    });
+                                }
                             }
                         }
-                        
-                        if (updatedCount === 0) {
-                            console.warn(`[Stage 2 Sync] Found 0 'draft' tasks matching orderId: ${job.order_id}`);
-                        }
-                    } catch (taskErr) {
-                        console.error("Failed to enrich tasks. Possible missing Firestore Index or Permission Error:", taskErr);
                     }
-
-                } catch (err) {
-                    console.error("Failed to update record with SKU:", err);
+                    
+                    await updateDoc(jobRef, { status: 'completed', sku: skuString, updated_at: new Date().toISOString() });
+                } catch (innerErr) {
+                    console.error("Inner processing error:", innerErr);
                 }
+            } else {
+                await updateDoc(jobRef, { status: 'completed', sku: 'NULL', updated_at: new Date().toISOString() });
             }
-
-            // Return result
-            await updateDoc(jobRef, { status: 'completed', sku, updated_at: new Date().toISOString() });
 
         } catch (error) {
             console.error('Job error:', error);
@@ -275,7 +311,7 @@ async function processQueue(teamId: string) {
     isProcessing = false;
 }
 
-async function fetchSKU(orderId: string): Promise<string> {
+async function fetchSKU(orderId: string): Promise<ExtractedItem[] | string> {
     try {
         const response = await fetch(`https://www.etsy.com/your/orders/sold/new?search_query=${orderId}`, {
             headers: {
@@ -296,7 +332,6 @@ async function fetchSKU(orderId: string): Promise<string> {
             return "NULL_RATE_LIMIT";
         }
         
-        // Sometimes Cloudflare returns 403 on API blocks
         if (response.status === 403) {
              console.warn("403 Forbidden! Possible Cloudflare block. Backing off for 10 minutes.");
              rateLimitUntil = Date.now() + 10 * 60 * 1000;
@@ -305,18 +340,62 @@ async function fetchSKU(orderId: string): Promise<string> {
         
         const html = await response.text();
         
-        // Check for session expiry by looking for typical sign-in hooks in HTML
         if (html.includes('class="sign-in-button-wrapper"') || html.includes('id="sign-in"') || html.includes('name="user_id" content=""') || html.includes('/signin?')) {
             console.error("Etsy Session Expired / Logged out! Pausing completely.");
             isEtsyLoggedOut = true;
             return "NULL_AUTH_REQUIRED";
         }
         
+        // --- [NEW LOGIC] Parse Etsy.Context JSON for precise item mapping ---
+        try {
+            const contextPrefix = 'Etsy.Context=';
+            const startIndex = html.indexOf(contextPrefix);
+            if (startIndex > -1) {
+                const jsonStart = startIndex + contextPrefix.length;
+                let jsonEnd = html.indexOf(';</script>', jsonStart);
+                if (jsonEnd === -1) jsonEnd = html.indexOf('</script>', jsonStart);
+                
+                if (jsonEnd > -1) {
+                    let jsonStr = html.substring(jsonStart, jsonEnd).trim();
+                    if (jsonStr.endsWith(';')) jsonStr = jsonStr.slice(0, -1);
+                    
+                    const data = JSON.parse(jsonStr);
+                    const orders = data?.data?.initial_data?.orders?.orders_search?.orders || [];
+                    
+                    const extractedItems: ExtractedItem[] = [];
+                    
+                    if (orders.length > 0) {
+                        // Find the exact order (though usually return only 1 from search query)
+                        const currentOrder = orders.find((o: any) => String(o.order_id) === String(orderId)) || orders[0];
+                        const transactions = currentOrder.transactions || [];
+                        
+                        for (const tx of transactions) {
+                            extractedItems.push({
+                                sku: tx.product?.product_identifier || "NULL",
+                                title: tx.product?.title || "",
+                                quantity: tx.quantity || 1,
+                                variations: (tx.variations || []).map((v: any) => ({
+                                    name: v.property || '',
+                                    value: v.value || ''
+                                }))
+                            });
+                        }
+                    }
+                    
+                    if (extractedItems.length > 0) {
+                        return extractedItems;
+                    }
+                }
+            }
+        } catch (parseError) {
+            console.error("JSON Parsing failed, falling back to regex:", parseError);
+        }
+
+        // Fallback to simple regex if JSON fails
         let extractedSku = "NULL";
         try {
             const regex = /"product_identifier"\s*:\s*"([^"]+)"/g;
             const matches = [...html.matchAll(regex)];
-            
             if (matches.length > 0) {
                 extractedSku = matches.map(m => m[1]).filter(Boolean).join(', ');
             }
