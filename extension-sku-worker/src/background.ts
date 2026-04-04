@@ -38,6 +38,7 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(() => {
     maintainOffscreen();
+    scanPendingJobs(); // FIX Bug#2: vẫt lại job pending sau khi SW thức dậy
 });
 
 // Alarm just to re-verify offscreen doc exists if SW wakes up for any reason
@@ -45,12 +46,9 @@ chrome.alarms.create('keepAlive', { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener((alarm: chrome.alarms.Alarm) => {
     if (alarm.name === 'keepAlive') {
         maintainOffscreen();
-        // If queue has items and we're not processing, try to resume
-        if (localQueue.length > 0 && !isProcessing) {
-            chrome.storage.local.get('teamId', (data) => {
-                if (data.teamId) processQueue(data.teamId as string);
-            });
-        }
+        // FIX Bug#2: Dùng scanPendingJobs thay vì chỉ check localQueue.length
+        // Đảm bảo vật được các job bị mất khi SW bị Chrome terminate giữa chừng
+        scanPendingJobs();
     }
 });
 
@@ -111,23 +109,74 @@ chrome.storage.onChanged.addListener((changes: { [key: string]: chrome.storage.S
     }
 });
 
-async function ensureAuth() {
-    if (auth.currentUser) return;
+async function ensureAuth(): Promise<boolean> {
+    if (auth.currentUser) return true;
     const { dbEmail, dbPassword } = (await chrome.storage.local.get(['dbEmail', 'dbPassword'])) as { [key: string]: string };
     if (dbEmail && dbPassword) {
         try {
             await signInWithEmailAndPassword(auth, dbEmail, dbPassword);
+            return true;
         } catch (err) {
             console.error("Firebase Auth Error in Background:", err);
+            return false; // Trả về false nếu không kết nối được
         }
     }
+    return false;
+}
+
+// FIX Bug#2: Quét lại toàn bộ job pending từ Firestore khi SW thức dậy
+// Giải quyết vấn đề localQueue bị xóa sạch trong RAM khi Service Worker bị Chrome terminate
+async function scanPendingJobs(): Promise<void> {
+    chrome.storage.local.get(['teamId', 'account'], async (rawData) => {
+        const data = rawData as { teamId?: string; account?: string };
+        if (!data.teamId || !data.account) return;
+
+        const isAuthenticated = await ensureAuth();
+        if (!isAuthenticated) return;
+
+        try {
+            const jobsRef = collection(db, 'user', data.teamId, 'sku_jobs');
+            const q = query(
+                jobsRef,
+                where('account', '==', data.account),
+                where('status', '==', 'pending')
+            );
+            const snap = await getDocs(q);
+
+            let addedCount = 0;
+            snap.docs.forEach(docSnap => {
+                const job = { id: docSnap.id, ...docSnap.data() };
+                // FIX Bug#1: Kiểm tra trùng lặp để không push 2 lần
+                const isExists = localQueue.some(j => j.id === job.id);
+                if (!isExists) {
+                    localQueue.push(job);
+                    addedCount++;
+                }
+            });
+
+            if (addedCount > 0) {
+                console.log(`[scanPendingJobs] Found ${addedCount} pending job(s) from Firestore. Resuming queue.`);
+                processQueue(data.teamId as string);
+            }
+        } catch (err) {
+            console.error('[scanPendingJobs] Failed to fetch pending jobs:', err);
+        }
+    });
 }
 
 // Receive pushing tasks from the offscreen document
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "NEW_SKU_JOB") {
         console.log("Background received new job from Offscreen:", msg.job);
-        localQueue.push(msg.job);
+        
+        // FIX Bug#1: Kiểm tra trùng lặp dựa trên job.id trước khi push vào queue
+        const isExists = localQueue.some(j => j.id === msg.job.id);
+        if (!isExists) {
+            localQueue.push(msg.job);
+        } else {
+            console.log(`[Dedup] Job ${msg.job.id} already in queue. Skipping.`);
+        }
+        
         processQueue(msg.teamId);
         sendResponse({ success: true });
     }
@@ -154,7 +203,16 @@ async function processQueue(teamId: string) {
     if (localQueue.length === 0) return;
 
     isProcessing = true;
-    await ensureAuth();
+
+    // QUAN TRỌNG: Kiểm tra Auth, nếu false thì tạm dừng queue
+    const isAuthenticated = await ensureAuth();
+    if (!isAuthenticated) {
+        console.log("Background: Cannot authenticate to Firebase. Pausing queue for 15s.");
+        isProcessing = false;
+        // Tự động thử lại sau 15 giây
+        setTimeout(() => processQueue(teamId), 15_000);
+        return;
+    }
 
     while (localQueue.length > 0) {
         // Enforce rate limit Check before each processing run
@@ -230,20 +288,25 @@ async function processQueue(teamId: string) {
                         if (extractedItems.length === 0 && typeof skuResult === 'string' && skuResult !== 'NULL') {
                             // Apply the same SKU to all draft tasks for this order
                             for (const task of tasks) {
-                                if (task.status !== 'draft') continue;
+                                // Cho phép update cả đơn status new và draft
+                                if (task.status !== 'draft' && task.status !== 'new') continue;
                                 await updateDoc(doc(db, 'tasks', task.id), {
                                     sku: skuResult,
                                     updatedAt: new Date().toISOString()
                                 });
                             }
                         } else if (extractedItems.length === 1 && tasks.length === 1) {
-                            await updateDoc(doc(db, 'tasks', tasks[0].id), {
-                                sku: extractedItems[0].sku,
-                                updatedAt: new Date().toISOString()
-                            });
+                            const task = tasks[0];
+                            if (task.status === 'draft' || task.status === 'new') {
+                                await updateDoc(doc(db, 'tasks', task.id), {
+                                    sku: extractedItems[0].sku,
+                                    updatedAt: new Date().toISOString()
+                                });
+                            }
                         } else if (extractedItems.length > 0) {
                             for (const task of tasks) {
-                                if (task.status !== 'draft') continue;
+                                // Cho phép update cả đơn status new và draft
+                                if (task.status !== 'draft' && task.status !== 'new') continue;
                                 let bestMatch: ExtractedItem | null = null;
                                 let maxScore = -1;
 

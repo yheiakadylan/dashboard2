@@ -17,8 +17,10 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 let unsubscribe: (() => void) | null = null;
+let currentConfig: Record<string, string> | null = null;
 
-async function startListening(config: Record<string, string>) {
+async function startListening(config: Record<string, string>): Promise<void> {
+    currentConfig = config; // Lưu lại để dùng cho retry
     const { teamId, account, dbEmail, dbPassword } = config;
     if (!teamId || !account || !dbEmail || !dbPassword) {
         console.log("Offscreen: Missing config/credentials. Waiting.");
@@ -27,13 +29,18 @@ async function startListening(config: Record<string, string>) {
 
     if (unsubscribe) {
         unsubscribe();
+        unsubscribe = null;
     }
 
     try {
         await signInWithEmailAndPassword(auth, dbEmail, dbPassword);
         console.log("Offscreen: Firebase Authenticated as:", auth.currentUser?.uid);
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error("Offscreen: Firebase Auth Error:", err);
+        // Tự động thử lại sau 10 giây nếu lỗi mạng/auth
+        setTimeout(() => {
+            if (currentConfig) startListening(currentConfig);
+        }, 10_000);
         return;
     }
 
@@ -48,15 +55,21 @@ async function startListening(config: Record<string, string>) {
                 console.log('Offscreen: New job received, routing to background worker...', job);
                 
                 // Send job to background.js to wake it up and process
+                // FIX Bug#3: .catch() suppresses "Could not establish connection" when SW is terminating
                 chrome.runtime.sendMessage({
                     type: "NEW_SKU_JOB",
                     job,
                     teamId
-                });
+                }).catch(() => { /* SW đang terminate, job sẽ được scanPendingJobs() vớt lại */ });
             }
         });
     }, (error) => {
-        console.error("Offscreen: Firebase listen error:", error);
+        // QUAN TRỌNG: Khởi động lại listener nếu bị ngắt kết nối hoàn toàn
+        console.error("Offscreen: Firebase listen error (Listener died):", error);
+        setTimeout(() => {
+            console.log("Offscreen: Attempting to restart listener...");
+            if (currentConfig) startListening(currentConfig);
+        }, 5_000);
     });
 }
 

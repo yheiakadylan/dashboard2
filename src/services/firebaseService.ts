@@ -167,7 +167,7 @@ export const saveAccountsToFirebase = async (teamId: string, accounts: Account[]
   if (accounts.length > 0) {
     accounts.forEach(acc => {
       const docRef = doc(db, 'user', teamId, 'accounts', acc.id);
-      
+
       // Clean up undefined values which Firestore WriteBatch rejects
       const safeAcc: any = { ...acc };
       Object.keys(safeAcc).forEach(key => {
@@ -246,8 +246,8 @@ export const getAllRecordsForAccount = async (teamId: string, accountEmail: stri
 };
 
 export const getRefundRecordsForOrderIds = async (
-  teamId: string, 
-  orderIds: string[], 
+  teamId: string,
+  orderIds: string[],
   rangeFromStr?: string,
   rangeToStr?: string
 ): Promise<Record[]> => {
@@ -255,7 +255,7 @@ export const getRefundRecordsForOrderIds = async (
 
   const recordsRef = collection(db, 'user', teamId, 'records');
   const results: Record[] = [];
-  
+
   // Remove duplicates and empty IDs
   const uniqueOrderIdsSet = new Set(orderIds.filter(id => !!id));
   if (uniqueOrderIdsSet.size === 0) return [];
@@ -274,9 +274,9 @@ export const getRefundRecordsForOrderIds = async (
       // Prevent querying into the future
       const now = new Date();
       const upperBound = toDate > now ? now.toISOString() : toDate.toISOString();
-      
+
       constraints.push(where('dt_local', '<=', upperBound));
-      
+
       if (import.meta.env.DEV) {
         console.log(`[firebaseService] 🔍 Fast cross-checking ${uniqueOrderIdsSet.size} orders for refunds between ${rangeFromStr} and ${upperBound}`);
       }
@@ -288,7 +288,7 @@ export const getRefundRecordsForOrderIds = async (
 
     const q = query(recordsRef, ...constraints);
     const snapshot = await getDocs(q);
-    
+
     snapshot.docs.forEach(doc => {
       const data = { ...(doc.data() as object), id: doc.id } as Record;
       if (data.order_id && uniqueOrderIdsSet.has(data.order_id)) {
@@ -310,25 +310,25 @@ export const getRefundRecordsForOrderIds = async (
   for (let i = 0; i < uniqueOrderIds.length; i += IN_QUERY_LIMIT) {
     chunks.push(uniqueOrderIds.slice(i, i + IN_QUERY_LIMIT));
   }
-  
+
   const promises = chunks.map(chunk => {
-    const q = query(recordsRef, 
+    const q = query(recordsRef,
       where('source', '==', 'Etsy_Refunded'),
       where('order_id', 'in', chunk)
     );
     return getDocs(q);
   });
-  
+
   const snapshots = await Promise.all(promises);
   snapshots.forEach(snap => {
     snap.docs.forEach(doc => {
       // Still ensure uniqueness
-      if(uniqueOrderIdsSet.has((doc.data() as Record).order_id as string)) {
+      if (uniqueOrderIdsSet.has((doc.data() as Record).order_id as string)) {
         results.push({ ...(doc.data() as object), id: doc.id } as Record);
       }
     });
   });
-  
+
   return results;
 };
 
@@ -413,19 +413,19 @@ export const saveRecordsToFirebase = async (
 
   const recordsCollectionRef = collection(db, 'user', teamId, 'records');
   const BATCH_LIMIT = 500;
-  
+
   // Pre-fetch all accounts to avoid await inside forEach loop
   const accountsMap: { [email: string]: string } = {};
   try {
-     const accountsRef = collection(db, 'user', teamId, 'accounts');
-     const accSnap = await getDocs(accountsRef);
-     accSnap.docs.forEach(doc => {
-         const data = doc.data();
-         if (data.email && data.label) {
-             accountsMap[data.email] = data.label;
-         }
-     });
-  } catch(e) { console.error("Could not pre-fetch accounts for mapping", e); }
+    const accountsRef = collection(db, 'user', teamId, 'accounts');
+    const accSnap = await getDocs(accountsRef);
+    accSnap.docs.forEach(doc => {
+      const data = doc.data();
+      if (data.email && data.label) {
+        accountsMap[data.email] = data.label;
+      }
+    });
+  } catch (e) { console.error("Could not pre-fetch accounts for mapping", e); }
 
   try {
     const addPromises: Promise<void>[] = [];
@@ -460,49 +460,50 @@ export const saveRecordsToFirebase = async (
         const jobsRef = collection(db, 'user', teamId, 'sku_jobs');
         const jobDocRef = doc(jobsRef, record.order_id);
         addBatch.set(jobDocRef, {
-            order_id: record.order_id,
-            account: record.account,
-            status: 'pending',
-            priority: false,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+          order_id: record.order_id,
+          account: record.account,
+          status: 'pending',
+          priority: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         }, { merge: true });
 
         // 2. Stage 1 Sync: Create 'pending_sku' tasks in vikcomltd for EACH item
         if (record.details && record.details.items && record.details.items.length > 0) {
-           const tasksRef = collection(db, 'tasks');
-           
-           // Use pre-fetched account label
-           let accountLabel = accountsMap[record.account] || record.account;
-           
-           record.details.items.forEach((item: any, index: number) => {
-               // Append -1, -2 etc. for multi-item orders
-               const taskId = record.details!.items!.length > 1 
-                  ? `${record.order_id}-${index + 1}` 
-                  : record.order_id;
-                  
-               const taskDocRef = doc(tasksRef, taskId);
-               addBatch.set(taskDocRef, {
-                  id: taskId,
-                  readableId: taskId, // Hiển thị trên Board
-                  orderId: record.order_id, // Bổ sung để Extension query cho nhanh
-                  title: record.product_name || item.name || 'New Etsy Order',
-                  sku: item.sku || '', // Sẽ được Update ở Stage 2 bởi Extension
-                  // description: item.variant || '', // Variant/Size (OLD)
-                  variant1: item.variant1 || item.variant || '', // NEW FIELD
-                  variant2: item.variant2 || '', // NEW FIELD
-                  personalization: item.personalization || '', // NEW FIELD
-                  quantity: item.quantity || 1, // Store quantity
-                  status: 'draft', // Ném thẳng vào Draft, Extension sẽ bổ sung SKU sau
-                  isUrgent: false,
-                  createdBy: 'system_sync',
-                  mockupUrl: item.image || '', // Ảnh thumbnail từ email
-                  created_at: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                  account: accountLabel, // Lấy Label của Shop thay vì Email
-                  collectionName: 'tasks' // Quan trọng cho Security Rules cũ
-               }, { merge: true });
-           });
+          const tasksRef = collection(db, 'tasks');
+
+          // Use pre-fetched account label
+          let accountLabel = accountsMap[record.account] || record.account;
+
+          record.details.items.forEach((item: any, index: number) => {
+            // Append -1, -2 etc. for multi-item orders
+            const taskId = record.details!.items!.length > 1
+              ? `${record.order_id}-${index + 1}`
+              : record.order_id;
+
+            const taskDocRef = doc(tasksRef, taskId);
+            addBatch.set(taskDocRef, {
+              id: taskId,
+              readableId: taskId, // Hiển thị trên Board
+              orderId: record.order_id, // Bổ sung để Extension query cho nhanh
+              title: record.product_name || item.name || 'New Etsy Order',
+              sku: item.sku || '', // Sẽ được Update ở Stage 2 bởi Extension
+              // description: item.variant || '', // Variant/Size (OLD)
+              variant1: item.variant1 || item.variant || '', // NEW FIELD
+              variant2: item.variant2 || '', // NEW FIELD
+              personalization: item.personalization || '', // NEW FIELD
+              quantity: item.quantity || 1, // Store quantity
+              // Logic: Nếu không có personalization -> status = 'new' (sẵn sàng prod), có -> 'draft'
+              status: (item.personalization && item.personalization.trim() !== '') ? 'draft' : 'new', // Ném thẳng vào Draft, Extension sẽ bổ sung SKU sau
+              isUrgent: false,
+              createdBy: 'system_sync',
+              mockupUrl: item.image || '', // Ảnh thumbnail từ email
+              created_at: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              account: accountLabel, // Lấy Label của Shop thay vì Email
+              collectionName: 'tasks' // Quan trọng cho Security Rules cũ
+            }, { merge: true });
+          });
         }
       }
     });
@@ -608,57 +609,58 @@ export const addRecord = async (teamId: string, record: Record): Promise<Record>
     // 1. Push to SKU Job Queue
     const jobDocRef = doc(collection(db, 'user', teamId, 'sku_jobs'), record.order_id);
     await setDoc(jobDocRef, {
-        order_id: record.order_id,
-        account: record.account,
-        status: 'pending',
-        priority: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+      order_id: record.order_id,
+      account: record.account,
+      status: 'pending',
+      priority: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     }, { merge: true });
 
     // 2. Stage 1 Sync: Create 'pending_sku' tasks in vikcomltd for EACH item
     if (record.details && record.details.items && record.details.items.length > 0) {
-        const tasksRef = collection(db, 'tasks');
-        const batch = writeBatch(db); // Use batch for multiple items to ensure atomicity
-        
-        // Fetch account label
-        let accountLabel = record.account;
-        try {
-            const accountsRef = collection(db, 'user', teamId, 'accounts');
-            const accSnap = await getDocs(accountsRef);
-            const foundAcc = accSnap.docs.map(d => d.data()).find(a => a.email === record.account);
-            if (foundAcc && foundAcc.label) {
-                accountLabel = foundAcc.label;
-            }
-        } catch(e) { console.error("Could not fetch account label for task sync", e); }
-        
-        record.details.items.forEach((item: any, index: number) => {
-            const taskId = record.details!.items!.length > 1 
-               ? `${record.order_id}-${index + 1}` 
-               : record.order_id;
-               
-            const taskDocRef = doc(tasksRef, taskId);
-            batch.set(taskDocRef, {
-               id: taskId,
-               readableId: taskId,
-               orderId: record.order_id, // Bổ sung để Extension query cho nhanh
-               title: record.product_name || item.name || 'New Etsy Order',
-               sku: item.sku || '',
-               variant1: item.variant1 || item.variant || '', // NEW FIELD
-               variant2: item.variant2 || '', // NEW FIELD
-               personalization: item.personalization || '', // NEW FIELD
-               quantity: item.quantity || 1, // Store quantity
-               status: 'draft', 
-               isUrgent: false,
-               createdBy: 'auto_sync',
-               mockupUrl: item.image || '',
-               created_at: new Date().toISOString(),
-               updatedAt: new Date().toISOString(),
-               account: accountLabel, // Lấy Label của shop thay vì Email
-               collectionName: 'tasks'
-            }, { merge: true });
-        });
-        await batch.commit();
+      const tasksRef = collection(db, 'tasks');
+      const batch = writeBatch(db); // Use batch for multiple items to ensure atomicity
+
+      // Fetch account label
+      let accountLabel = record.account;
+      try {
+        const accountsRef = collection(db, 'user', teamId, 'accounts');
+        const accSnap = await getDocs(accountsRef);
+        const foundAcc = accSnap.docs.map(d => d.data()).find(a => a.email === record.account);
+        if (foundAcc && foundAcc.label) {
+          accountLabel = foundAcc.label;
+        }
+      } catch (e) { console.error("Could not fetch account label for task sync", e); }
+
+      record.details.items.forEach((item: any, index: number) => {
+        const taskId = record.details!.items!.length > 1
+          ? `${record.order_id}-${index + 1}`
+          : record.order_id;
+
+        const taskDocRef = doc(tasksRef, taskId);
+        batch.set(taskDocRef, {
+          id: taskId,
+          readableId: taskId,
+          orderId: record.order_id, // Bổ sung để Extension query cho nhanh
+          title: record.product_name || item.name || 'New Etsy Order',
+          sku: item.sku || '',
+          variant1: item.variant1 || item.variant || '', // NEW FIELD
+          variant2: item.variant2 || '', // NEW FIELD
+          personalization: item.personalization || '', // NEW FIELD
+          quantity: item.quantity || 1, // Store quantity
+          // Logic: Nếu không có personalization -> status = 'new' (sẵn sàng prod), có -> 'draft'
+          status: (item.personalization && item.personalization.trim() !== '') ? 'draft' : 'new',
+          isUrgent: false,
+          createdBy: 'auto_sync',
+          mockupUrl: item.image || '',
+          created_at: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          account: accountLabel, // Lấy Label của shop thay vì Email
+          collectionName: 'tasks'
+        }, { merge: true });
+      });
+      await batch.commit();
     }
   }
 
