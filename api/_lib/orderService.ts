@@ -45,7 +45,8 @@ export async function processNewEtsyOrder(
           variant2: item.variant2 || '',
           personalization: item.personalization || '',
           quantity: item.quantity || 1,
-          status: 'draft',
+          // Logic: Có nội dung personalization thực sự -> 'draft', ngược lại -> 'new'
+          status: String(item.personalization || '').trim() !== '' ? 'draft' : 'new',
           isUrgent: false,
           createdBy: 'auto_sync',
           mockupUrl: item.image || '',
