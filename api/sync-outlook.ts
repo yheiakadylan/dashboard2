@@ -8,7 +8,7 @@ import type { Account, Record } from './_lib/types.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 import { processTeamSync } from './_lib/syncService.js';
 import { applyCategoryMappings } from './_lib/mappingHelper.js';
-import { processNewEtsyOrder } from './_lib/orderService.js';
+import { processNewOrder } from './_lib/orderService.js';
 
 // --- Helpers ---
 /*
@@ -140,8 +140,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Map account để lấy thông tin (Label/Tên Shop)
     const outlookAccounts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Account));
-    // Tạo Map: Email -> Tên Shop (Label)
-    const accountLabelMap = new Map(outlookAccounts.map(acc => [acc.email, acc.label || acc.email]));
+    // Tạo Map: Email -> {id, label}
+    const accountInfoMap = new Map(outlookAccounts.map(acc => [acc.email, { id: acc.id, label: acc.label || acc.email }]));
 
     console.log(`[sync-outlook] Found ${outlookAccounts.length} Outlook account(s) to sync.`);
 
@@ -211,11 +211,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           batch.set(docRef, recordData);
 
           // --- TRIGGER SKU JOB & TASK CREATION ---
-          await processNewEtsyOrder(db, batch, SHARED_USER_ID, record as any, accountLabelMap);
+          await processNewOrder(db, batch, SHARED_USER_ID, record as any, accountInfoMap);
 
           // --- TẠO NỘI DUNG THÔNG BÁO ---
           // Lấy tên Shop từ Map
-          const shopName = accountLabelMap.get(record.account) || record.account;
+          const shopName = accountInfoMap.get(record.account)?.label || record.account;
 
           if (record.kind === 'order') {
             const isRefund = record.source === 'Etsy_Refunded';

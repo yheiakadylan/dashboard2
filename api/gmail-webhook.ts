@@ -8,7 +8,7 @@ import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 import { processTeamSync } from './_lib/syncService.js';
 import { applyCategoryMappings } from './_lib/mappingHelper.js';
-import { processNewEtsyOrder } from './_lib/orderService.js';
+import { processNewOrder } from './_lib/orderService.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -165,7 +165,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const batch = db.batch();
 
     if (mappedRecords.length > 0) {
-      const labelMap = new Map([[userEmail, shopName]]);
+      const accountId = accountDoc.id;
+      const infoMap = new Map([[userEmail, { id: accountId, label: shopName }]]);
       let saveCount = 0;
       for (const record of mappedRecords) {
         const docRef = record.email_id
@@ -175,7 +176,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         batch.set(docRef, recordData);
 
         // --- TRIGGER SKU JOB & TASK CREATION ---
-        await processNewEtsyOrder(db, batch, effectiveUserId, record, labelMap);
+        // --- TRIGGER SKU JOB & TASK CREATION ---
+        await processNewOrder(db, batch, effectiveUserId, record, infoMap);
 
         saveCount++;
       }

@@ -1,22 +1,25 @@
 import { Record as MailRecord } from './types.js';
 
 /**
- * Handles post-processing for a new Etsy order.
- * Creates a SKU job and corresponding draft tasks.
+ * Handles post-processing for a new order (Etsy or eBay).
+ * Creates a SKU job and corresponding tasks.
  */
-export async function processNewEtsyOrder(
+export async function processNewOrder(
   db: any, // Firestore instance (Backend)
   batch: any, // WriteBatch instance (Backend)
   teamId: string,
   record: MailRecord,
-  accountLabelMap: Map<string, string>
+  accountInfoMap: Map<string, { id: string; label: string }>
 ) {
-  if (record.source === 'Etsy_Sales' && record.order_id && record.account) {
+  const isEtsy = record.source === 'Etsy_Sales';
+  const isEbay = record.source === 'Ebay_Sales';
+
+  if ((isEtsy || isEbay) && record.order_id && record.account) {
     // 1. Push to SKU Job Queue
     const jobDocRef = db.collection('user').doc(teamId).collection('sku_jobs').doc(record.order_id);
     batch.set(jobDocRef, {
       order_id: record.order_id,
-      account: record.account,
+      account: record.account, // Email (for backward compatibility in jobs if needed)
       status: 'pending',
       priority: false,
       created_at: new Date().toISOString(),
@@ -26,7 +29,10 @@ export async function processNewEtsyOrder(
     // 2. Stage 1 Sync: Create 'draft' tasks in central tasks collection for EACH item
     if (record.details && record.details.items && record.details.items.length > 0) {
       const tasksRef = db.collection('tasks');
-      const accountLabel = accountLabelMap.get(record.account) || record.account;
+      const info = accountInfoMap.get(record.account);
+      const accountId = info?.id || record.account;
+      const accountLabel = info?.label || record.account;
+      const platformName = isEtsy ? 'Etsy' : 'eBay';
 
       record.details.items.forEach((item: any, index: number) => {
         // Append -1, -2 etc. for multi-item orders
@@ -39,23 +45,26 @@ export async function processNewEtsyOrder(
           id: taskId,
           readableId: taskId, // Used for display
           orderId: record.order_id, // Faster querying for Extension
-          title: record.product_name || item.name || 'New Etsy Order',
+          title: record.product_name || item.name || `New ${platformName} Order`,
           sku: item.sku || '',
           variant1: item.variant1 || item.variant || '',
           variant2: item.variant2 || '',
           personalization: item.personalization || '',
           quantity: item.quantity || 1,
-          // Logic: Có nội dung personalization thực sự -> 'draft', ngược lại -> 'new'
           status: String(item.personalization || '').trim() !== '' ? 'draft' : 'new',
           isUrgent: false,
           createdBy: 'auto_sync',
           mockupUrl: item.image || '',
           created_at: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          account: accountLabel, // Shop Label
+          account: accountId,      // Store Account ID for stable querying
+          shopLabel: accountLabel, // Store Label for quick UI display
           collectionName: 'tasks'
         }, { merge: true });
       });
     }
   }
 }
+
+// Keep the old name as an alias for backward compatibility
+export const processNewEtsyOrder = processNewOrder;
