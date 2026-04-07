@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useUI } from '../../contexts/UIContext';
-import { LayoutDashboard, Users, ChevronDown, Check, LogOut, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, ChevronDown, Check, LogOut, Settings, Search } from 'lucide-react';
 
 import { getImageFromDB } from '../../utils/indexedDB';
 
@@ -25,14 +25,18 @@ const CustomSelect: React.FC<{
   align?: 'left' | 'right';
   icon?: React.ReactNode;
   disabled?: boolean;
-}> = ({ value, onChange, options, className = '', triggerClassName = '', align = 'left', icon, disabled = false }) => {
+  showSearch?: boolean;
+  searchPlaceholder?: string;
+}> = ({ value, onChange, options, className = '', triggerClassName = '', align = 'left', icon, disabled = false, showSearch = false, searchPlaceholder = 'Search...' }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [searchValue, setSearchValue] = useState('');
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
+        setSearchValue('');
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -40,6 +44,10 @@ const CustomSelect: React.FC<{
   }, []);
 
   const selectedLabel = options.find(o => o.value === value)?.label || value;
+
+  const filteredOptions = showSearch
+    ? options.filter(o => o.label.toLowerCase().includes(searchValue.toLowerCase()))
+    : options;
 
   return (
     <div className={`relative ${className}`} ref={dropdownRef}>
@@ -58,26 +66,44 @@ const CustomSelect: React.FC<{
 
       {isOpen && !disabled && (
         <div className={`absolute top-full mt-1 ${align === 'right' ? 'right-0' : 'left-0'} min-w-full max-h-60 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-xl z-50 py-1`}>
-          {options.map((option) => (
-            <button
-              key={option.value}
-              onClick={() => {
-                onChange(option.value);
-                setIsOpen(false);
-              }}
-              className={`w-full text-left px-3 py-2 text-sm font-medium transition-colors flex items-center ${value === option.value
-                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-            >
-              {value === option.value && (
-                <svg className="h-4 w-4 mr-2 text-blue-600 dark:text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                </svg>
-              )}
-              <span className={value === option.value ? 'ml-0' : 'ml-6'}>{option.label}</span>
-            </button>
-          ))}
+          {showSearch && (
+            <div className="px-2 py-1.5 sticky top-0 bg-white dark:bg-gray-800 z-10 border-b border-gray-100 dark:border-gray-700 mb-1">
+              <div className="relative flex items-center">
+                <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                  <Search className="h-3.5 w-3.5 text-gray-400" />
+                </div>
+                <input
+                  type="text"
+                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+                  placeholder={searchPlaceholder}
+                  value={searchValue}
+                  onChange={(e) => setSearchValue(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+              </div>
+            </div>
+          )}
+          {filteredOptions.length > 0 ? (
+            filteredOptions.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                  setSearchValue('');
+                }}
+                className={`w-full text-left px-3 py-2 text-sm font-medium transition-colors flex items-center ${value === option.value
+                  ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+              >
+                <span className="truncate">{option.label}</span>
+              </button>
+            ))
+          ) : (
+            <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">No results found</div>
+          )}
         </div>
       )}
     </div>
@@ -450,7 +476,9 @@ const Header: React.FC = () => {
             onChange={setSelectedAccountId}
             options={accountOptions}
             disabled={accounts.length === 0}
-            className="w-[150px]"
+            className="w-[170px]"
+            showSearch={true}
+            searchPlaceholder="Search..."
           />
 
           <TimezoneSelect value={timeZone} onChange={setTimeZone} options={timezones} />
@@ -678,6 +706,8 @@ const Header: React.FC = () => {
                   onChange={setSelectedAccountId}
                   options={accountOptions}
                   className="w-full"
+                  showSearch={true}
+                  searchPlaceholder="Search accounts..."
                 />
               </div>
               <div>
