@@ -251,10 +251,16 @@ async function processQueue(teamId: string) {
                 continue;
             }
 
+            // Central API for Enrichment & Auto-Reuse
+            // Note: VIKCOM_API_URL should be configured in extension settings or point to your Vercel deployment
+            const enrichmentApiUrl = 'https://vikcomltd.vercel.app/api/tasks/update-with-reuse';
+
             // Sync successfully fetched SKU 
             if (skuResult !== "NULL") {
                 try {
                     const skuString = Array.isArray(skuResult) ? skuResult.map(i => i.sku).join(', ') : skuResult;
+                    
+                    // 1. Update internal records for Dashboardvikcom (Marketing/Ads data)
                     const recordsRef = collection(db, 'user', teamId, 'records');
                     const qRecords = query(recordsRef, where('order_id', '==', job.order_id), where('source', '==', 'Etsy_Sales'));
                     const snap = await getDocs(qRecords);
@@ -274,8 +280,8 @@ async function processQueue(teamId: string) {
                         }
                     }
 
-                    // --- [STAGE 2 SYNC] Enrich `draft` tasks with SKUs in vikcomltd ---
-                    console.log(`[Stage 2 Sync] Starting SKU enrichment for orderId: ${job.order_id}`);
+                    // --- [STAGE 2 SYNC] Enrich tasks in vikcomltd via Central API ---
+                    console.log(`[Stage 2 Sync] Enriching tasks via API for orderId: ${job.order_id}`);
                     const tasksRef = collection(db, 'tasks');
                     const qTasks = query(tasksRef, where('orderId', '==', job.order_id));
                     const taskSnap = await getDocs(qTasks);
@@ -284,38 +290,21 @@ async function processQueue(teamId: string) {
                     if (tasks.length > 0) {
                         const extractedItems = Array.isArray(skuResult) ? skuResult : [];
                         
-                        // --- Fallback: plain string SKU (JSON parse failed) ---
-                        if (extractedItems.length === 0 && typeof skuResult === 'string' && skuResult !== 'NULL') {
-                            // Apply the same SKU to all draft tasks for this order
-                            for (const task of tasks) {
-                                // Cho phép update cả đơn status new và draft
-                                if (task.status !== 'draft' && task.status !== 'new') continue;
-                                await updateDoc(doc(db, 'tasks', task.id), {
-                                    sku: skuResult,
-                                    updatedAt: new Date().toISOString()
-                                });
-                            }
-                        } else if (extractedItems.length === 1 && tasks.length === 1) {
-                            const task = tasks[0];
-                            if (task.status === 'draft' || task.status === 'new') {
-                                await updateDoc(doc(db, 'tasks', task.id), {
-                                    sku: extractedItems[0].sku,
-                                    updatedAt: new Date().toISOString()
-                                });
-                            }
-                        } else if (extractedItems.length > 0) {
-                            for (const task of tasks) {
-                                // Cho phép update cả đơn status new và draft
-                                if (task.status !== 'draft' && task.status !== 'new') continue;
-                                let bestMatch: ExtractedItem | null = null;
-                                let maxScore = -1;
+                        for (const task of tasks) {
+                            // Filter: Only enrich 'new' or 'draft' tasks
+                            if (task.status !== 'draft' && task.status !== 'new') continue;
 
+                            let taskSku = skuString;
+                            let v1 = task.variant1;
+                            let v2 = task.variant2;
+
+                            // If multiple items, find the best match based on variations/title
+                            if (extractedItems.length > 1) {
+                                let maxScore = -1;
                                 for (const ext of extractedItems) {
                                     let score = 0;
-                                    if (task.title && ext.title && ext.title.toLowerCase().includes(task.title.toLowerCase().substring(0, 10))) {
-                                        score += 10;
-                                    }
-                                    const taskVars = [(task.variant1 || "").toLowerCase(), (task.variant2 || "").toLowerCase(), (task.personalization || "").toLowerCase()].filter(Boolean);
+                                    if (task.title && ext.title && ext.title.toLowerCase().includes(task.title.toLowerCase().substring(0, 10))) score += 10;
+                                    const taskVars = [(task.variant1 || "").toLowerCase(), (task.variant2 || "").toLowerCase()].filter(Boolean);
                                     if (Array.isArray(ext.variations)) {
                                         const extVars = ext.variations.map(v => v.value.toLowerCase()).filter(Boolean);
                                         const matches = taskVars.filter(tv => extVars.some(ev => ev.includes(tv) || tv.includes(ev)));
@@ -323,16 +312,34 @@ async function processQueue(teamId: string) {
                                     }
                                     if (score > maxScore) {
                                         maxScore = score;
-                                        bestMatch = ext;
+                                        taskSku = ext.sku;
                                     }
                                 }
+                            } else if (extractedItems.length === 1) {
+                                taskSku = extractedItems[0].sku;
+                            }
 
-                                if (bestMatch && maxScore > 0) {
-                                    await updateDoc(doc(db, 'tasks', task.id), {
-                                        sku: bestMatch.sku,
-                                        updatedAt: new Date().toISOString()
-                                    });
-                                }
+                            // CALL CENTRAL ENRICHMENT API
+                            try {
+                                const apiRes = await fetch(enrichmentApiUrl, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        taskId: task.id,
+                                        sku: taskSku,
+                                        variant1: v1,
+                                        variant2: v2
+                                    })
+                                });
+                                const apiData = await apiRes.json();
+                                console.log(`[API Enrichment] Task ${task.id} result:`, apiData);
+                            } catch (apiErr) {
+                                console.error(`[API Enrichment Error] Failed for task ${task.id}:`, apiErr);
+                                // Fallback to direct Firestore update if API fails (without auto-reuse)
+                                await updateDoc(doc(db, 'tasks', task.id), {
+                                    sku: taskSku,
+                                    updatedAt: new Date().toISOString()
+                                });
                             }
                         }
                     }
