@@ -27,6 +27,18 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
   const [localFetchedSku, setLocalFetchedSku] = useState<string | null>(null);
 
   const previousSkuStatus = React.useRef<string | null>(null);
+  const fetchTimeoutRef = React.useRef<any>(null);
+
+  const clearFetchTimeout = React.useCallback(() => {
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+      fetchTimeoutRef.current = null;
+    }
+  }, []);
+
+  React.useEffect(() => {
+    return () => clearFetchTimeout();
+  }, [clearFetchTimeout]);
 
   React.useEffect(() => {
     if (record.source === 'Etsy_Sales' && record.order_id && teamId) {
@@ -35,6 +47,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
 
         if (job.status === 'completed' || job.status === 'failed') {
           setIsFetchingSku(false);
+          clearFetchTimeout();
 
           if (previousSkuStatus.current === 'pending' || previousSkuStatus.current === 'processing') {
             if (job.status === 'completed') {
@@ -50,22 +63,36 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
           }
         } else if (job.status === 'pending' || job.status === 'processing') {
           setIsFetchingSku(true);
+          // If no timeout exists, set one to prevent infinite spinning
+          if (!fetchTimeoutRef.current) {
+            fetchTimeoutRef.current = setTimeout(() => {
+              setIsFetchingSku(false);
+              addNotification(`Request timed out. Please check if extension is active for this shop.`, 'warning');
+              fetchTimeoutRef.current = null;
+            }, 15000);
+          }
         }
 
         previousSkuStatus.current = job.status;
       });
-      return () => unsubscribe();
+      return () => {
+        unsubscribe();
+        clearFetchTimeout();
+      };
     }
-  }, [record.order_id, record.source, teamId, addNotification]);
+  }, [record.order_id, record.source, teamId, addNotification, clearFetchTimeout]);
 
   const handleFetchSKU = async () => {
     if (!record.order_id || !record.account || !teamId) return;
     setIsFetchingSku(true);
+    clearFetchTimeout(); // Clear any existing timeout before starting new one
+    
     try {
       await addSkuJob(teamId, record.order_id, record.account, true);
     } catch (err) {
       console.error("Fetch SKU error:", err);
       setIsFetchingSku(false);
+      clearFetchTimeout();
     }
   };
 
