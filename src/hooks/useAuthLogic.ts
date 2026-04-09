@@ -4,7 +4,6 @@ import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../services/firebaseService';
 import { requestForToken } from '../services/notificationService';
 
-
 export interface UserProfile {
     teamId: string;
     role: 'owner' | 'user';
