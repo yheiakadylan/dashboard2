@@ -90,10 +90,10 @@ const chunkArray = <T>(array: T[], size: number): T[][] => {
     return result;
 };
 
-async function fetchMerchizeCosts(orderIds: string[]): Promise<{ costs: CostData[], raw: any[] }> {
+async function fetchMerchizeCosts(orderIds: string[]): Promise<CostData[]> {
     if (!merchizeConfig.base_url || !merchizeConfig.access_token || orderIds.length === 0) {
         console.log('Merchize config or orderIds missing. URL:', merchizeConfig.base_url, 'Has Token:', !!merchizeConfig.access_token, 'Order Count:', orderIds.length);
-        return { costs: [], raw: [] };
+        return [];
     }
 
     // --- BẮT ĐẦU THAY ĐỔI ---
@@ -102,22 +102,14 @@ async function fetchMerchizeCosts(orderIds: string[]): Promise<{ costs: CostData
     // --- KẾT THÚC THAY ĐỔI ---
 
     const allCosts: CostData[] = [];
-    const rawDataForDebug: any[] = [];
     const chunks = chunkArray(orderIds, merchizeConfig.batch_size);
 
     for (const chunk of chunks) {
         try {
             const requestBody = {
-                orders: chunk.flatMap(id => {
-                    const withHash = id.startsWith('#') ? id : `#${id}`;
-                    const withoutHash = id.startsWith('#') ? id.slice(1) : id;
-                    return [
-                        { code: "", external_number: withHash, identifier: "" },
-                        { code: "", external_number: withoutHash, identifier: "" }
-                    ];
-                })
+                orders: chunk.map(id => ({ code:"", external_number: id.startsWith('#') ? id : `#${id}`, identifier: "" }))
             };
-            console.log('>>> [DEBUG] Merchize Request Body (Both Options):', JSON.stringify(requestBody, null, 2));
+            console.log('>>> [DEBUG] Merchize Request Body:', JSON.stringify(requestBody, null, 2));
             
             const apiUrl = `${merchizeConfig.base_url}/order/external/orders/list-orders-detail`;
             
@@ -141,7 +133,6 @@ async function fetchMerchizeCosts(orderIds: string[]): Promise<{ costs: CostData
             if (responseText) {
                 const data = JSON.parse(responseText);
                 console.log('>>> [DEBUG] Merchize Raw Data:', JSON.stringify(data, null, 2));
-                rawDataForDebug.push(data);
                 if (data.success && Array.isArray(data.data)) {
                     for (const orderData of data.data) {
                         const rawExternalNumber = orderData.external_number?.trim();
@@ -182,7 +173,7 @@ async function fetchMerchizeCosts(orderIds: string[]): Promise<{ costs: CostData
         }
     }
 
-    return { costs: allCosts, raw: rawDataForDebug };
+    return allCosts;
 }
 // --- END: Merchize Functions ---
 
@@ -205,7 +196,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const orderIds = Array.from(new Set(orderRecords.map(r => r.order_id!)));
 
-        const { costs: merchizeData, raw: merchizeRaw } = await fetchMerchizeCosts(orderIds);
+        const merchizeData = await fetchMerchizeCosts(orderIds);
 
         // --- CẬP NHẬT LOGIC MERGE ---
         const costMap: { [key: string]: CostData } = {};
@@ -224,7 +215,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
         }
 
-        return res.status(200).json({ costMap, raw: merchizeRaw });
+        return res.status(200).json(costMap);
     } catch (error) {
         console.error('[API /get-costs-mz Error]', error);
         return res.status(500).json({ message: 'Internal Server Error' });
