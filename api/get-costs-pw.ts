@@ -51,6 +51,7 @@ async function fetchPrintwayCostsForSlice(dateRange: { from: string, to: string 
                 break;
             }
             const data = await response.json();
+            console.log(`>>> [DEBUG] Printway Raw Data (${dateRange.from} TO ${dateRange.to}):`, JSON.stringify(data, null, 2));
             const orders = data.orders || data.data || [];
             if (orders.length === 0) break;
 

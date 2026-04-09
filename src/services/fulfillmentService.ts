@@ -19,9 +19,13 @@ export const fetchCostsForRecords = async (records: Record[]): Promise<Map<strin
     
     const pwCosts: { [key: string]: CostData } = pwResponse.ok ? await pwResponse.json() : {};
     if(!pwResponse.ok) console.error("Failed to fetch Printway costs:", pwResponse.statusText);
+    console.log(">>> [F12] Printway Costs Result:", pwCosts);
     
-    const mzCosts: { [key: string]: CostData } = mzResponse.ok ? await mzResponse.json() : {};
+    const mzResponseData = mzResponse.ok ? await mzResponse.json() : { costMap: {}, raw: [] };
+    const mzCosts: { [key: string]: CostData } = mzResponseData.costMap || {};
     if(!mzResponse.ok) console.error("Failed to fetch Merchize costs:", mzResponse.statusText);
+    console.log(">>> [F12] Merchize Raw Data (Full):", mzResponseData.raw);
+    console.log(">>> [F12] Merchize Processed Costs:", mzCosts);
 
     // Start with Printway costs and merge Merchize costs into them.
     const combinedCosts = { ...pwCosts };

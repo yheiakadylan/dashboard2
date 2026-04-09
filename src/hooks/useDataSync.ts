@@ -223,6 +223,8 @@ export const useDataSync = ({
 
             if (signal?.aborted) return [];
 
+            // ... KẾT THÚC CẬP NHẬT FIREBASE ...
+
             if (!overrideDateRange) {
                 // SAFETY CHECK: Only update accounts that are still in the system
                 const currentAccountIds = new Set(allAccountsRef.current.map(a => a.id));
@@ -241,9 +243,14 @@ export const useDataSync = ({
             if (addedRecords.length > 0 || updatedOldRecords.length > 0) {
                 addNotification(`Sync complete. +${addedRecords.length} new, ${updatedOldRecords.length} updated.`, "success");
             } else {
-                addNotification(`Sync complete. No new records found.`, "success");
+                if (!isSilent) addNotification(`Sync complete. No new records found.`, "success");
             }
             setSyncState(null);
+            
+            // Fix: Trả về record cũ bị update để bên gọi biết mà refresh UI
+            if (updatedOldRecords.length > 0) {
+                 return [...addedRecords, ...(updatedOldRecords as Record[])];
+            }
             return addedRecords;
         } catch (error) {
             if (signal?.aborted) return [];
@@ -646,6 +653,80 @@ export const useDataSync = ({
         };
     }, [filterDateRange, user, timeZone, teamId]); // Only depend on actual data values, not functions
 
+    // --- Core Logic: Manual Cost Resync ---
+    const resyncCostsManual = useCallback(async () => {
+        if (isSyncing) {
+            addNotification("Hệ thống đang xử lý, vui lòng đợi...", "info");
+            return;
+        }
+        setIsSyncing(true);
+        setSyncState('Fetching costs manually...');
+        try {
+            // Lấy TẤT CẢ order trong màn hình hiện tại (bỏ qua điều kiện !r.cost_total để ép cập nhật)
+            const ordersToSync = records.filter(r => r.kind === 'order' && r.order_id);
+            if (ordersToSync.length === 0) {
+                addNotification("Không có đơn hàng nào cần fetch phí.", "info");
+                return;
+            }
+
+            const costMap = await fetchCostsForRecords(ordersToSync);
+            if (costMap.size === 0) {
+                addNotification("Không tra cứu được mức phí mới cho các đơn.", "info");
+                return;
+            }
+
+            const updatedRecs: (Partial<Record> & { id: string })[] = [];
+            
+            // Xây danh sách cập nhật lên Firebase
+            ordersToSync.forEach(r => {
+                if (r.id && r.order_id && costMap.has(r.order_id)) {
+                    const costInfo = costMap.get(r.order_id)!;
+                    updatedRecs.push({
+                        id: r.id,
+                        cost_total: costInfo.cost_total,
+                        ff_code: costInfo.ff_code,
+                        product_name: costInfo.product_name || null
+                    });
+                }
+            });
+
+            if (updatedRecs.length > 0) {
+                await updateRecordsInFirebase(teamId, updatedRecs);
+                
+                // Functional update: tránh mất data mớ vừa thêm từ Firebase Realtime
+                setRecords(prevRecords => {
+                    const updateMap = new Map(updatedRecs.map(u => [u.id, u]));
+                    return prevRecords.map(r => {
+                        if (r.id && updateMap.has(r.id)) {
+                            const newData = updateMap.get(r.id)!;
+                            return { ...r, cost_total: newData.cost_total, ff_code: newData.ff_code, product_name: newData.product_name };
+                        }
+                        return r;
+                    });
+                });
+                addNotification(`Đã cập nhật phí cho ${updatedRecs.length} đơn hàng.`, "success");
+            }
+        } catch (error) {
+            console.error("Manual fetch error:", error);
+            addNotification("Lỗi khi fetch giá manual.", "error");
+        } finally {
+            setIsSyncing(false);
+            setSyncState(null);
+        }
+    }, [records, isSyncing, teamId, addNotification]);
+
+    // --- Effect: Listen for Ctrl+K ---
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.ctrlKey && e.key === 'k') {
+                e.preventDefault();
+                resyncCostsManual();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [resyncCostsManual]);
+
     // --- Effect: Listen for New Records (Realtime) ---
     useEffect(() => {
         if (!user) return;
@@ -680,7 +761,7 @@ export const useDataSync = ({
     useEffect(() => {
         if (!user) return;
 
-        const unsubscribe = listenForAccounts(teamId, (updatedAccounts) => {
+        const unsubscribe = listenForAccounts(teamId, (updatedAccounts: Account[]) => {
             // Only notify if we are past the initial load phase to avoid spamming on startup
             if (initialLoadCompleteRef.current) {
                 const prevAccounts = allAccountsRef.current;
@@ -735,6 +816,7 @@ export const useDataSync = ({
         accountSyncStatuses,
         runSync,
         runHistoricalSync,
-        enqueueSyncTask
+        enqueueSyncTask,
+        resyncCostsManual
     };
 };
