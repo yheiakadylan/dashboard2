@@ -541,7 +541,7 @@ const extractEtsyDetails = (html: string): OrderDetails => {
 
     for (const [idx, line] of variantLines.entries()) {
       // Bắt đầu khối personalization nếu dòng có chữ Personalization: hoặc các từ đa ngôn ngữ
-      if (/^(personalization|personnalisation|wunschtext|personalizzazioni|personalización)/i.test(line)) {
+      if (/^(personalization|personalisation|personnalisation|wunschtext|personalizzazioni|personalización|personalização|personalisatie|peronalizacja|personalizácia|personaliseer|personalized|personalised)/i.test(line)) {
         isPersonalizationBlock = true;
       }
       
