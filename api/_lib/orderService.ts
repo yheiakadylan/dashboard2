@@ -51,7 +51,7 @@ export async function processNewOrder(
           variant2: item.variant2 || '',
           personalization: item.personalization || '',
           quantity: item.quantity || 1,
-          status: String(item.personalization || '').trim() !== '' ? 'draft' : 'new',
+          status: 'draft',
           isUrgent: false,
           createdBy: 'auto_sync',
           mockupUrl: item.image || '',

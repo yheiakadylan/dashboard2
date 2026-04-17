@@ -494,7 +494,7 @@ export const saveRecordsToFirebase = async (
               personalization: item.personalization || '', // NEW FIELD
               quantity: item.quantity || 1, // Store quantity
               // Logic: Có nội dung personalization thực sự -> 'draft', ngược lại -> 'new'
-              status: String(item.personalization || '').trim() !== '' ? 'draft' : 'new', // Ném thẳng vào Draft, Extension sẽ bổ sung SKU sau
+              status: 'draft', // Ném thẳng vào Draft, Extension sẽ bổ sung SKU sau
               isUrgent: false,
               createdBy: 'system_sync',
               mockupUrl: item.image || '', // Ảnh thumbnail từ email
@@ -650,7 +650,7 @@ export const addRecord = async (teamId: string, record: Record): Promise<Record>
           personalization: item.personalization || '', // NEW FIELD
           quantity: item.quantity || 1, // Store quantity
           // Logic: Có nội dung personalization thực sự -> 'draft', ngược lại -> 'new'
-          status: String(item.personalization || '').trim() !== '' ? 'draft' : 'new',
+          status: 'draft',
           isUrgent: false,
           createdBy: 'auto_sync',
           mockupUrl: item.image || '',
