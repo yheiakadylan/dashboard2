@@ -876,3 +876,50 @@ export const deleteProductMapping = async (teamId: string, mappingId: string): P
   await deleteDoc(docRef);
 };
 
+// === [NEW] Worker Management Services ===
+
+/**
+ * Xóa các job đang ở trạng thái 'pending' (toàn bộ team hoặc theo từng shop)
+ */
+export const clearPendingSkuJobs = async (teamId: string, shopEmail?: string): Promise<number> => {
+  const jobsRef = collection(db, 'user', teamId, 'sku_jobs');
+  let q = query(jobsRef, where('status', '==', 'pending'));
+  
+  if (shopEmail) {
+    q = query(jobsRef, where('status', '==', 'pending'), where('account', '==', shopEmail));
+  }
+  
+  const snap = await getDocs(q);
+  if (snap.empty) return 0;
+  
+  const batch = writeBatch(db);
+  snap.docs.forEach(docSnap => {
+    batch.delete(docSnap.ref);
+  });
+  
+  await batch.commit();
+  return snap.size;
+};
+
+/**
+ * Reset trạng thái worker của tất cả account về Offline (dùng khi hệ thống bảo trì hoặc clear rác)
+ */
+export const clearAllWorkerHeartbeats = async (teamId: string): Promise<void> => {
+  const accountsRef = collection(db, 'user', teamId, 'accounts');
+  const snap = await getDocs(accountsRef);
+  
+  if (snap.empty) return;
+  
+  const batch = writeBatch(db);
+  snap.docs.forEach(docSnap => {
+    batch.update(docSnap.ref, {
+      worker_status: {
+        status: 'idle',
+        last_heartbeat: 'cleared',
+        pending_count: 0
+      }
+    });
+  });
+  
+  await batch.commit();
+};

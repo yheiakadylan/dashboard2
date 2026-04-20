@@ -26,7 +26,15 @@ export interface Account {
   };
   last_crawl_error?: string; // ✅ Error message if last crawl failed
   last_crawl_error_at?: Date; // ✅ Timestamp of last error
+  worker_status?: {
+    status: 'idle' | 'processing' | 'error';
+    last_heartbeat: string;
+    last_error?: string;
+    pending_count?: number;
+    version?: string;
+  };
 }
+
 
 export interface OrderItem {
   name: string;

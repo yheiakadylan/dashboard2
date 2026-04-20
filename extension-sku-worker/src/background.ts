@@ -1,6 +1,6 @@
 /// <reference types="chrome" />
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, setPersistence, indexedDBLocalPersistence, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, query, where, doc, updateDoc, getDocs } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -15,6 +15,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+// FIX: Service Worker must use indexedDBLocalPersistence because 'window' is not available
+setPersistence(auth, indexedDBLocalPersistence).catch(err => {
+    console.error("Persistence failed in Background:", err);
+});
+
 
 let isProcessing = false;
 let processedCount = 0;
@@ -46,11 +52,56 @@ chrome.alarms.create('keepAlive', { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener((alarm: chrome.alarms.Alarm) => {
     if (alarm.name === 'keepAlive') {
         maintainOffscreen();
-        // FIX Bug#2: Dùng scanPendingJobs thay vì chỉ check localQueue.length
-        // Đảm bảo vật được các job bị mất khi SW bị Chrome terminate giữa chừng
         scanPendingJobs();
+        // Heartbeat để báo cáo trạng thái lên Dashboard
+        reportHeartbeat();
     }
 });
+
+async function reportHeartbeat() {
+    try {
+        const { teamId, account } = (await chrome.storage.local.get(['teamId', 'account'])) as { teamId?: string; account?: string };
+        if (!teamId || !account) {
+            console.log("[Heartbeat] Missing teamId or account in storage.");
+            return;
+        }
+
+        const isAuthenticated = await ensureAuth();
+        if (!isAuthenticated) {
+            console.log("[Heartbeat] Auth failed.");
+            return;
+        }
+
+        const normalizedEmail = account.trim().toLowerCase();
+        
+        // Tìm accountId tương ứng với account email
+        const accountsRef = collection(db, 'user', teamId, 'accounts');
+        const q = query(accountsRef, where('email', '==', normalizedEmail));
+        const snap = await getDocs(q);
+        
+        if (!snap.empty) {
+            const accDoc = snap.docs[0];
+            const status = isEtsyLoggedOut ? 'error' : (isProcessing ? 'processing' : 'idle');
+            
+            await updateDoc(doc(db, 'user', teamId, 'accounts', accDoc.id), {
+                'worker_status': {
+                    status,
+                    last_heartbeat: new Date().toISOString(),
+                    last_error: isEtsyLoggedOut ? 'Etsy Session Expired' : '',
+                    pending_count: localQueue.length,
+                    version: chrome.runtime.getManifest().version
+                }
+            });
+            console.log(`[Heartbeat] Success for ${normalizedEmail} (Status: ${status})`);
+        } else {
+            console.warn(`[Heartbeat] No account found in Firestore for email: ${normalizedEmail} in team: ${teamId}`);
+        }
+    } catch (err) {
+        console.error("[Heartbeat] Error:", err);
+    }
+}
+
+
 
 async function setupOffscreenDocument(path: string) {
     if ('offscreen' in chrome && 'getContexts' in chrome.runtime) {
@@ -79,11 +130,19 @@ async function maintainOffscreen() {
     if (creating) {
         await creating;
     } else {
-        creating = setupOffscreenDocument('offscreen.html');
+        const path = 'offscreen.html';
+        const existingContexts = await (chrome.runtime as any).getContexts({
+            contextTypes: ['OFFSCREEN_DOCUMENT'],
+            documentUrls: [chrome.runtime.getURL(path)]
+        });
+
+        if (existingContexts.length > 0) return;
+
+        creating = setupOffscreenDocument(path);
         await creating;
         creating = null;
         
-        // Pass credentials to offscreen doc after creation
+        // Pass credentials only once after creation
         chrome.storage.local.get(['teamId', 'account', 'dbEmail', 'dbPassword'], (data) => {
             if (data.teamId && data.account && data.dbEmail && data.dbPassword) {
                 chrome.runtime.sendMessage({
@@ -94,6 +153,7 @@ async function maintainOffscreen() {
         });
     }
 }
+
 
 // Watch for credentials change and update offscreen doc
 chrome.storage.onChanged.addListener((changes: { [key: string]: chrome.storage.StorageChange }, namespace: string) => {
@@ -110,19 +170,34 @@ chrome.storage.onChanged.addListener((changes: { [key: string]: chrome.storage.S
 });
 
 async function ensureAuth(): Promise<boolean> {
+    // 1. Check if already logged in
     if (auth.currentUser) return true;
+
+    // 2. Wait a bit for SDK to restore session from IndexedDB if it just started
+    await new Promise(resolve => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            unsubscribe();
+            resolve(user);
+        });
+        setTimeout(resolve, 2000); // Max wait 2s for auto-restore
+    });
+    if (auth.currentUser) return true;
+
+    // 3. Only if no session, attempt password login
     const { dbEmail, dbPassword } = (await chrome.storage.local.get(['dbEmail', 'dbPassword'])) as { [key: string]: string };
     if (dbEmail && dbPassword) {
         try {
+            console.log("Background: Session missing, authenticating with password...");
             await signInWithEmailAndPassword(auth, dbEmail, dbPassword);
             return true;
         } catch (err) {
             console.error("Firebase Auth Error in Background:", err);
-            return false; // Trả về false nếu không kết nối được
+            return false;
         }
     }
     return false;
 }
+
 
 // FIX Bug#2: Quét lại toàn bộ job pending từ Firestore khi SW thức dậy
 // Giải quyết vấn đề localQueue bị xóa sạch trong RAM khi Service Worker bị Chrome terminate
@@ -241,15 +316,19 @@ async function processQueue(teamId: string) {
             console.log(`Order ${job.order_id} fetched SKUs:`, skuResult);
 
             if (skuResult === "NULL_AUTH_REQUIRED") {
+                isEtsyLoggedOut = true;
                 await updateDoc(jobRef, { status: 'failed', error: 'Etsy Account Logged Out', sku: 'NULL', updated_at: new Date().toISOString() });
+                reportHeartbeat(); // Update status ngay lập tức
                 continue;
             }
 
             if (skuResult === "NULL_RATE_LIMIT") {
                 await updateDoc(jobRef, { status: 'failed', error: '429 Rate Limit (Cloudflare / Etsy)', sku: 'NULL', updated_at: new Date().toISOString() });
                 localQueue.push(job);
+                reportHeartbeat();
                 continue;
             }
+
 
             // Central API for Enrichment & Auto-Reuse
             // Note: VIKCOM_API_URL should be configured in extension settings or point to your Vercel deployment
@@ -367,9 +446,15 @@ async function processQueue(teamId: string) {
         // Anti-bot Smart Delay
         let randomDelay = Math.floor(Math.random() * 5000) + 3000; // 3s - 8s normally
         
+        // SURGE PROTECTION: Nếu queue quá dài (>15), tăng delay lên gấp đôi để bớt "gắt"
+        if (localQueue.length > 15) {
+            randomDelay = Math.floor(Math.random() * 10000) + 15000; // 15s - 25s
+            console.log(`[Surge Protection] Large queue (${localQueue.length}). Slowing down: ${randomDelay}ms`);
+        }
+
         // Micro-batching pause
-        if (processedCount % 5 === 0) {
-            randomDelay = Math.floor(Math.random() * 10000) + 20000; // 20s - 30s long break
+        if (processedCount > 0 && processedCount % 5 === 0) {
+            randomDelay = Math.floor(Math.random() * 15000) + 30000; // 30s - 45s macro break
             console.log(`[Anti-Bot] Processed 5 jobs. Taking a macro break for ${randomDelay}ms...`);
         } else {
             console.log(`Waiting ${randomDelay}ms before next job...`);
@@ -377,6 +462,7 @@ async function processQueue(teamId: string) {
         
         await sleep(randomDelay);
     }
+
 
     isProcessing = false;
 }

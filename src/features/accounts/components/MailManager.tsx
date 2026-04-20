@@ -1,5 +1,5 @@
 // components/AccountManager.tsx
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Account } from '../../../types';
 import { signInWithGoogle, signInWithMicrosoft } from '../../auth/services/authService';
 import { useDashboard } from '../../../contexts/DashboardContext';
@@ -71,75 +71,32 @@ export const MailManager: React.FC = () => {
     });
   }, [managementAccounts]);
 
-  // Ref to hold latest state for the timeout callback
-  const latestLocalAccountsRef = useRef(localAccounts);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    latestLocalAccountsRef.current = localAccounts;
-  }, [localAccounts]);
-
-  // Auto-save logic with starvation prevention
-  useEffect(() => {
-    // 1. Identify if meaningful changes exist (User Edits)
-    // We only care if Label, Platforms, or Order differ.
-    // System fields (last_synced_at, status) changes should NOT trigger save, 
-    // but they should be included when we do save.
-
-    // Quick length check first
-    let hasChanges = localAccounts.length !== managementAccounts.length;
-
-    if (!hasChanges) {
-      // Deep check of editable fields
-      for (let i = 0; i < localAccounts.length; i++) {
-        const local = localAccounts[i];
-        // Find corresponding account in management (order might differ, so search by ID)
-        const remote = managementAccounts.find(a => a.id === local.id);
-
-        if (!remote) { hasChanges = true; break; } // Should be caught by length, but safe check
-
-        // Check Editable Fields
-        if (local.label !== remote.label) { hasChanges = true; break; }
-        if (local.order !== remote.order) { hasChanges = true; break; }
-
-        // Check Platforms array
-        const localPlatforms = local.platforms || [];
-        const remotePlatforms = remote.platforms || [];
-        if (localPlatforms.length !== remotePlatforms.length) { hasChanges = true; break; }
-        // Simple array comparison (assuming order doesn't matter or is sorted, usually sufficient)
-        const sortedLocalP = [...localPlatforms].sort();
-        const sortedRemoteP = [...remotePlatforms].sort();
-        if (JSON.stringify(sortedLocalP) !== JSON.stringify(sortedRemoteP)) { hasChanges = true; break; }
-      }
-    }
-
-    if (!hasChanges) {
-      // If no changes, do nothing. 
-      // If a timer was running, we can let it die? 
-      // No, if we reverted changes effectively, we might not need to save.
-      // But typically we just let the logic below flow.
-      return;
-    }
-
-    // 2. Schedule Save (Persistent Timer)
-    // If a timer is already running, WE DO NOT RESET IT.
-    // This allows the save to execute after 500ms even if updates keep coming.
-    if (!saveTimeoutRef.current) {
-      saveTimeoutRef.current = setTimeout(() => {
-        // Execute Save using the LATEST state
-        const accountsToSave = latestLocalAccountsRef.current.map((acc, index) => ({
-          ...acc,
-          order: index // Ensure order is explicit
-        }));
-
-        handleSaveAccounts(accountsToSave);
-        saveTimeoutRef.current = null;
-      }, 500); // 500ms delay
-    }
-  }, [localAccounts, managementAccounts, handleSaveAccounts]);
-
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
+
+  // Check if there are unsaved changes
+  const hasUnsavedChanges = useMemo(() => {
+    if (localAccounts.length !== managementAccounts.length) return true;
+    for (let i = 0; i < localAccounts.length; i++) {
+      const local = localAccounts[i];
+      const remote = managementAccounts.find(a => a.id === local.id);
+      if (!remote) return true;
+      if (local.label !== remote.label) return true;
+      if (local.order !== remote.order) return true;
+      const lp = local.platforms || [];
+      const rp = remote.platforms || [];
+      if (lp.length !== rp.length || JSON.stringify([...lp].sort()) !== JSON.stringify([...rp].sort())) return true;
+    }
+    return false;
+  }, [localAccounts, managementAccounts]);
+
+  const onManualSave = async () => {
+    const accountsToSave = localAccounts.map((acc, index) => ({
+      ...acc,
+      order: index
+    }));
+    await handleSaveAccounts(accountsToSave);
+  };
 
   const getAccountSyncStatus = (account: Account): { text: string; color: string; icon: React.ReactNode; title: string } => {
     if (syncState && syncState.includes(account.email)) {
@@ -285,11 +242,10 @@ export const MailManager: React.FC = () => {
     }
   };
 
-  const handlePlatformToggle = async (accountId: string, platform: string, isChecked: boolean) => {
+  const handlePlatformToggle = (accountId: string, platform: string, isChecked: boolean) => {
     const updatedAccounts = localAccounts.map(acc => {
       if (acc.id !== accountId) return acc;
 
-      // Current effective platforms (if undefined/empty -> all assumed)
       const currentApiPlatforms = acc.platforms && acc.platforms.length > 0 ? acc.platforms : ['etsy', 'ebay'];
 
       let newPlatforms: string[];
@@ -304,17 +260,7 @@ export const MailManager: React.FC = () => {
     });
 
     setLocalAccounts(updatedAccounts);
-
-    // Save immediately
-    try {
-      const ordered = updatedAccounts.map((acc, i) => ({ ...acc, order: i }));
-      await handleSaveAccounts(ordered);
-      const accEmail = updatedAccounts.find(a => a.id === accountId)?.email;
-      addNotification(`Saved platform settings for ${accEmail}`, "success");
-    } catch (error) {
-      console.error("Failed to save platform settings:", error);
-      addNotification("Failed to save settings.", "error");
-    }
+    // REMOVED: handleSaveAccounts(ordered); - User must click Save button
   };
 
   const handleDrop = () => {
@@ -336,12 +282,24 @@ export const MailManager: React.FC = () => {
   return (
     <div className="flex flex-col h-full relative">
       <div className="flex-grow overflow-y-auto pr-2 scrollbar-hide">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold">Manage Mail Accounts</h3>
+        <div className="flex items-center justify-between mb-3 sticky top-0 bg-white dark:bg-gray-900 z-20 py-1">
+          <div className="flex items-center gap-3">
+             <h3 className="text-lg font-semibold">Manage Mail Accounts</h3>
+             {hasUnsavedChanges && (
+                <button
+                  onClick={onManualSave}
+                  disabled={isSavingAccounts}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-full shadow-lg shadow-blue-500/20 transition-all animate-pulse-subtle flex items-center gap-1.5"
+                >
+                  {isSavingAccounts ? <Spinner size="xs" color="text-white" /> : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                  Save Changes
+                </button>
+             )}
+          </div>
           <button
             onClick={() => setBulkSyncModal(true)}
             disabled={localAccounts.length === 0}
-            className="px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 rounded-lg shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            className="px-3 py-1.5 text-xs font-bold text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20 hover:bg-teal-100 dark:hover:bg-teal-900/40 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
             title="Sync multiple accounts at once"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

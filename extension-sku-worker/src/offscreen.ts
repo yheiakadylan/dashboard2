@@ -1,6 +1,6 @@
 /// <reference types="chrome" />
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, setPersistence, indexedDBLocalPersistence, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, query, where, onSnapshot } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -15,6 +15,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+// Initialize persistence - use indexedDB for stability across extension contexts
+setPersistence(auth, indexedDBLocalPersistence).catch(console.error);
+
 
 let unsubscribe: (() => void) | null = null;
 let currentConfig: Record<string, string> | null = null;
@@ -33,16 +37,42 @@ async function startListening(config: Record<string, string>): Promise<void> {
     }
 
     try {
-        await signInWithEmailAndPassword(auth, dbEmail, dbPassword);
-        console.log("Offscreen: Firebase Authenticated as:", auth.currentUser?.uid);
-    } catch (err: unknown) {
+        // 1. Check if session already exists
+        if (!auth.currentUser) {
+            // Wait for potential auto-restore
+            await new Promise(resolve => {
+                const unsubscribe = onAuthStateChanged(auth, (user) => {
+                    unsubscribe();
+                    resolve(user);
+                });
+                setTimeout(resolve, 1500); 
+            });
+        }
+
+        // 2. Only sign in if still not authenticated OR switching accounts
+        if (!auth.currentUser || auth.currentUser.email !== dbEmail) {
+            console.log("Offscreen: No session or email mismatch, authenticating...");
+            await signInWithEmailAndPassword(auth, dbEmail, dbPassword);
+        }
+        
+        console.log("Offscreen: Firebase Authenticated UID:", auth.currentUser?.uid);
+    } catch (err: any) {
         console.error("Offscreen: Firebase Auth Error:", err);
-        // Tự động thử lại sau 10 giây nếu lỗi mạng/auth
+        
+        // Handle Quota Exceeded specifically
+        const isQuotaError = err.code === 'auth/quota-exceeded' || (err.message && err.message.includes('quota'));
+        const retryDelay = isQuotaError ? 60_000 : 10_000; // Wait 1 min if quota hit
+
+        if (isQuotaError) {
+             console.error("CRITICAL: Firebase Auth Quota Exceeded. Slowing down retries to 1 minute.");
+        }
+
         setTimeout(() => {
             if (currentConfig) startListening(currentConfig);
-        }, 10_000);
+        }, retryDelay);
         return;
     }
+
 
     console.log(`Offscreen: Listening for jobs on team: ${teamId}, account: ${account}`);
     const jobsRef = collection(db, 'user', teamId, 'sku_jobs');

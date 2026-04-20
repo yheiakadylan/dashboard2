@@ -755,7 +755,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
 
       // Detect additions
-      const newAccounts = updatedAccounts.filter(acc => !originalAccounts.some(o => o.id === acc.id));
+      // SAFETY: Only detect additions if we already had some accounts or if we are NOT in the initial loading phase.
+      // If originalAccounts is empty and isLoading is false, it means it's a truly first-time setup or a real addition batch.
+      const newAccounts = (!isLoading || originalAccounts.length > 0) 
+        ? updatedAccounts.filter(acc => !originalAccounts.some(o => o.id === acc.id))
+        : [];
+
       if (newAccounts.length > 0) {
         setSyncState('Initializing new accounts...');
         newAccounts.forEach(acc => {

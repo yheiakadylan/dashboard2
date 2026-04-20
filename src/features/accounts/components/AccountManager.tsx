@@ -10,6 +10,8 @@ import ManualCostManager from '../../costs/components/ManualCostManager';
 import NotificationSettings from '../../notifications/components/NotificationSettings';
 import { MailManager } from './MailManager';
 import UserProfileSettings from '../../users/components/UserProfileSettings';
+import WorkerStatusManager from './WorkerStatusManager';
+
 
 const AccountManager: React.FC = () => {
   const { role, permissions } = useDashboard();
@@ -21,7 +23,8 @@ const AccountManager: React.FC = () => {
   const canEditCost = role === 'owner' || permissions.canEditCost;
 
   // Default tab logic: Profile should be default for personalization
-  const [activeTab, setActiveTab] = useState<'profile' | 'mail' | 'users' | 'costs' | 'notifications'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'mail' | 'users' | 'costs' | 'notifications' | 'workers'>('profile');
+
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
@@ -80,13 +83,14 @@ const AccountManager: React.FC = () => {
 
           {canEditCost && (
             <button
-              onClick={() => setActiveTab('costs')}
-              className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'costs' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+              onClick={() => setActiveTab('workers')}
+              className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'workers' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
             >
-              Manual Costs
+              Workers
             </button>
           )}
         </div>
+
 
         {/* Content */}
         <div className="p-3 md:p-6 flex-grow flex flex-col overflow-hidden bg-transparent">
@@ -95,7 +99,9 @@ const AccountManager: React.FC = () => {
           {activeTab === 'users' && <UserManager />}
           {activeTab === 'costs' && <ManualCostManager />}
           {activeTab === 'notifications' && <NotificationSettings />}
+          {activeTab === 'workers' && <WorkerStatusManager />}
         </div>
+
       </div>
     </div>
   );
