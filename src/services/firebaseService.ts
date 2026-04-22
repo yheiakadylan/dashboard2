@@ -481,13 +481,33 @@ export const saveRecordsToFirebase = async (
               ? `${record.order_id}-${index + 1}`
               : record.order_id;
 
+            // Parse SKU to extract parts
+            const cleanSku = String(item.sku || '').trim().toUpperCase();
+            const SKU_REGEX = /^([^-]+)-([^-]+)-(.*)$/;
+            let productType = '';
+            let ideaEmpId = '';
+            let originalSku = '';
+
+            if (SKU_REGEX.test(cleanSku)) {
+              const parts = cleanSku.split('-');
+              productType = parts[0].trim();
+              ideaEmpId = parts[1].trim();
+              originalSku = parts.slice(2).join('-').trim();
+            } else {
+              // SKU không đúng format, log warning và để trống
+              console.warn(`[SKU Parse Warning] SKU "${cleanSku}" không đúng format PRODUCTTYPE-EMPID-ORIGINALSKU cho order ${record.order_id}`);
+            }
+
             const taskDocRef = doc(tasksRef, taskId);
             addBatch.set(taskDocRef, {
               id: taskId,
               readableId: taskId, // Hiển thị trên Board
               orderId: record.order_id, // Bổ sung để Extension query cho nhanh
               title: record.product_name || item.name || 'New Etsy Order',
-              sku: item.sku || '', // Sẽ được Update ở Stage 2 bởi Extension
+              sku: cleanSku, // Sẽ được Update ở Stage 2 bởi Extension
+              productType,
+              idea_emp_id: ideaEmpId,
+              originalSku,
               // description: item.variant || '', // Variant/Size (OLD)
               variant1: item.variant1 || item.variant || '', // NEW FIELD
               variant2: item.variant2 || '', // NEW FIELD

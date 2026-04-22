@@ -74,6 +74,8 @@ export const useDataSync = ({
     const realtimeSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const realtimeListenerUnsubscribeRef = useRef<(() => void) | null>(null);
     const isRealtimeSyncEnabledRef = useRef<boolean>(false);
+    // Ref to mark whether the accounts listener initial snapshot has been processed
+    const accountsListenerInitializedRef = useRef<boolean>(false);
 
     // Queue for sync operations
     const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -762,25 +764,38 @@ export const useDataSync = ({
     // --- Effect: Listen for Account Changes (Realtime) ---
     useEffect(() => {
         if (!user) return;
-
         const unsubscribe = listenForAccounts(teamId, (updatedAccounts) => {
-            // Only notify if we are past the initial load phase to avoid spamming on startup
+            // If this is the listener's first snapshot, treat as baseline: store and don't notify.
+            if (!accountsListenerInitializedRef.current) {
+                accountsListenerInitializedRef.current = true;
+                setAllAccounts(updatedAccounts);
+                return;
+            }
+
+            // Only send notifications after the initial app load completed
             if (initialLoadCompleteRef.current) {
                 const prevAccounts = allAccountsRef.current;
                 const prevMap = new Map(prevAccounts.map(a => [a.id, a]));
                 const currentMap = new Map(updatedAccounts.map(a => [a.id, a]));
 
-                // Detect Additions & Udpates
+                // Collect additions to avoid spamming many individual notifications
+                const addedEmails: string[] = [];
                 updatedAccounts.forEach(newAcc => {
                     const oldAcc = prevMap.get(newAcc.id);
                     if (!oldAcc) {
-                        addNotification(`New account added: ${newAcc.email}`, 'info');
+                        addedEmails.push(newAcc.email);
                     } else {
                         if (oldAcc.label !== newAcc.label) {
                             addNotification(`Account ${newAcc.email} renamed to "${newAcc.label}"`, 'info');
                         }
                     }
                 });
+
+                if (addedEmails.length === 1) {
+                    addNotification(`New account added: ${addedEmails[0]}`, 'info');
+                } else if (addedEmails.length > 1) {
+                    addNotification(`+${addedEmails.length} new accounts added`, 'info');
+                }
 
                 // Detect Deletions
                 prevAccounts.forEach(oldAcc => {
