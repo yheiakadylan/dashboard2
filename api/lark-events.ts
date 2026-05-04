@@ -402,9 +402,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // =====================================================================
   // 🟢 HIJACK 2: TRIGGER SKU FETCH VIA EXTENSION
-  // Gọi bằng: /api/lark-events?action=trigger-sku-fetch&secret=<CRON_SECRET2>&orderId=...&account=...
+  // POST /api/lark-events with body: { action: 'trigger-sku-fetch', secret: <CRON_SECRET2>, orderId: ..., account: ... }
   // =====================================================================
   if (action === 'trigger-sku-fetch') {
+    // Reject GET requests, only allow POST
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method Not Allowed. Use POST.' });
+    }
+
     const CRON_SECRET2 = process.env.CRON_SECRET2;
     if (!CRON_SECRET2) {
       console.error('[lark-events] CRON_SECRET2 not configured');
@@ -412,7 +417,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (!secret || secret !== CRON_SECRET2) {
-      console.warn('[lark-events] Unauthorized trigger-sku-fetch attempt');
+      console.warn('[lark-events] Unauthorized trigger-sku-fetch attempt with secret:', secret);
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
