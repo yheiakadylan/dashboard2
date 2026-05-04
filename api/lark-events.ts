@@ -400,6 +400,68 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
+  // =====================================================================
+  // 🟢 HIJACK 2: TRIGGER SKU FETCH VIA EXTENSION
+  // Gọi bằng: /api/lark-events?action=trigger-sku-fetch&secret=<CRON_SECRET2>&orderId=...&account=...
+  // =====================================================================
+  if (action === 'trigger-sku-fetch') {
+    const CRON_SECRET2 = process.env.CRON_SECRET2;
+    if (!CRON_SECRET2) {
+      console.error('[lark-events] CRON_SECRET2 not configured');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    if (!secret || secret !== CRON_SECRET2) {
+      console.warn('[lark-events] Unauthorized trigger-sku-fetch attempt');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const orderId = (req.query.orderId || req.body?.orderId) as string;
+    const account = (req.query.account || req.body?.account) as string;
+
+    if (!orderId || !account) {
+      return res.status(400).json({ message: 'Missing orderId or account' });
+    }
+
+    try {
+      const db = getDb();
+      const teamId = SHARED_USER_ID;
+
+      // Check if job already exists
+      const jobsRef = db.collection('user').doc(teamId).collection('sku_jobs');
+      const q = jobsRef.where('order_id', '==', orderId).where('status', '==', 'pending');
+      const snapshot = await q.get();
+
+      if (!snapshot.empty) {
+        return res.status(200).json({ message: 'SKU fetch already in progress', jobId: snapshot.docs[0].id });
+      }
+
+      // Create new SKU job
+      const jobDocRef = jobsRef.doc(orderId);
+      await jobDocRef.set({
+        order_id: orderId,
+        account: account,
+        status: 'pending',
+        priority: true, // High priority for manual triggers
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+      console.log(`[trigger-sku-fetch] Created SKU job for order ${orderId}, account ${account}`);
+
+      return res.status(200).json({
+        message: 'SKU fetch triggered successfully',
+        jobId: jobDocRef.id,
+        orderId,
+        account
+      });
+
+    } catch (err: any) {
+      console.error('[API trigger-sku-fetch] Error:', err);
+      return res.status(500).json({ message: err.message });
+    }
+  }
+
 
   // =====================================================================
   // 🟢 HIJACK 2: TEST NOTIFICATION HANDLER
