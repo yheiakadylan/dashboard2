@@ -419,7 +419,7 @@ const extractEtsyDetails = (html: string): OrderDetails => {
     // Example: <span class="x_name">Name</span>
     const nameMatch = addrContent.match(/class=["']x_name["'][^>]*>([^<]+)/);
     const addr1Match = addrContent.match(/class=["']x_first-line["'][^>]*>([^<]+)/);
-    // address2 is usually just a text node or separate line, tough to regex with specific class if not consistent
+    const addr2Match = addrContent.match(/class=["']x_second-line["'][^>]*>([^<]+)/);
     const cityMatch = addrContent.match(/class=["']x_city["'][^>]*>([^<]+)/);
     const stateMatch = addrContent.match(/class=["']x_state["'][^>]*>([^<]+)/);
     const zipMatch = addrContent.match(/class=["']x_zip["'][^>]*>([^<]+)/);
@@ -428,6 +428,7 @@ const extractEtsyDetails = (html: string): OrderDetails => {
     if (nameMatch) {
       shippingAddress.name = nameMatch[1].trim();
       if (addr1Match) shippingAddress.address1 = addr1Match[1].trim();
+      if (addr2Match) shippingAddress.address2 = addr2Match[1].trim();
       if (cityMatch) shippingAddress.city = cityMatch[1].trim();
       if (stateMatch) shippingAddress.state = stateMatch[1].trim();
       if (zipMatch) shippingAddress.zip = zipMatch[1].trim();
@@ -442,7 +443,7 @@ const extractEtsyDetails = (html: string): OrderDetails => {
         shippingAddress.name = lines[0];
         if (lines.length >= 2) shippingAddress.address1 = lines[1];
 
-        const validLines = lines.filter(l => !l.includes('country_code') && l.length > 1);
+        const validLines = lines.filter(l => !l.includes('country_code') && l.length > 0);
 
         if (validLines.length >= 4) {
           // Assume: Name, Address1, (Address2?), CityStateZip, Country
@@ -473,6 +474,15 @@ const extractEtsyDetails = (html: string): OrderDetails => {
         }
       }
     }
+
+    // 🔍 DEBUG LOG - Shipping Address
+    const _addrMethod = addrContent.match(/class=["']x_name["']/) ? 'OUTLOOK' : 'GMAIL_FALLBACK';
+    const _rawLines = stripHtmlBasic(addrContent).split('\n').map(l => l.trim()).filter(l => l);
+    console.group(`[DEBUG] ShippingAddress (method:${_addrMethod})`);
+    console.log('rawLines =>', _rawLines);
+    console.log('parsed =>', shippingAddress);
+    console.groupEnd();
+    // 🔍 END DEBUG
   }
 
   // 2. Extract Email
