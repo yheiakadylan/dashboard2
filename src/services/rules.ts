@@ -158,6 +158,48 @@ const toFloat = (s: string): number => {
   return parseFloat(s);
 };
 
+/** Parse "City, State Zip" hoặc "City State PostalCode" (US/CA/AU/UK) */
+const parseCityStateZip = (raw: string): { city: string; state: string; zip: string } => {
+  const result = { city: raw, state: '', zip: '' };
+
+  // Pattern 1: US — "City, ST 12345" or "City, ST 12345-6789"
+  const usMatch = raw.match(/^(.*),\s*(\w+)\s+(.+)$/);
+  if (usMatch) {
+    result.city = usMatch[1].trim();
+    result.state = usMatch[2].trim();
+    result.zip = usMatch[3].trim();
+    return result;
+  }
+
+  // Pattern 2: Canadian — "STIRLING ON K0K 3E0"
+  const caMatch = raw.match(/^(.+?)\s+([A-Z]{2})\s+([A-Z]\d[A-Z]\s*\d[A-Z]\d)$/i);
+  if (caMatch) {
+    result.city = caMatch[1].trim();
+    result.state = caMatch[2].trim();
+    result.zip = caMatch[3].trim();
+    return result;
+  }
+
+  // Pattern 3: AU/NZ — "MELBOURNE VIC 3000"
+  const auMatch = raw.match(/^(.+?)\s+([A-Z]{2,3})\s+(\d{4,5})$/i);
+  if (auMatch) {
+    result.city = auMatch[1].trim();
+    result.state = auMatch[2].trim();
+    result.zip = auMatch[3].trim();
+    return result;
+  }
+
+  // Pattern 4: UK — "LONDON SW1A 1AA"
+  const ukMatch = raw.match(/^(.+?)\s+([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})$/i);
+  if (ukMatch) {
+    result.city = ukMatch[1].trim();
+    result.zip = ukMatch[2].trim();
+    return result;
+  }
+
+  return result;
+};
+
 // footer mà Etsy hay chèn
 const _STOP_AFTER = new RegExp(
   `(?:^|\\n)\\s*(?:This\\s+case\\s+has\\s+been\\s+submitted|We['’]?ll\\s+follow\\s+up|We\\s+will\\s+follow\\s+up|Thanks,?|Regards,?|Case\\s+(?:ID|type)|Order\\s+number)`,
@@ -250,15 +292,10 @@ const extractEbayDetails = (html: string, subject?: string): OrderDetails => {
       if (addrLines.length >= 4) {
         shippingAddress.country = addrLines[addrLines.length - 1];
         const cityStateZip = addrLines[addrLines.length - 2];
-        const cszMatch = cityStateZip.match(/^(.*),\s*(\w{2})\s+([\w-]+)$/);
-        if (cszMatch) {
-          shippingAddress.city = cszMatch[1].trim();
-          shippingAddress.state = cszMatch[2].trim();
-          shippingAddress.zip = cszMatch[3].trim();
-        } else {
-          // Fallback for international addresses
-          shippingAddress.city = cityStateZip;
-        }
+        const csz = parseCityStateZip(cityStateZip);
+        shippingAddress.city = csz.city;
+        shippingAddress.state = csz.state;
+        shippingAddress.zip = csz.zip;
 
         shippingAddress.address1 = addrLines[1];
         if (addrLines.length > 4) {
@@ -450,14 +487,10 @@ const extractEtsyDetails = (html: string): OrderDetails => {
           shippingAddress.country = validLines[validLines.length - 1];
           const cityStateZip = validLines[validLines.length - 2];
 
-          const cszMatch = cityStateZip.match(/^(.*),\s*(\w+)\s+(.+)$/);
-          if (cszMatch) {
-            shippingAddress.city = cszMatch[1].trim();
-            shippingAddress.state = cszMatch[2].trim();
-            shippingAddress.zip = cszMatch[3].trim();
-          } else {
-            shippingAddress.city = cityStateZip;
-          }
+          const csz = parseCityStateZip(cityStateZip);
+          shippingAddress.city = csz.city;
+          shippingAddress.state = csz.state;
+          shippingAddress.zip = csz.zip;
 
           if (validLines.length > 4) {
             shippingAddress.address2 = validLines[2];
@@ -465,12 +498,10 @@ const extractEtsyDetails = (html: string): OrderDetails => {
         } else if (validLines.length === 3) {
           // Name, Address, CityStateZip
           const cityStateZip = validLines[2];
-          const cszMatch = cityStateZip.match(/^(.*),\s*(\w+)\s+(.+)$/);
-          if (cszMatch) {
-            shippingAddress.city = cszMatch[1].trim();
-            shippingAddress.state = cszMatch[2].trim();
-            shippingAddress.zip = cszMatch[3].trim();
-          }
+          const csz2 = parseCityStateZip(cityStateZip);
+          shippingAddress.city = csz2.city;
+          shippingAddress.state = csz2.state;
+          shippingAddress.zip = csz2.zip;
         }
       }
     }
