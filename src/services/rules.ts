@@ -25,7 +25,7 @@ export const RULES: Rule[] = [
   {
     name: "Etsy_Sales",
     platform: "etsy",
-    query: 'subject:"You made a sale on Etsy"',
+    query: 'subject:"You made a sale on Etsy" OR subject:"Etsy Order confirmation for:"',
     // Kiểm tra body chứa "Order total" để validate là sales email thực
     amountOrderRe: new RegExp(
       `Order\\s+total\\s*:?\\s*[$£€]?\\s*(${AMOUNT_BIG})`,

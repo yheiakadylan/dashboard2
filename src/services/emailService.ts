@@ -349,15 +349,33 @@ async function fetchOutlookMessages(
     const fromISO = new Date(dateRange.from).toISOString();
     const toISO = new Date(dateRange.to).toISOString();
 
-    const subjectQuery = rule.query.match(/subject:"([^"]+)"/i)?.[1] || '';
-    if (!subjectQuery && !rule.query.includes('from:')) {
+    // Parse ALL subject:"..." clauses — supports OR queries (e.g. Etsy_Sales has 2 subject patterns)
+    const subjectMatches = [...rule.query.matchAll(/subject:"([^"]+)"/gi)].map(m => m[1]);
+    const fromQueryMatch = rule.query.match(/from:([\w@.-]+)/i);
+
+    if (subjectMatches.length === 0 && !fromQueryMatch) {
         console.warn(`Rule "${rule.name}" for Outlook has insufficient query filters. Skipping.`);
         return [];
     }
-    let filterParts = [`receivedDateTime ge ${fromISO}`, `receivedDateTime lt ${toISO}`];
-    if (subjectQuery) filterParts.push(`contains(subject, '${subjectQuery.replace(/'/g, "''")}')`);
-    const fromQueryMatch = rule.query.match(/from:([\w@.-]+)/i);
-    if (fromQueryMatch?.[1]) filterParts.push(`startsWith(from/emailAddress/address, '${fromQueryMatch[1]}')`);
+
+    const filterParts: string[] = [
+        `receivedDateTime ge ${fromISO}`,
+        `receivedDateTime lt ${toISO}`,
+    ];
+
+    if (subjectMatches.length === 1) {
+        filterParts.push(`contains(subject, '${subjectMatches[0].replace(/'/g, "''")}')`);
+    } else if (subjectMatches.length > 1) {
+        const orClause = subjectMatches
+            .map(s => `contains(subject, '${s.replace(/'/g, "''")}')`) 
+            .join(' or ');
+        filterParts.push(`(${orClause})`);
+    }
+
+    if (fromQueryMatch?.[1]) {
+        filterParts.push(`startsWith(from/emailAddress/address, '${fromQueryMatch[1]}')`);
+    }
+
     const filter = filterParts.join(' and ');
 
     let url: string | undefined =
@@ -440,12 +458,16 @@ export const checkEmailsExistInRange = async (account: Account, dateRange: { fro
                 const fromISO = new Date(dateRange.from).toISOString();
                 const toISO = new Date(dateRange.to).toISOString();
 
-                const subjectQuery = rule.query.match(/subject:"([^"]+)"/i)?.[1] || '';
-                if (!subjectQuery && !rule.query.includes('from:')) continue;
-
-                let filterParts = [`receivedDateTime ge ${fromISO}`, `receivedDateTime lt ${toISO}`];
-                if (subjectQuery) filterParts.push(`contains(subject, '${subjectQuery.replace(/'/g, "''")}')`);
+                const subjectMatches = [...rule.query.matchAll(/subject:"([^"]+)"/gi)].map(m => m[1]);
                 const fromQueryMatch = rule.query.match(/from:([\w@.-]+)/i);
+                if (subjectMatches.length === 0 && !fromQueryMatch) continue;
+
+                const filterParts = [`receivedDateTime ge ${fromISO}`, `receivedDateTime lt ${toISO}`];
+                if (subjectMatches.length === 1) {
+                    filterParts.push(`contains(subject, '${subjectMatches[0].replace(/'/g, "''")}')`);
+                } else if (subjectMatches.length > 1) {
+                    filterParts.push(`(${subjectMatches.map(s => `contains(subject, '${s.replace(/'/g, "''")}')`).join(' or ')})`);
+                }
                 if (fromQueryMatch?.[1]) filterParts.push(`startsWith(from/emailAddress/address, '${fromQueryMatch[1]}')`);
 
                 const filter = filterParts.join(' and ');
