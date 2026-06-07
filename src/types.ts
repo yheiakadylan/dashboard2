@@ -75,7 +75,7 @@ export interface CostData {
   product_name?: string;
 }
 
-export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill';
+export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill' | 'KPI';
 export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%
@@ -147,4 +147,25 @@ export interface ManualCost {
   timeZone?: string;
   currency?: string;
   createdAt?: any; // Firestore Timestamp
+}
+
+export interface KpiIdea {
+  type: string;
+  count: number;
+}
+
+export interface KpiReport {
+  id?: string;
+  date: string; // YYYY-MM-DD
+  timestamp: number;
+  sellerName: string;
+  ideas: KpiIdea[];
+  mockup: number;
+  listing: number;
+  fulfill: number;
+  revenue: number;
+  baseCost: number;
+  grossProfit: number;
+  profitMargin: number;
+  note?: string;
 }

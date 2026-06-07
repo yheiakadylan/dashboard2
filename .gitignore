@@ -27,3 +27,4 @@ public/firebase-config.js
 *.sw?
 .vercel
 .env*.local
+.env*

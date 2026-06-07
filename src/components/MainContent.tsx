@@ -14,6 +14,7 @@ import ProductsTab from './tabs/ProductsTab';
 import OrderListTab from './tabs/OrderListTab';
 import FulfillTab from './tabs/FulfillTab';
 import SupportTab from './tabs/SupportTab';
+import KpiManagement from './tabs/KpiManagement';
 
 // Helper for lazy data tables
 const LazyTable = ({ headers, data }: { headers: string[], data: any[] }) => (
@@ -105,6 +106,9 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
 
                 case 'Fulfill':
                     return <FulfillTab processedData={processedData} />;
+
+                case 'KPI':
+                    return <KpiManagement />;
 
                 default:
                     return <div className="p-8 text-center text-gray-500">Selected tab content not available.</div>;

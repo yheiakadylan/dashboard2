@@ -8,7 +8,8 @@ import {
     DocumentTextIcon,
     QuestionMarkCircleIcon,
     TruckIcon,
-    TagIcon
+    TagIcon,
+    ChartBarIcon
 } from '@heroicons/react/24/outline';
 
 interface SidebarProps {
@@ -41,6 +42,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
             case 'Fulfill': return <TruckIcon className={className} />;
 
             case 'Products': return <TagIcon className={className} />;
+            case 'KPI': return <ChartBarIcon className={className} />;
             default: return <HomeIcon className={className} />;
         }
     };
