@@ -17,10 +17,14 @@ interface UserRole {
     viewSales: boolean;
     viewFunds: boolean;
     viewFulfill: boolean;
-
     canManageSettings: boolean;
   };
   allowedAccounts?: string[];
+  display_name?: string;          // Tên hiển thị trên Leaderboard/KPI
+  is_kpi?: boolean;               // Tham gia tính KPI / xuất hiện trên Leaderboard
+  can_view_leaderboard?: boolean; // Có quyền xem Leaderboard toàn team
+  kpi_team?: string;              // Team KPI
+  viewable_kpi_teams?: string[];  // Các team được phép xem
 }
 
 // --- BẮT ĐẦU: Component Modal mới để chọn Account ---
@@ -159,6 +163,8 @@ const UserManager: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [kpiTeams, setKpiTeams] = useState<string[]>([]);
+  const [isManagingTeams, setIsManagingTeams] = useState(false);
 
   // State cho việc tạo user mới
   const [newUserEmail, setNewUserEmail] = useState('');
@@ -210,7 +216,15 @@ const UserManager: React.FC = () => {
 
   useEffect(() => {
     fetchUsers();
-  }, [fetchUsers]);
+    
+    // Listen for KPI Teams changes
+    import('../services/firebaseService').then(({ listenForSettings }) => {
+      const unsubscribe = listenForSettings(teamId, (settings) => {
+        setKpiTeams(settings.kpiTeams || []);
+      });
+      return unsubscribe;
+    });
+  }, [fetchUsers, teamId]);
 
   // Auto-save with debounce when users change
   useEffect(() => {
@@ -228,7 +242,12 @@ const UserManager: React.FC = () => {
           const docRef = doc(db, 'user_roles', user.id);
           batch.update(docRef, {
             permissions: user.permissions,
-            allowedAccounts: user.allowedAccounts || []
+            allowedAccounts: user.allowedAccounts || [],
+            display_name: user.display_name || '',
+            is_kpi: !!user.is_kpi,
+            can_view_leaderboard: !!user.can_view_leaderboard,
+            kpi_team: user.kpi_team || null,
+            viewable_kpi_teams: user.viewable_kpi_teams || [],
           });
         }
       });
@@ -255,6 +274,68 @@ const UserManager: React.FC = () => {
           : u
       )
     );
+  };
+
+  const handleUserFieldChange = (userId: string, field: 'display_name' | 'is_kpi' | 'can_view_leaderboard' | 'kpi_team', value: string | boolean) => {
+    setUsers(prevUsers =>
+      prevUsers.map(u => {
+        if (u.id === userId) {
+          const updated = { ...u, [field]: value };
+          // If assigning a specific KPI team, restrict their viewable teams to ONLY that team
+          if (field === 'kpi_team' && value) {
+            updated.viewable_kpi_teams = updated.viewable_kpi_teams?.filter(t => t === value) || [];
+          }
+          return updated as UserRole;
+        }
+        return u;
+      })
+    );
+  };
+
+  const handleViewableTeamsChange = (userId: string, team: string, checked: boolean) => {
+    setUsers(prevUsers =>
+      prevUsers.map(u => {
+        if (u.id !== userId) return u;
+        const current = u.viewable_kpi_teams || [];
+        const next = checked ? [...current, team] : current.filter(t => t !== team);
+        return { ...u, viewable_kpi_teams: next };
+      })
+    );
+  };
+
+  const handleAddKpiTeam = async (newTeamName: string) => {
+    if (!newTeamName.trim() || kpiTeams.includes(newTeamName.trim())) return;
+    try {
+      const updatedTeams = [...kpiTeams, newTeamName.trim()];
+      const { saveSettings } = await import('../services/firebaseService');
+      await saveSettings(teamId, { kpiTeams: updatedTeams });
+      setKpiTeams(updatedTeams);
+    } catch (e) {
+      console.error(e);
+      alert('Error adding KPI team');
+    }
+  };
+
+  const handleRemoveKpiTeam = async (teamToRemove: string) => {
+    try {
+      const updatedTeams = kpiTeams.filter(t => t !== teamToRemove);
+      const { saveSettings } = await import('../services/firebaseService');
+      await saveSettings(teamId, { kpiTeams: updatedTeams });
+      setKpiTeams(updatedTeams);
+      
+      // Remove from users' viewable_kpi_teams
+      setUsers(prevUsers => prevUsers.map(u => {
+        if (!u.viewable_kpi_teams?.includes(teamToRemove) && u.kpi_team !== teamToRemove) return u;
+        const nextViewable = u.viewable_kpi_teams?.filter(t => t !== teamToRemove) || [];
+        const nextKpiTeam = u.kpi_team === teamToRemove ? null : u.kpi_team;
+        
+        // Trigger auto-save will pick this up
+        return { ...u, viewable_kpi_teams: nextViewable, kpi_team: nextKpiTeam };
+      }));
+    } catch (e) {
+      console.error(e);
+      alert('Error removing KPI team');
+    }
   };
 
   // --- THÊM: Các hàm xử lý modal ---
@@ -371,7 +452,15 @@ const UserManager: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       <div className="flex-grow overflow-y-auto pr-2">
-        <h3 className="text-lg font-semibold mb-3 border-b pb-2">Manage Existing Users</h3>
+        <div className="flex justify-between items-center mb-3 border-b pb-2">
+          <h3 className="text-lg font-semibold">Manage Existing Users</h3>
+          <button
+            onClick={() => setIsManagingTeams(true)}
+            className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 rounded-md hover:bg-blue-200 dark:hover:bg-blue-900/50 font-medium"
+          >
+            Manage KPI Teams
+          </button>
+        </div>
         <div className="space-y-4">
           {users.map(user => (
             <div key={user.id} className="bg-gray-100 dark:bg-gray-700 p-3 rounded">
@@ -397,6 +486,19 @@ const UserManager: React.FC = () => {
 
               {user.role === 'user' && (
                 <div className="space-y-3">
+                  {/* Display Name */}
+                  <div>
+                    <label className="text-sm font-medium mb-1 text-gray-600 dark:text-gray-300 block">Display Name (Leaderboard)</label>
+                    <input
+                      type="text"
+                      value={user.display_name || ''}
+                      onChange={e => handleUserFieldChange(user.id, 'display_name', e.target.value)}
+                      placeholder="Nhập tên hiển thị..."
+                      className="w-full px-3 py-1.5 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md text-sm"
+                    />
+                  </div>
+
+                  {/* Permissions */}
                   <div>
                     <h4 className="text-sm font-medium mb-2 text-gray-600 dark:text-gray-300">Permissions</h4>
                     <div className="grid grid-cols-4 gap-2">
@@ -409,7 +511,74 @@ const UserManager: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* --- THAY ĐỔI: Thay thế list checkbox bằng nút mở Modal --- */}
+                    <div className="pt-2 border-t border-gray-200 dark:border-gray-600">
+                      <h4 className="text-sm font-medium mb-2 text-gray-600 dark:text-gray-300">KPI Settings</h4>
+                      <div className="flex gap-6 mb-3">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={!!user.is_kpi}
+                            onChange={e => handleUserFieldChange(user.id, 'is_kpi', e.target.checked)}
+                            className="rounded text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="font-medium">Tham gia KPI</span>
+                        </label>
+                        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={!!user.can_view_leaderboard}
+                            onChange={e => handleUserFieldChange(user.id, 'can_view_leaderboard', e.target.checked)}
+                            className="rounded text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="font-medium">Xem Leaderboard</span>
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Selected KPI Team */}
+                        <div>
+                          <label className={`text-xs font-medium block mb-1 ${!user.is_kpi ? 'text-gray-400 dark:text-gray-500' : 'text-gray-500 dark:text-gray-400'}`}>Assigned KPI Team</label>
+                          <select
+                            value={user.kpi_team || ''}
+                            onChange={e => handleUserFieldChange(user.id, 'kpi_team', e.target.value)}
+                            disabled={!user.is_kpi}
+                            className={`w-full px-2 py-1.5 text-sm rounded-md border ${!user.is_kpi ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-600 cursor-not-allowed' : 'bg-white dark:bg-gray-600 border-gray-300 dark:border-gray-500 text-gray-900 dark:text-white'}`}
+                          >
+                            <option value="">-- No Team --</option>
+                            {kpiTeams.map(t => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Viewable KPI Teams (only if can_view_leaderboard is true) */}
+                        {user.can_view_leaderboard && (
+                          <div>
+                            <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Viewable Teams</label>
+                            <div className="max-h-24 overflow-y-auto border border-gray-300 dark:border-gray-500 rounded-md p-2 bg-white dark:bg-gray-600">
+                              {kpiTeams.length === 0 ? (
+                                <span className="text-xs text-gray-400">No teams created.</span>
+                              ) : (
+                                kpiTeams.map(t => (
+                                  <label key={t} className="flex items-center gap-2 text-sm mb-1">
+                                    <input
+                                      type="checkbox"
+                                      checked={user.viewable_kpi_teams?.includes(t) || false}
+                                      disabled={user.kpi_team ? user.kpi_team !== t : false}
+                                      onChange={e => handleViewableTeamsChange(user.id, t, e.target.checked)}
+                                      className="rounded text-blue-600 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    />
+                                    <span className={`truncate ${user.kpi_team && user.kpi_team !== t ? 'text-gray-400 dark:text-gray-500' : ''}`}>{t}</span>
+                                  </label>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                  {/* Allowed Mail Accounts */}
                   <div className="pt-3 border-t border-gray-200 dark:border-gray-600">
                     <div className="flex justify-between items-center">
                       <h4 className="text-sm font-medium text-gray-600 dark:text-gray-300">Allowed Mail Accounts</h4>
@@ -532,6 +701,81 @@ const UserManager: React.FC = () => {
                 ) : (
                   'Yes, Delete'
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* KPI Teams Management Modal */}
+      {isManagingTeams && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4"
+          onClick={() => setIsManagingTeams(false)}
+        >
+          <div
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-md w-full p-6 flex flex-col max-h-[80vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                Manage KPI Teams
+              </h3>
+              <button onClick={() => setIsManagingTeams(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl font-bold">
+                ✕
+              </button>
+            </div>
+
+            <div className="flex gap-2 mb-4">
+              <input
+                type="text"
+                id="new-team-input"
+                placeholder="Enter team name..."
+                className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddKpiTeam(e.currentTarget.value);
+                    e.currentTarget.value = '';
+                  }
+                }}
+              />
+              <button
+                onClick={() => {
+                  const input = document.getElementById('new-team-input') as HTMLInputElement;
+                  handleAddKpiTeam(input.value);
+                  input.value = '';
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-semibold"
+              >
+                Add
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 border border-gray-200 dark:border-gray-600 rounded-md p-2 min-h-[150px]">
+              {kpiTeams.length === 0 ? (
+                <div className="text-center text-gray-400 text-sm py-4">No teams created.</div>
+              ) : (
+                kpiTeams.map(t => (
+                  <div key={t} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700 p-2 rounded-md">
+                    <span className="font-medium text-sm text-gray-800 dark:text-gray-200">{t}</span>
+                    <button
+                      onClick={() => handleRemoveKpiTeam(t)}
+                      className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm font-medium px-2 py-1 bg-red-50 dark:bg-red-900/20 rounded"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            <div className="mt-4 flex justify-end pt-3 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setIsManagingTeams(false)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-semibold"
+              >
+                Done
               </button>
             </div>
           </div>

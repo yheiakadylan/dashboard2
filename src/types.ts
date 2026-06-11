@@ -15,9 +15,18 @@ export interface Account {
   platforms?: string[]; // 'etsy', 'ebay'
 }
 
+export interface FulfillmentAccount {
+  id: string;
+  provider: 'printway' | 'merchize';
+  name: string;
+  base_url: string;
+  api_token: string;
+}
+
 export interface OrderItem {
   name: string;
   variant?: string; // Material & Size, etc.
+  variant2?: string;
   personalization?: string;
   quantity: number;
   price: number;
@@ -49,6 +58,16 @@ export interface OrderDetails {
   detectedCurrency?: string;
 }
 
+export interface RefundDetails {
+  refundAmount: number;
+  refundCurrency: string;
+  deductedFromShop: number;
+  deductedCurrency: string;
+  refundedFee: number;
+  feeCurrency: string;
+  reason: string;
+}
+
 export interface Record {
   id?: string; // Unique ID for the record, usually from Firestore document ID
   email_id?: string; // The unique ID of the source email message
@@ -65,6 +84,9 @@ export interface Record {
   ff_code?: string;
   product_name?: string;
   details?: OrderDetails; // Added detailed info
+  is_manual_cost?: boolean; // Flag to indicate if cost was manually entered
+  status?: string;
+  refund_details?: RefundDetails;
 }
 
 export interface CostData {
@@ -89,7 +111,7 @@ export interface KpiData {
 // FIX: Allowed null in TableData rows to support records with missing cost data.
 export interface TableData {
   headers: string[];
-  rows: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string } | { type: 'action_group', actions: any[] })[][];
+  rows: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string } | { type: 'action_group', actions: any[] } | { type: 'editable_cost', value: number | null, recordId: string, isManual: boolean })[][];
 }
 
 export interface OverviewChartData {

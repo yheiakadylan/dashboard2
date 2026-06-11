@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, getDoc, setDoc, query, where, orderBy, deleteDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, getDocs, getDoc, setDoc, updateDoc, query, where, orderBy, deleteDoc, writeBatch, onSnapshot } from "firebase/firestore";
 import { db } from "./firebaseService";
 import { KpiReport } from "../types";
 
@@ -62,12 +62,22 @@ export const getKpiReports = async (teamId: string, startDate: string, endDate: 
   const q = query(
     reportsCol, 
     where("date", ">=", startDate),
-    where("date", "<=", endDate + "T23:59:59.999Z"),
-    orderBy("date", "desc")
+    where("date", "<=", endDate + "T23:59:59")
   );
-  
-  const snap = await getDocs(q);
-  return snap.docs.map(doc => doc.data() as KpiReport);
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => doc.data() as KpiReport);
+};
+
+export const listenKpiReports = (teamId: string, startDate: string, endDate: string, callback: (reports: KpiReport[]) => void): () => void => {
+  const reportsCol = collection(db, 'user', teamId, 'kpi_reports');
+  const q = query(
+    reportsCol, 
+    where("date", ">=", startDate),
+    where("date", "<=", endDate + "T23:59:59")
+  );
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map(doc => doc.data() as KpiReport));
+  });
 };
 
 // Xóa KPI Report
@@ -76,26 +86,86 @@ export const deleteKpiReport = async (teamId: string, reportId: string): Promise
   await deleteDoc(docRef);
 };
 
+// Cập nhật một trường đơn lẻ trong KPI Report (dùng cho double-click inline edit)
+// Dùng setDoc merge để TẠO mới nếu chưa tồn tại, hoặc UPDATE nếu đã có
+export const updateKpiReportField = async (
+  teamId: string,
+  reportId: string,
+  field: string,
+  value: any,
+  baseData?: Partial<KpiReport>  // data mặc định khi tạo mới
+): Promise<void> => {
+  const docRef = doc(db, 'user', teamId, 'kpi_reports', reportId);
+  await setDoc(docRef, { id: reportId, ...baseData, [field]: value }, { merge: true });
+};
+
+// Lấy danh sách KPI Users (is_kpi = true) trong team – dùng cho Leaderboard
+export interface KpiUserProfile {
+  id: string;
+  email: string;
+  display_name?: string;
+  manage_mail?: boolean;
+  allowedAccounts?: string[];
+  kpi_team?: string;
+}
+
+export const getKpiUserProfiles = async (teamId: string): Promise<KpiUserProfile[]> => {
+  const q = query(
+    collection(db, 'user_roles'),
+    where('teamId', '==', teamId),
+    where('is_kpi', '==', true)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({
+    id: d.id,
+    email: d.data().email || '',
+    display_name: d.data().display_name || '',
+    manage_mail: d.data().permissions?.canManageSettings ?? true,
+    allowedAccounts: d.data().allowedAccounts || [],
+    kpi_team: d.data().kpi_team,
+  }));
+};
+
 // --- KPI Targets cho Leaderboard ---
 
 export interface KpiTarget {
   sellerName: string;
   weekId: string; // VD: "2026-W23"
   targetRevenue: number;
+  targetIdeas?: number;
+  targetMockup?: number;
+  targetListing?: number;
+  targetFulfill?: number;
   note?: string;
 }
 
-export const getKpiTargets = async (teamId: string, weekId: string): Promise<Record<string, { target: number, note: string }>> => {
+export interface ExtendedKpiTarget {
+  target: number;
+  targetIdeas: number;
+  targetMockup: number;
+  targetListing: number;
+  targetFulfill: number;
+  note: string;
+}
+
+export const getKpiTargets = async (teamId: string, weekId: string): Promise<Record<string, ExtendedKpiTarget>> => {
   const targetsCol = collection(db, 'user', teamId, 'kpi_targets');
   const q = query(targetsCol, where("weekId", "==", weekId));
   const snap = await getDocs(q);
   
-  const targets: Record<string, { target: number, note: string }> = {};
+  const targets: Record<string, ExtendedKpiTarget> = {};
   snap.docs.forEach(doc => {
     const data = doc.data() as KpiTarget;
     // Map by lowercase normalized name
     const normalizedName = data.sellerName.trim().toLowerCase().replace(/\s+/g, '-');
-    targets[normalizedName] = { target: data.targetRevenue || 0, note: data.note || '' };
+    targets[normalizedName] = { 
+        target: data.targetRevenue || 0, 
+        targetIdeas: data.targetIdeas || 0,
+        targetMockup: data.targetMockup || 0,
+        targetListing: data.targetListing || 0,
+        targetFulfill: data.targetFulfill || 0,
+        note: data.note || '' 
+    };
   });
   
   return targets;

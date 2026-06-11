@@ -1,5 +1,5 @@
 // src/services/rules.ts
-import { Record, OrderDetails, OrderItem } from '../types';
+import { Record, OrderDetails, OrderItem, RefundDetails } from '../types';
 import { getHighResImageUrl } from '../utils/imageUtils.js';
 
 export interface Rule {
@@ -80,6 +80,21 @@ export const RULES: Rule[] = [
     parseFrom: "snippet",
   },
 
+  // ==================== ETSY STATUS (REFUND) ====================
+
+  {
+    name: "Etsy_Refunded",
+    kind: "order", // ✅ Changed from 'refund' to 'order'
+    platform: "etsy",
+    query: 'subject:"You have issued a refund"',
+    // Subject: You have issued a refund (Order #3927077414)
+    amountOrderRe: new RegExp(
+      `You have issued a refund \\(Order #(?<oid>\\d+)\\)`,
+      "i"
+    ),
+    parseFrom: "subject",
+  },
+
   // ==================== ETSY CASE ====================
   {
     name: "Etsy_Case",
@@ -143,6 +158,48 @@ const toFloat = (s: string): number => {
   return parseFloat(s);
 };
 
+/** Parse "City, State Zip" hoặc "City State PostalCode" (US/CA/AU/UK) */
+const parseCityStateZip = (raw: string): { city: string; state: string; zip: string } => {
+  const result = { city: raw, state: '', zip: '' };
+
+  // Pattern 1: US — "City, ST 12345" or "City, ST 12345-6789"
+  const usMatch = raw.match(/^(.*),\s*(\w+)\s+(.+)$/);
+  if (usMatch) {
+    result.city = usMatch[1].trim();
+    result.state = usMatch[2].trim();
+    result.zip = usMatch[3].trim();
+    return result;
+  }
+
+  // Pattern 2: Canadian — "STIRLING ON K0K 3E0"
+  const caMatch = raw.match(/^(.+?)\s+([A-Z]{2})\s+([A-Z]\d[A-Z]\s*\d[A-Z]\d)$/i);
+  if (caMatch) {
+    result.city = caMatch[1].trim();
+    result.state = caMatch[2].trim();
+    result.zip = caMatch[3].trim();
+    return result;
+  }
+
+  // Pattern 3: AU/NZ — "MELBOURNE VIC 3000"
+  const auMatch = raw.match(/^(.+?)\s+([A-Z]{2,3})\s+(\d{4,5})$/i);
+  if (auMatch) {
+    result.city = auMatch[1].trim();
+    result.state = auMatch[2].trim();
+    result.zip = auMatch[3].trim();
+    return result;
+  }
+
+  // Pattern 4: UK — "LONDON SW1A 1AA"
+  const ukMatch = raw.match(/^(.+?)\s+([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})$/i);
+  if (ukMatch) {
+    result.city = ukMatch[1].trim();
+    result.zip = ukMatch[2].trim();
+    return result;
+  }
+
+  return result;
+};
+
 // footer mà Etsy hay chèn
 const _STOP_AFTER = new RegExp(
   `(?:^|\\n)\\s*(?:This\\s+case\\s+has\\s+been\\s+submitted|We['’]?ll\\s+follow\\s+up|We\\s+will\\s+follow\\s+up|Thanks,?|Regards,?|Case\\s+(?:ID|type)|Order\\s+number)`,
@@ -153,18 +210,22 @@ const _STOP_AFTER = new RegExp(
 const stripHtmlBasic = (s: string): string => {
   if (!s) return "";
   return s
+    .replace(/\r\n/g, "\n")  // 🔥 Normalize CRLF -> LF TRƯỚC (critical for Etsy emails)
+    .replace(/\r/g, "\n")    // Normalize remaining CR
     .replace(/&nbsp;/gi, " ") // Replace &nbsp; first to avoid splitting words incorrectly
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "") // Strip CSS <style> blocks
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "") // Strip <script> blocks too
     .replace(/&amp;/gi, "&")   // Đổi &amp; -> &
     .replace(/&quot;/gi, '"')  // Đổi &quot; -> "
     .replace(/&#39;/gi, "'")   // Đổi &#39; -> '
     .replace(/&lt;/gi, "<")    // Đổi &lt; -> <
     .replace(/&gt;/gi, ">")    // Đổi &gt; -> >
-    .replace(/<\/(div|tr|p|h\d|br|li|td|th|table)>/gi, "\n") // Add newline after block closers including table cells
+    .replace(/<\/(div|tr|p|h\d|br|li|td|th|table)>/gi, "\n") // Add newline after block closers
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, " ") // Strip tags
-    .replace(/[ \t]+\n/g, "\n") // Trim end of lines
-    .replace(/\n{3,}/g, "\n\n") // Compress newlines
-    .replace(/[ \t]{2,}/g, " ") // Compress spaces
+    .replace(/<[^>]+>/g, " ") // Strip remaining open tags
+    .replace(/[ \t]+\n/g, "\n") // Trim trailing spaces on each line
+    .replace(/\n{3,}/g, "\n\n") // Compress 3+ newlines to 2 (now works since \r\n normalized)
+    .replace(/[ \t]{2,}/g, " ") // Compress multiple spaces
     .trim();
 };
 
@@ -231,15 +292,10 @@ const extractEbayDetails = (html: string, subject?: string): OrderDetails => {
       if (addrLines.length >= 4) {
         shippingAddress.country = addrLines[addrLines.length - 1];
         const cityStateZip = addrLines[addrLines.length - 2];
-        const cszMatch = cityStateZip.match(/^(.*),\s*(\w{2})\s+([\w-]+)$/);
-        if (cszMatch) {
-          shippingAddress.city = cszMatch[1].trim();
-          shippingAddress.state = cszMatch[2].trim();
-          shippingAddress.zip = cszMatch[3].trim();
-        } else {
-          // Fallback for international addresses
-          shippingAddress.city = cityStateZip;
-        }
+        const csz = parseCityStateZip(cityStateZip);
+        shippingAddress.city = csz.city;
+        shippingAddress.state = csz.state;
+        shippingAddress.zip = csz.zip;
 
         shippingAddress.address1 = addrLines[1];
         if (addrLines.length > 4) {
@@ -400,7 +456,7 @@ const extractEtsyDetails = (html: string): OrderDetails => {
     // Example: <span class="x_name">Name</span>
     const nameMatch = addrContent.match(/class=["']x_name["'][^>]*>([^<]+)/);
     const addr1Match = addrContent.match(/class=["']x_first-line["'][^>]*>([^<]+)/);
-    // address2 is usually just a text node or separate line, tough to regex with specific class if not consistent
+    const addr2Match = addrContent.match(/class=["']x_second-line["'][^>]*>([^<]+)/);
     const cityMatch = addrContent.match(/class=["']x_city["'][^>]*>([^<]+)/);
     const stateMatch = addrContent.match(/class=["']x_state["'][^>]*>([^<]+)/);
     const zipMatch = addrContent.match(/class=["']x_zip["'][^>]*>([^<]+)/);
@@ -409,6 +465,7 @@ const extractEtsyDetails = (html: string): OrderDetails => {
     if (nameMatch) {
       shippingAddress.name = nameMatch[1].trim();
       if (addr1Match) shippingAddress.address1 = addr1Match[1].trim();
+      if (addr2Match) shippingAddress.address2 = addr2Match[1].trim();
       if (cityMatch) shippingAddress.city = cityMatch[1].trim();
       if (stateMatch) shippingAddress.state = stateMatch[1].trim();
       if (zipMatch) shippingAddress.zip = zipMatch[1].trim();
@@ -423,21 +480,17 @@ const extractEtsyDetails = (html: string): OrderDetails => {
         shippingAddress.name = lines[0];
         if (lines.length >= 2) shippingAddress.address1 = lines[1];
 
-        const validLines = lines.filter(l => !l.includes('country_code') && l.length > 1);
+        const validLines = lines.filter(l => !l.includes('country_code') && l.length > 0);
 
         if (validLines.length >= 4) {
           // Assume: Name, Address1, (Address2?), CityStateZip, Country
           shippingAddress.country = validLines[validLines.length - 1];
           const cityStateZip = validLines[validLines.length - 2];
 
-          const cszMatch = cityStateZip.match(/^(.*),\s*(\w+)\s+(.+)$/);
-          if (cszMatch) {
-            shippingAddress.city = cszMatch[1].trim();
-            shippingAddress.state = cszMatch[2].trim();
-            shippingAddress.zip = cszMatch[3].trim();
-          } else {
-            shippingAddress.city = cityStateZip;
-          }
+          const csz = parseCityStateZip(cityStateZip);
+          shippingAddress.city = csz.city;
+          shippingAddress.state = csz.state;
+          shippingAddress.zip = csz.zip;
 
           if (validLines.length > 4) {
             shippingAddress.address2 = validLines[2];
@@ -445,15 +498,22 @@ const extractEtsyDetails = (html: string): OrderDetails => {
         } else if (validLines.length === 3) {
           // Name, Address, CityStateZip
           const cityStateZip = validLines[2];
-          const cszMatch = cityStateZip.match(/^(.*),\s*(\w+)\s+(.+)$/);
-          if (cszMatch) {
-            shippingAddress.city = cszMatch[1].trim();
-            shippingAddress.state = cszMatch[2].trim();
-            shippingAddress.zip = cszMatch[3].trim();
-          }
+          const csz2 = parseCityStateZip(cityStateZip);
+          shippingAddress.city = csz2.city;
+          shippingAddress.state = csz2.state;
+          shippingAddress.zip = csz2.zip;
         }
       }
     }
+
+    // 🔍 DEBUG LOG - Shipping Address
+    const _addrMethod = addrContent.match(/class=["']x_name["']/) ? 'OUTLOOK' : 'GMAIL_FALLBACK';
+    const _rawLines = stripHtmlBasic(addrContent).split('\n').map(l => l.trim()).filter(l => l);
+    console.group(`[DEBUG] ShippingAddress (method:${_addrMethod})`);
+    console.log('rawLines =>', _rawLines);
+    console.log('parsed =>', shippingAddress);
+    console.groupEnd();
+    // 🔍 END DEBUG
   }
 
   // 2. Extract Email
@@ -512,8 +572,41 @@ const extractEtsyDetails = (html: string): OrderDetails => {
       return true;
     });
 
-    // Mỗi div 1 dòng
-    const variant = variantLines.join("\n");
+    // 🚀 IN RA RAW 
+    console.log(`\n\n[raw_variant_data] => Item: "${title}" =>`, variantLines);
+
+    let variant = "";
+    let variant2 = "";
+    let personalizationArr: string[] = [];
+    let isPersonalizationBlock = false;
+
+    for (const [idx, line] of variantLines.entries()) {
+      // Bắt đầu khối personalization nếu dòng có chữ Personalization: hoặc các từ đa ngôn ngữ
+      if (/^(personalization|personalisation|personnalisation|wunschtext|personalizzazioni|personalización|personalização|personalisatie|peronalizacja|personalizácia|personaliseer|personalized|personalised)/i.test(line)) {
+        isPersonalizationBlock = true;
+      }
+      
+      // Bỏ qua hẳn dòng rác "Personalized item" hoặc "Personalised item"
+      if (/personali[zs]ed\s*item/i.test(line)) {
+        continue;
+      }
+
+      if (isPersonalizationBlock) {
+        personalizationArr.push(line);
+      } else {
+        // Dòng đầu tiên là variant, dòng thứ hai là variant2
+        if (idx === 0) {
+          variant = line;
+        } else if (idx === 1) {
+          variant2 = line;
+        } else {
+          // Từ dòng thứ 3 trở đi coi như là Personalization (nếu Etsy thiếu tag Personalization)
+          personalizationArr.push(line);
+        }
+      }
+    }
+
+    const personalization = personalizationArr.join('\n').trim();
 
     // ===== 3) Clean text để lấy Transaction ID / Qty / Price =====
     let clean = blockHtml;
@@ -549,6 +642,8 @@ const extractEtsyDetails = (html: string): OrderDetails => {
     items.push({
       name: title,
       variant,
+      variant2,
+      personalization,
       quantity,
       price,
       transactionId,
@@ -558,32 +653,102 @@ const extractEtsyDetails = (html: string): OrderDetails => {
 
 
 
-  // 4. Extract Financials (Case Insensitive)
+  // 4. Extract Financials
+  //
+  // NGUYÊN TẮC: KHÔNG PHÁ VỠ NHỮNG GÌ ĐANG CHẠY TỐT
+  // - itemTotal, orderTotal: dùng REGEX cũ (chưa bao giờ sai)
+  // - discount, shipping, tax: dùng TABLE PARSING (robust) + regex fallback
+  //   vì các field này có nhiều label/format khác nhau giữa các shop
+
   const stripped = stripHtmlBasic(html);
 
-  // Group 1 ([^0-9-]*): Bắt lấy prefix (VD: "AU$", "$", "GBP", "Sales Tax: ")
-  // Group 2 ([\d.,]+): Bắt lấy số tiền
+  // === itemTotal & orderTotal: REGEX (ổn định, không đổi) ===
+  const itemTotalMatch = stripped.match(/Item\s+total\s*:\s*([^\d\n]*)\s*(\d[\d.,]*)/i);
+  const orderTotalMatch = stripped.match(/(?:Order|Grand)\s+total\s*:\s*([^\d\n]*)\s*(\d[\d.,]*)/i);
 
-  const itemTotalMatch = stripped.match(/Item\s+total\s*:?\s*([^\d\n]*)\s*([\d.,]+)/i);
-  const discountMatch = stripped.match(/Discount\s*:?\s*([^\d\n]*)\s*([\d.,]+)/i);
-  const shippingMatch = stripped.match(/(?:Shipping|Delivery)\s*:?\s*([^\d\n]*)\s*([\d.,]+)/i);
-  const taxMatch = stripped.match(/(?:Sales\s+tax|Tax)\s*:?\s*([^\d\n]*)\s*([\d.,]+)/i);
-  const orderTotalMatch = stripped.match(/Order\s+total\s*:?\s*([^\d\n]*)\s*([\d.,]+)/i);
+  const itemTotal = itemTotalMatch ? parseFloat(itemTotalMatch[2].replace(/,/g, '')) : 0;
+  const orderTotal = orderTotalMatch ? parseFloat(orderTotalMatch[2].replace(/,/g, '')) : 0;
+
+  // Currency: lấy từ prefix của Order Total (AU$, £, €, etc.)
+  let currencyPrefix = orderTotalMatch?.[1]?.trim() || '';
+
+  // === discount, shipping, tax: TABLE PARSING (robust, nhiều format) ===
+  // Helper: extract số tiền từ text của một cell
+  const extractAmount = (raw: string): number => {
+    const m = raw.replace(/[^\d.,]/g, '').match(/\d[\d.,]*/);
+    return m ? parseFloat(m[0].replace(/,/g, '')) : 0;
+  };
+
+  // Label matchers — bao phủ nhiều cách viết Etsy quốc tế
+  const isDiscount = (k: string) => /^(discount|coupon|promo|promotion|sale|you\s+saved)/i.test(k);
+  const isShipping = (k: string) => /^(shipping|delivery|postage|freight|ship\s+cost)/i.test(k);
+  const isTax = (k: string) => /^(sales\s*tax|tax|vat|gst|hst|pst|qst|import\s+duty)/i.test(k);
+
+  let discount = 0;
+  let shipping = 0;
+  let tax = 0;
+  let shippingFromTable = false;
+  let taxFromTable = false;
+
+  // Parse HTML table rows: <tr><td>Label</td><td>Value</td></tr>
+  const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+
+  for (const trMatch of html.matchAll(trRegex)) {
+    const cells = [...trMatch[0].matchAll(tdRegex)];
+    if (cells.length < 2) continue;
+
+    const keyRaw = stripHtmlBasic(cells[0][1]).replace(/:/g, '').trim();
+    const valRaw = stripHtmlBasic(cells[cells.length - 1][1]).trim();
+    if (!keyRaw || !valRaw) continue;
+
+    const amount = extractAmount(valRaw);
+
+    if (isDiscount(keyRaw)) { discount = Math.max(discount, amount); }
+    if (isShipping(keyRaw)) { shipping = amount; shippingFromTable = true; }
+    if (isTax(keyRaw)) { tax = amount; taxFromTable = true; }
+  }
+
+  // === Fallback regex cho shipping & tax nếu không parse được từ table ===
+  if (!shippingFromTable) {
+    const shM = stripped.match(/(?:Shipping|Delivery|Postage)\s*:\s*([^\d\n]*)\s*(\d[\d.,]*)/i);
+    if (shM) shipping = parseFloat(shM[2].replace(/,/g, ''));
+  }
+  if (!taxFromTable) {
+    const txM = stripped.match(/(?:Sales\s*tax\s*:?|(?:VAT|GST|HST|Tax)\s*:)\s*([^\d\n]*)\s*(\d[\d.,]*)/i);
+    if (txM) tax = parseFloat(txM[2].replace(/,/g, ''));
+  }
+  if (!discount) {
+    const dcM = stripped.match(/(?:Discount|Coupon|Promo)\s*:\s*([^\d\n]*)\s*(\d[\d.,]*)/i);
+    if (dcM) discount = parseFloat(dcM[2].replace(/,/g, ''));
+  }
+
+  // === FALLBACK: Tính tax ngược nếu tax = 0 nhưng có khoảng chênh lệch ===
+  // orderTotal = itemTotal - discount + shipping + tax
+  if (tax === 0 && orderTotal > 0 && itemTotal > 0) {
+    const computedTax = parseFloat((orderTotal - itemTotal + discount - shipping).toFixed(2));
+    if (computedTax > 0) tax = computedTax;
+  }
+
+  // 🔍 DEBUG LOG - XÓA SAU KHI FIX XONG
+  console.group(`[DEBUG] Financials (shipping:${shippingFromTable ? 'TABLE' : 'REGEX'} tax:${taxFromTable ? 'TABLE' : 'REGEX'})`);
+  console.log({ itemTotal, discount, shipping, tax, orderTotal, currencyPrefix });
+  console.groupEnd();
+  // 🔍 END DEBUG
 
   const financials = {
-    //Số tiền luôn ở Group 2
-    itemTotal: itemTotalMatch ? parseFloat(itemTotalMatch[2].replace(/,/g, '')) : 0,
-    discount: discountMatch ? parseFloat(discountMatch[2].replace(/,/g, '')) : 0,
-    shipping: shippingMatch ? parseFloat(shippingMatch[2].replace(/,/g, '')) : 0,
-    tax: taxMatch ? parseFloat(taxMatch[2].replace(/,/g, '')) : 0,
-    orderTotal: orderTotalMatch ? parseFloat(orderTotalMatch[2].replace(/,/g, '')) : 0,
+    itemTotal,
+    discount,
+    shipping,
+    tax,
+    orderTotal,
   };
 
   // --- 5. Detect Currency ---
-  // Dựa vào prefix của Order Total để quyết định loại tiền
+  // Dựa vào currencyPrefix đã detect từ Order Total row
   let detectedCurrency = "USD";
-  if (orderTotalMatch && orderTotalMatch[1]) {
-    detectedCurrency = detectCurrencyFromPrefix(orderTotalMatch[1]);
+  if (currencyPrefix) {
+    detectedCurrency = detectCurrencyFromPrefix(currencyPrefix);
   }
 
   return {
@@ -593,6 +758,73 @@ const extractEtsyDetails = (html: string): OrderDetails => {
     items,
     financials,
     detectedCurrency // Trả về để hàm parseMessage sử dụng
+  };
+};
+
+// ==================== REFUND EXTRACTION ====================
+
+const extractRefundDetails = (html: string, order_id: string): RefundDetails | null => {
+  const stripped = stripHtmlBasic(html);
+
+  // 1. Extract Main Refund Amount
+  // "You have issued Robin Edwards a refund of $14.00 for order number 3927077414."
+  const mainRegex = /You have issued .*? a refund of\s*(?<curr>[^0-9\s]*)\s*(?<amt>[\d.,]+)\s*for order number/i;
+  const mainMatch = stripped.match(mainRegex);
+
+  if (!mainMatch) return null; // Bắt buộc phải tìm thấy dòng này
+
+  const refundAmount = toFloat(mainMatch.groups?.amt || "0");
+  const refundCurrency = detectCurrencyFromPrefix(mainMatch.groups?.curr || "$");
+
+  // 2. Extract Deduction
+  // "NZ$22.28 was deducted from your Shop Payment Account."
+  // Note: Dùng [^0-9\n]* để bắt prefix, [\d.,]+ bắt số
+  const deductionRegex = /(?<curr>[^0-9\n]*)(?<amt>[\d.,]+)\s*was deducted from your Shop Payment Account/i;
+  const deductionMatch = stripped.match(deductionRegex);
+
+  const deductedFromShop = deductionMatch ? toFloat(deductionMatch.groups?.amt || "0") : 0;
+  const deductedCurrency = deductionMatch ? detectCurrencyFromPrefix(deductionMatch.groups?.curr || "") : refundCurrency;
+
+  // 3. Extract Fee Refunded
+  // "NZ$1.24 of your payment processing fee was refunded by Etsy."
+  const feeRegex = /(?<curr>[^0-9\n]*)(?<amt>[\d.,]+)\s*of your payment processing fee was refunded by Etsy/i;
+  const feeMatch = stripped.match(feeRegex);
+
+  const refundedFee = feeMatch ? toFloat(feeMatch.groups?.amt || "0") : 0;
+  const feeCurrency = feeMatch ? detectCurrencyFromPrefix(feeMatch.groups?.curr || "") : refundCurrency;
+
+  // 4. Extract Reason - Try multiple patterns
+  // Pattern 1: "Refund reason\nCancellation requested"
+  // Pattern 2: "Reason: Cancellation requested"
+  // Pattern 3: After "reason" keyword in various formats
+  let reason = "";
+
+  // Try pattern 1: Standard format
+  const reasonRegex1 = /Refund reason\s*[\n:]\s*([^\n]+)/i;
+  const match1 = stripped.match(reasonRegex1);
+  if (match1) {
+    reason = match1[1]?.trim() || "";
+  }
+
+  // Try pattern 2: Alternative format if pattern 1 failed
+  if (!reason) {
+    const reasonRegex2 = /reason[:\s]+([^\n]+)/i;
+    const match2 = stripped.match(reasonRegex2);
+    if (match2) {
+      reason = match2[1]?.trim() || "";
+    }
+  }
+
+  console.log('[RefundDetails] Extracted reason:', reason || '(empty)');
+
+  return {
+    refundAmount,
+    refundCurrency,
+    deductedFromShop,
+    deductedCurrency,
+    refundedFee,
+    feeCurrency,
+    reason
   };
 };
 
@@ -648,12 +880,15 @@ export const parseMessage = (
     return { amount, order_id: null, currency, kind };
   }
 
+
   // ====== CASE / HELP ======
   if (kind === 'case' || kind === 'help') {
     const order_id = (groups.oid || (groups as any).oid2 || "").trim() || null;
     if (!order_id) return { amount: 0.0, order_id: null, currency: null, kind };
 
+    // Common result structure
     const result: Partial<Record> = { amount: 0.0, order_id, kind };
+
     if (kind === 'case') {
       let caseMsg = extractCaseMessage(body);
       if (!caseMsg) {
@@ -665,6 +900,55 @@ export const parseMessage = (
       }
       result.case_msg = _cleanCaseMessage(caseMsg);
     }
+
+    if (kind === 'help') {
+      let helpKind = "";
+      const helpMatch = rule.bodyHelpTypeRe?.exec(body);
+      if (helpMatch && (helpMatch as any).groups?.kind) {
+        helpKind = (helpMatch as any).groups.kind.trim();
+      }
+      result.help_kind = helpKind || null;
+    }
+
+    return {
+      kind: result.kind as 'case' | 'help',
+      amount: result.amount!,
+      order_id: result.order_id!,
+      currency: null,
+      case_msg: result.case_msg || null,
+      help_kind: result.help_kind || null,
+    };
+  }
+
+  // ====== REFUNDED (now treated as orders) ======
+  if (rule.name === 'Etsy_Refunded') {
+    const order_id = (groups.oid || "").trim() || null;
+    if (!order_id) {
+      return {
+        kind: 'order',
+        amount: 0,
+        order_id: null,
+        currency: null,
+      };
+    }
+
+    const result: any = {
+      kind: 'order', // ✅ Always 'order'
+      amount: 0,
+      order_id,
+      currency: null,
+    };
+
+    result.status = 'Refunded';
+    try {
+      const refundDetails = extractRefundDetails(body, order_id);
+      if (refundDetails) {
+        result.refund_details = refundDetails;
+      }
+    } catch (e) {
+      console.warn("Error parsing refund details", e);
+    }
+
     return result;
   }
 

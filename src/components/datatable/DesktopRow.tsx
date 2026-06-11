@@ -3,6 +3,7 @@ import Spinner from '../Spinner';
 import CachedImage from './CachedImage';
 import { ListChildComponentProps, RowData } from './types';
 import { HIDDEN_MOBILE_HEADERS } from '../../constants';
+import EditableCostCell from './EditableCostCell';
 
 // Helper to check if a header should be hidden on mobile (Only applied in Desktop View now)
 const isHiddenOnDesktopMobileView = (header: string) => HIDDEN_MOBILE_HEADERS.includes(header);
@@ -95,7 +96,7 @@ const renderTextContent = (cell: any) => {
 }
 
 const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) => {
-    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, columnWidths } = data;
+    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, onUpdateCost, columnWidths } = data;
     const row = items[index];
 
     return (
@@ -117,7 +118,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         cellClass += 'flex-none w-[95px] justify-center'; // 75px + padding
                         break;
                     case 'Product Name':
-                        cellClass += 'flex-grow-[3] basis-1/4'; // Give it more weight
+                        cellClass += 'flex-[2] basis-[200px]'; // Reduced width
                         break;
                     case 'Order Number':
                         cellClass += 'flex-1 basis-[110px]'; // Compact width for order numbers
@@ -126,6 +127,10 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     case 'Cost':
                     case 'Currency':
                         cellClass += 'flex-1 basis-[80px]';
+                        break;
+                    case 'Case':
+                    case 'Help':
+                        cellClass += 'flex-none w-[60px] justify-center text-center';
                         break;
                     case 'Message':
                     case 'Help Kind':
@@ -158,6 +163,18 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         return (
                             <div key={cellIndex} className={cellClass} style={customStyle}>
                                 {renderActionCell(cell, cellIndex, loadingItems, onResyncClick, onViewOrderDetails, onViewDayDetails, row)}
+                            </div>
+                        )
+                    }
+                    if (cell.type === 'editable_cost') {
+                        return (
+                            <div key={cellIndex} className={cellClass} style={customStyle}>
+                                <EditableCostCell 
+                                    value={cell.value} 
+                                    recordId={cell.recordId} 
+                                    isManual={cell.isManual} 
+                                    onUpdateCost={onUpdateCost} 
+                                />
                             </div>
                         )
                     }

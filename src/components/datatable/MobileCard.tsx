@@ -2,6 +2,7 @@ import React from 'react';
 import Spinner from '../Spinner';
 import CachedImage from './CachedImage';
 import { ListChildComponentProps, RowData } from './types';
+import EditableCostCell from './EditableCostCell';
 
 const renderActionCell = (cell: any, _cellIndex: number, loadingItems: Set<string>, onResyncClick: (id: string) => void, onViewOrderDetails?: (id: string) => void, onViewDayDetails?: (date: string) => void, rowData?: any[], isMobile: boolean = false) => {
     if (cell === 'Click for detail' && onViewDayDetails && rowData) {
@@ -91,7 +92,7 @@ const renderTextContent = (cell: any) => {
 }
 
 const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) => {
-    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, isMobile } = data;
+    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, onUpdateCost, isMobile } = data;
     const row = items[index];
 
     const findIdx = (name: string) => headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
@@ -173,10 +174,27 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         {bodyItems.map((item) => {
                             const isMoney = item.isMoney || (typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Cost') || item.h.includes('Amount')));
                             const valueClass = isMoney ? 'text-gray-900 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300';
+                            
+                            const renderValue = () => {
+                                if (item.val && typeof item.val === 'object' && item.val.type === 'editable_cost') {
+                                    return (
+                                        <div className="h-6">
+                                            <EditableCostCell 
+                                                value={item.val.value} 
+                                                recordId={item.val.recordId} 
+                                                isManual={item.val.isManual} 
+                                                onUpdateCost={onUpdateCost} 
+                                            />
+                                        </div>
+                                    );
+                                }
+                                return <span className={`text-sm truncate ${valueClass}`}>{item.isMoney ? item.val : renderTextContent(item.val)}</span>;
+                            };
+
                             return (
                                 <div key={item.i} className="flex flex-col min-w-0">
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate" title={item.h}>{item.h}</span>
-                                    <span className={`text-sm truncate ${valueClass}`}>{item.isMoney ? item.val : renderTextContent(item.val)}</span>
+                                    {renderValue()}
                                 </div>
                             )
                         })}

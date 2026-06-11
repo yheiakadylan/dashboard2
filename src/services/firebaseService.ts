@@ -141,9 +141,8 @@ export const saveAccountsToFirebase = async (teamId: string, accounts: Account[]
   if (accounts.length > 0) {
     accounts.forEach(acc => {
       const docRef = doc(db, 'user', teamId, 'accounts', acc.id);
-      // Use set to overwrite or create. 
-      // Ensuring we write the full object as provided.
-      batch.set(docRef, acc);
+      // Use set with merge: true to avoid wiping out fields not passed in the object (e.g. historical_sync_complete)
+      batch.set(docRef, acc, { merge: true });
     });
   }
 
@@ -457,10 +456,20 @@ export const searchGlobalRecords = async (teamId: string, term: string): Promise
 };
 
 // === Settings Management ===
+export interface FulfillmentAccount {
+  id: string;
+  provider: 'printway' | 'merchize';
+  name: string;
+  base_url: string;
+  api_token: string;
+}
+
 export interface TeamSettings {
   googleSheetId?: string;
   sheetAccount?: Account;
   autoSyncToSheet?: boolean;
+  fulfillmentAccounts?: FulfillmentAccount[];
+  kpiTeams?: string[];
   [key: string]: any;
 }
 

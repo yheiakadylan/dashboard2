@@ -10,6 +10,11 @@ export interface UserProfile {
     permissions: { [key: string]: boolean };
     allowedAccounts?: string[];
     email?: string;
+    displayName?: string;          // Tên hiển thị trên Leaderboard/KPI
+    isKpi?: boolean;               // Tham gia tính KPI / xuất hiện trên Leaderboard
+    canViewLeaderboard?: boolean; // Có quyền xem Leaderboard toàn team
+    kpi_team?: string;
+    viewable_kpi_teams?: string[];
     [key: string]: any;
 }
 

@@ -10,12 +10,20 @@ import { useNotification } from '../../contexts/NotificationContext';
 import { KpiReport } from '../../types';
 
 const KpiManagement: React.FC = () => {
-    const { teamId, user } = useDashboard();
+    const { teamId, user, role, is_kpi, can_view_leaderboard } = useDashboard();
     const { addNotification } = useNotification();
-    const [activeTab, setActiveTab] = useState<'personal' | 'leaderboard'>('personal');
+
+    // Owner luôn thấy tất cả
+    const canViewPersonal = role === 'owner' || !!is_kpi;
+    const canViewLeaderboard = role === 'owner' || !!can_view_leaderboard;
+
+    // Mặc định tab: nếu không có personal, chuyển sang leaderboard
+    const defaultTab = canViewPersonal ? 'personal' : 'leaderboard';
+    const [activeTab, setActiveTab] = useState<'personal' | 'leaderboard'>(defaultTab);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
+    const [exportTrigger, setExportTrigger] = useState(0);
     
     // To trigger refresh in child components when a new report is added
     const [refreshKey, setRefreshKey] = useState(0);
@@ -215,70 +223,65 @@ const KpiManagement: React.FC = () => {
         }
     };
 
+    // Không có quyền nào cả
+    if (!canViewPersonal && !canViewLeaderboard) {
+        return (
+            <div className="h-full flex items-center justify-center p-8">
+                <div className="text-center">
+                    <div className="text-5xl mb-4">🔒</div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Không có quyền truy cập</h3>
+                    <p className="text-gray-500 dark:text-gray-400">Tài khoản của bạn chưa được cấp quyền xem KPI.</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="h-full flex flex-col space-y-4 p-4 lg:p-6 pb-24">
             <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex gap-2 bg-gray-100 dark:bg-gray-900 p-1 rounded-lg">
-                    <button 
-                        onClick={() => setActiveTab('personal')}
-                        className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                            activeTab === 'personal' 
-                                ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' 
-                                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                        }`}
-                    >
-                        Personal Report
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('leaderboard')}
-                        className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                            activeTab === 'leaderboard' 
-                                ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' 
-                                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                        }`}
-                    >
-                        Leaderboard
-                    </button>
+                    {canViewPersonal && (
+                        <button 
+                            onClick={() => setActiveTab('personal')}
+                            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                                activeTab === 'personal' 
+                                    ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' 
+                                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                            }`}
+                        >
+                            Daily Report
+                        </button>
+                    )}
+                    {canViewLeaderboard && (
+                        <button 
+                            onClick={() => setActiveTab('leaderboard')}
+                            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                                activeTab === 'leaderboard' 
+                                    ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' 
+                                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                            }`}
+                        >
+                            Leaderboard
+                        </button>
+                    )}
                 </div>
                 
                 <div className="flex gap-2">
                     <button 
-                        onClick={handleDownloadTemplate}
-                        className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg font-medium transition-colors shadow-sm"
+                        onClick={() => setExportTrigger(prev => prev + 1)}
+                        className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm"
                     >
                         <ArrowDownTrayIcon className="w-5 h-5" />
-                        <span className="hidden sm:inline">Template</span>
-                    </button>
-                    <button 
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isUploading}
-                        className={`flex items-center gap-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg font-medium transition-colors shadow-sm ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                        <ArrowUpTrayIcon className="w-5 h-5" />
-                        <span className="hidden sm:inline">{isUploading ? 'Uploading...' : 'Upload XLSX'}</span>
-                    </button>
-                    <input 
-                        type="file" 
-                        ref={fileInputRef} 
-                        onChange={handleFileUpload} 
-                        accept=".xlsx, .xls" 
-                        className="hidden" 
-                    />
-                    <button 
-                        onClick={() => setIsModalOpen(true)}
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm ml-2"
-                    >
-                        <PlusIcon className="w-5 h-5" />
-                        Report Daily
+                        <span className="hidden sm:inline">Export XLSX</span>
                     </button>
                 </div>
             </div>
 
             <div className="flex-1 overflow-auto rounded-xl">
                 {activeTab === 'personal' ? (
-                    <KpiPersonalReport key={`personal-${refreshKey}`} teamId={teamId} />
+                    <KpiPersonalReport key={`personal-${refreshKey}`} teamId={teamId} exportTrigger={exportTrigger} />
                 ) : (
-                    <KpiLeaderboard key={`leaderboard-${refreshKey}`} teamId={teamId} />
+                    <KpiLeaderboard key={`leaderboard-${refreshKey}`} teamId={teamId} exportTrigger={exportTrigger} />
                 )}
             </div>
 

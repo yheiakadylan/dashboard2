@@ -64,7 +64,7 @@ const useContainerSize = (ref: React.RefObject<HTMLDivElement>) => {
 
 // SortDirection type imported from utils now
 
-const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, autoHeight = false, mobileRowHeight, forceCardView = false, mobileBreakpoint = 768, columnWidths, scrollParentId }) => {
+const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, onUpdateCost, autoHeight = false, mobileRowHeight, forceCardView = false, mobileBreakpoint = 768, columnWidths, scrollParentId }) => {
     const [sortColumn, setSortColumn] = useState<number | null>(null);
     const [sortDirection, setSortDirection] = useState<SortDirection>(null);
     const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set());
@@ -183,6 +183,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         loadingItems,
         onViewDayDetails,
         onViewOrderDetails,
+        onUpdateCost,
         onResyncClick: handleResyncClick,
         onImageClick: setPreviewImage,
         isMobile,
@@ -208,7 +209,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                                 headerCellClass += 'flex-none w-[95px] justify-center';
                                 break;
                             case 'Product Name':
-                                headerCellClass += 'flex-grow-[3] basis-1/4';
+                                headerCellClass += 'flex-[2] basis-[200px]';
                                 break;
                             case 'Order Number':
                                 headerCellClass += 'flex-1 basis-[110px]'; // Compact width for order numbers
@@ -217,6 +218,10 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                             case 'Cost':
                             case 'Currency':
                                 headerCellClass += 'flex-1 basis-[80px]';
+                                break;
+                            case 'Case':
+                            case 'Help':
+                                headerCellClass += 'flex-none w-[60px] justify-center';
                                 break;
                             case 'Message':
                             case 'Help Kind':

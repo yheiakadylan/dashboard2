@@ -7,6 +7,7 @@ import { formatDateEfficiently } from '../../utils/dateFormatter';
 import GoogleSheetModal from '../GoogleSheetModal';
 import OrderSelectorModal from '../OrderSelectorModal';
 import PreviewSyncModal from '../PreviewSyncModal';
+import { useDashboard } from '../../contexts/DashboardContext';
 
 interface OrderListTabProps {
     processedData: ProcessedData;
@@ -31,6 +32,8 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     const [showOrderSelector, setShowOrderSelector] = useState(false);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [selectedRecords, setSelectedRecords] = useState<Record[]>([]);
+    
+    const { updateOrderManualCost } = useDashboard();
 
     // Identify Variants and Source column indices dynamically
     const variantsIndex = processedData.orders.headers.findIndex(h => h === 'Variants');
@@ -83,6 +86,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
                             data={displayRows}
                             onViewOrderDetails={handleViewOrderDetails}
                             onResyncOrder={handleResyncOrder}
+                            onUpdateCost={updateOrderManualCost}
                             mobileRowHeight={340}
                             autoHeight={false}
                         />

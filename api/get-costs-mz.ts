@@ -1,23 +1,24 @@
 // File: api/get-costs-mz.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { merchizeConfig } from './_lib/fulfillmentConfig.js';
-import type { CostData, Record } from './_lib/types.js';
+import type { CostData, Record, FulfillmentAccount } from './_lib/types.js';
 
 // --- START: Merchize Catalog Cache ---
 
 // Cache này sẽ lưu Map<VariantSKU, ProductName>
-let skuToNameMap: Map<string, string> | null = null;
-let lastCatalogFetch = 0;
+let skuToNameMaps: { [accountId: string]: Map<string, string> } = {};
+let lastCatalogFetches: { [accountId: string]: number } = {};
 const CATALOG_CACHE_TTL = 3600 * 1000; // Cache trong 1 giờ
 
 /**
  * Lấy toàn bộ catalog từ Merchize và tạo map tra cứu SKU -> Tên sản phẩm
  */
-async function fetchAndCacheMerchizeCatalog(): Promise<Map<string, string>> {
+async function fetchAndCacheMerchizeCatalog(account: FulfillmentAccount): Promise<Map<string, string>> {
     const now = Date.now();
+    const map = skuToNameMaps[account.id];
+    const lastFetch = lastCatalogFetches[account.id] || 0;
     // Nếu cache còn hạn, trả về cache
-    if (skuToNameMap && (now - lastCatalogFetch < CATALOG_CACHE_TTL)) {
-        return skuToNameMap;
+    if (map && (now - lastFetch < CATALOG_CACHE_TTL)) {
+        return map;
     }
 
     const newMap = new Map<string, string>();
@@ -26,11 +27,11 @@ async function fetchAndCacheMerchizeCatalog(): Promise<Map<string, string>> {
     
     try {
         while (true) {
-            const apiUrl = `${merchizeConfig.base_url}/product/catalog?limit=${limit}&page=${page}`;
+            const apiUrl = `${account.base_url}/product/catalog?limit=${limit}&page=${page}`;
             const response = await fetch(apiUrl, {
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${merchizeConfig.access_token}`,
+                    'Authorization': `Bearer ${account.api_token}`,
                     'Content-Type': 'application/json'
                 }
             });
@@ -70,12 +71,12 @@ async function fetchAndCacheMerchizeCatalog(): Promise<Map<string, string>> {
     } catch (e) {
         console.error("Exception during Merchize catalog fetch:", e);
         // Không cập nhật cache nếu lỗi, trả về cache cũ (nếu có)
-        return skuToNameMap || newMap; 
+        return skuToNameMaps[account.id] || newMap; 
     }
 
-    skuToNameMap = newMap;
-    lastCatalogFetch = now;
-    return skuToNameMap;
+    skuToNameMaps[account.id] = newMap;
+    lastCatalogFetches[account.id] = now;
+    return newMap;
 }
 
 // --- END: Merchize Catalog Cache ---
@@ -90,34 +91,38 @@ const chunkArray = <T>(array: T[], size: number): T[][] => {
     return result;
 };
 
-async function fetchMerchizeCosts(orderIds: string[]): Promise<CostData[]> {
-    if (!merchizeConfig.base_url || !merchizeConfig.access_token || orderIds.length === 0) {
-        console.log('Merchize config or orderIds missing. URL:', merchizeConfig.base_url, 'Has Token:', !!merchizeConfig.access_token, 'Order Count:', orderIds.length);
+async function fetchMerchizeCosts(orderIds: string[], account: FulfillmentAccount): Promise<CostData[]> {
+    if (!account.base_url || !account.api_token || orderIds.length === 0) {
         return [];
     }
 
-    // --- BẮT ĐẦU THAY ĐỔI ---
     // 1. Lấy map SKU -> Tên sản phẩm (từ cache hoặc API)
-    const catalogMap = await fetchAndCacheMerchizeCatalog();
-    // --- KẾT THÚC THAY ĐỔI ---
+    const catalogMap = await fetchAndCacheMerchizeCatalog(account);
 
     const allCosts: CostData[] = [];
-    const chunks = chunkArray(orderIds, merchizeConfig.batch_size);
+    // Reduce chunk size to 50 since we send 2 requests per order ID
+    const chunks = chunkArray(orderIds, 50);
 
     for (const chunk of chunks) {
         try {
+            const ordersPayload = chunk.flatMap(id => {
+                const cleanId = id.replace(/^#/, '').trim();
+                return [
+                    { code: "", external_number: cleanId, identifier: "" },
+                    { code: "", external_number: `#${cleanId}`, identifier: "" }
+                ];
+            });
             const requestBody = {
-                orders: chunk.map(id => ({ code:"", external_number: id.startsWith('#') ? id : `#${id}`, identifier: "" }))
+                orders: ordersPayload
             };
-            console.log('>>> [DEBUG] Merchize Request Body:', JSON.stringify(requestBody, null, 2));
             
-            const apiUrl = `${merchizeConfig.base_url}/order/external/orders/list-orders-detail`;
+            const apiUrl = `${account.base_url}/order/external/orders/list-orders-detail`;
             
             
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${merchizeConfig.access_token}`,
+                    'Authorization': `Bearer ${account.api_token}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(requestBody),
@@ -132,12 +137,11 @@ async function fetchMerchizeCosts(orderIds: string[]): Promise<CostData[]> {
 
             if (responseText) {
                 const data = JSON.parse(responseText);
-                console.log('>>> [DEBUG] Merchize Raw Data:', JSON.stringify(data, null, 2));
                 if (data.success && Array.isArray(data.data)) {
                     for (const orderData of data.data) {
                         const rawExternalNumber = orderData.external_number?.trim();
                         if (rawExternalNumber) {
-                            const externalNumber = rawExternalNumber.startsWith('#') ? rawExternalNumber.slice(1) : rawExternalNumber;
+                            const externalNumber = rawExternalNumber.replace(/^#/, '').trim();
 
                             // --- BẮT ĐẦU THAY ĐỔI: Lấy product_name ---
                             let product_name = 'N/A';
@@ -184,9 +188,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const { records } = req.body as { records: Record[] };
+        const { records, accounts } = req.body as { records: Record[], accounts: FulfillmentAccount[] };
         if (!records || !Array.isArray(records)) {
             return res.status(400).json({ message: 'Missing "records" array in request body.' });
+        }
+        
+        const merchizeAccounts = (accounts || []).filter(a => a.provider === 'merchize');
+        if (merchizeAccounts.length === 0) {
+            return res.status(200).json({});
         }
 
         const orderRecords = records.filter(r => r.kind === 'order' && r.order_id);
@@ -196,7 +205,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const orderIds = Array.from(new Set(orderRecords.map(r => r.order_id!)));
 
-        const merchizeData = await fetchMerchizeCosts(orderIds);
+        const merchizeDataArrays = await Promise.all(merchizeAccounts.map(acc => fetchMerchizeCosts(orderIds, acc)));
+        const merchizeData = merchizeDataArrays.flat();
 
         // --- CẬP NHẬT LOGIC MERGE ---
         const costMap: { [key: string]: CostData } = {};

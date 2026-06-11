@@ -14,6 +14,14 @@ export interface Account {
   lastKnownHistoryId?: string; // ID cuối cùng mà webhook đã xử lý
 }
 
+export interface FulfillmentAccount {
+  id: string;
+  provider: 'printway' | 'merchize';
+  name: string;
+  base_url: string;
+  api_token: string;
+}
+
 export interface OrderItem {
   name: string;
   variant?: string; // Material & Size, etc.

@@ -366,7 +366,13 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
                 productName = itemNames;
             }
             // Join variants
-            const itemVariants = o.details.items.map(i => decodeHTMLEntities(i.variant)).filter(v => v).join('; ');
+            const itemVariants = o.details.items.map(i => {
+                let v = decodeHTMLEntities(i.variant);
+                if (i.variant2) {
+                    v += (v ? ' | ' : '') + decodeHTMLEntities(i.variant2);
+                }
+                return v;
+            }).filter(v => v).join('; ');
             if (itemVariants) {
                 variants = itemVariants;
             }
@@ -392,10 +398,10 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
             o.order_id || 'N/A',
             o.amount,
             o.currency || 'USD',
-            o.cost_total ?? null,
+            { type: 'editable_cost', value: o.cost_total ?? null, recordId: o.id!, isManual: !!o.is_manual_cost },
             o.ff_code || '-',
-            o.order_id && caseMap.has(o.order_id) ? caseMap.get(o.order_id) : 'No',
-            o.order_id && helpMap.has(o.order_id) ? helpMap.get(o.order_id) : 'No',
+            o.order_id && caseMap.has(o.order_id) ? 'Yes' : 'No',
+            o.order_id && helpMap.has(o.order_id) ? 'Yes' : 'No',
             accountLabelMap.get(o.account) || o.account,
             formatDateTime(o.dt_local, timeZone),
             displaySource,
@@ -523,7 +529,7 @@ const getFulfillRecords = (
             r.product_name || '-',
             provider,
             ffCode,
-            r.cost_total ?? null,
+            { type: 'editable_cost', value: r.cost_total ?? null, recordId: r.id!, isManual: !!r.is_manual_cost },
             accountLabelMap.get(r.account) || r.account,
         ];
     });

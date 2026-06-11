@@ -14,6 +14,7 @@ import {
     getRecordsForDateRange,
     getAccountsFromFirebase,
     getManualCosts,
+    getSettings,
     db
 } from '../services/firebaseService';
 import { splitDateRange } from '../utils/dateChunking';
@@ -188,7 +189,9 @@ export const useDataSync = ({
             if (ordersNeedingCost.length > 0) {
                 if (signal?.aborted) return [];
                 setSyncState(`Fetching costs for ${ordersNeedingCost.length} orders...`);
-                costMap = await fetchCostsForRecords(ordersNeedingCost);
+                const settings = await getSettings(teamId);
+                const fulfillmentAccounts = settings.fulfillmentAccounts || [];
+                costMap = await fetchCostsForRecords(ordersNeedingCost, fulfillmentAccounts);
             }
 
             if (signal?.aborted) return [];
@@ -231,11 +234,16 @@ export const useDataSync = ({
                 const accountsToUpdate = accountsForSync.filter(acc => currentAccountIds.has(acc.id));
 
                 if (accountsToUpdate.length > 0) {
-                    const updatedAccountsForFirebase = accountsToUpdate.map(acc => ({ ...acc, last_synced_at: syncStartTime }));
+                    const updatedAccountsForFirebase = accountsToUpdate.map(acc => ({ id: acc.id, last_synced_at: syncStartTime }));
                     await updateAccountsInFirebase(teamId, updatedAccountsForFirebase);
                     setAllAccounts(prevAccounts => {
-                        const updatedAccountsMap = new Map(updatedAccountsForFirebase.map(acc => [acc.id, acc]));
-                        return prevAccounts.map(acc => updatedAccountsMap.get(acc.id) || acc);
+                        const updatedAccountsMap = new Map(updatedAccountsForFirebase.map(acc => [acc.id, acc.last_synced_at]));
+                        return prevAccounts.map(acc => {
+                            if (updatedAccountsMap.has(acc.id)) {
+                                return { ...acc, last_synced_at: updatedAccountsMap.get(acc.id) as string };
+                            }
+                            return acc;
+                        });
                     });
                 }
             }
@@ -653,6 +661,31 @@ export const useDataSync = ({
         };
     }, [filterDateRange, user, timeZone, teamId]); // Only depend on actual data values, not functions
 
+    // --- Core Logic: Update Order Manual Cost ---
+    const updateOrderManualCost = useCallback(async (recordId: string, newCost: number | null) => {
+        try {
+            const isManual = newCost !== null;
+            const updatedData: Partial<Record> = isManual 
+                ? { cost_total: newCost, is_manual_cost: true }
+                : { cost_total: null, is_manual_cost: false, ff_code: '-', product_name: null }; // Reset fields when clearing
+
+            await updateRecordsInFirebase(teamId, [{ id: recordId, ...updatedData }]);
+            
+            // Update local state
+            setRecords(prevRecords => prevRecords.map(r => {
+                if (r.id === recordId) {
+                    return { ...r, ...updatedData } as Record;
+                }
+                return r;
+            }));
+            
+            addNotification(isManual ? `Đã lưu chi phí thủ công.` : `Đã xóa chi phí thủ công.`, "success");
+        } catch (error) {
+            console.error("Update manual cost error:", error);
+            addNotification("Lỗi khi lưu chi phí thủ công.", "error");
+        }
+    }, [teamId, addNotification]);
+
     // --- Core Logic: Manual Cost Resync ---
     const resyncCostsManual = useCallback(async () => {
         if (isSyncing) {
@@ -663,13 +696,16 @@ export const useDataSync = ({
         setSyncState('Fetching costs manually...');
         try {
             // Lấy TẤT CẢ order trong màn hình hiện tại (bỏ qua điều kiện !r.cost_total để ép cập nhật)
-            const ordersToSync = records.filter(r => r.kind === 'order' && r.order_id);
+            // NGOẠI TRỪ các order có is_manual_cost
+            const ordersToSync = records.filter(r => r.kind === 'order' && r.order_id && !r.is_manual_cost);
             if (ordersToSync.length === 0) {
                 addNotification("Không có đơn hàng nào cần fetch phí.", "info");
                 return;
             }
 
-            const costMap = await fetchCostsForRecords(ordersToSync);
+            const settings = await getSettings(teamId);
+            const fulfillmentAccounts = settings.fulfillmentAccounts || [];
+            const costMap = await fetchCostsForRecords(ordersToSync, fulfillmentAccounts);
             if (costMap.size === 0) {
                 addNotification("Không tra cứu được mức phí mới cho các đơn.", "info");
                 return;
@@ -817,6 +853,7 @@ export const useDataSync = ({
         runSync,
         runHistoricalSync,
         enqueueSyncTask,
-        resyncCostsManual
+        resyncCostsManual,
+        updateOrderManualCost
     };
 };

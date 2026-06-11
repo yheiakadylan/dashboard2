@@ -10,6 +10,7 @@ import UserManager from './UserManager';
 import ManualCostManager from './ManualCostManager';
 import NotificationSettings from './NotificationSettings';
 import Spinner from './Spinner';
+import FulfillmentConfigManager from './FulfillmentConfigManager';
 
 // --- MAIL MANAGER COMPONENT ---
 const MailManager: React.FC = () => {
@@ -467,7 +468,7 @@ const AccountManager: React.FC = () => {
   const canManageMail = role === 'owner' || permissions.canManageSettings;
   const defaultTab = canManageMail ? 'mail' : 'notifications';
 
-  const [activeTab, setActiveTab] = useState<'mail' | 'users' | 'costs' | 'notifications'>(defaultTab);
+  const [activeTab, setActiveTab] = useState<'mail' | 'users' | 'costs' | 'notifications' | 'fulfillment'>(defaultTab);
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // Chỉ đóng nếu click trực tiếp vào backdrop (không phải con của nó)
     if (e.target === e.currentTarget) {
@@ -523,6 +524,12 @@ const AccountManager: React.FC = () => {
               >
                 Manual Costs
               </button>
+              <button
+                onClick={() => setActiveTab('fulfillment')}
+                className={`flex-1 py-2 md:py-3 px-2 md:px-4 font-semibold text-center transition-colors whitespace-nowrap text-sm md:text-base ${activeTab === 'fulfillment' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+              >
+                API Config
+              </button>
             </>
           )}
         </div>
@@ -533,6 +540,7 @@ const AccountManager: React.FC = () => {
           {activeTab === 'users' && <UserManager />}
           {activeTab === 'costs' && <ManualCostManager />}
           {activeTab === 'notifications' && <NotificationSettings />}
+          {activeTab === 'fulfillment' && <FulfillmentConfigManager />}
         </div>
       </div>
     </div>

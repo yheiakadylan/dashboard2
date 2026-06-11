@@ -23,7 +23,13 @@ interface DashboardContextType {
   teamId: string;
   role: 'owner' | 'user';
   permissions: { [key: string]: boolean };
-  allowedAccounts?: string[]; // For shop-level access control
+  allowedAccounts?: string[];
+  // KPI fields from user profile
+  display_name?: string;
+  is_kpi?: boolean;
+  can_view_leaderboard?: boolean;
+  kpi_team?: string;
+  viewable_kpi_teams?: string[];
 
   // Data State (from useDataSync)
   accounts: Account[]; // Filtered accounts for data display
@@ -57,6 +63,7 @@ interface DashboardContextType {
   handleSyncClick: () => Promise<void>;
   handleResyncAccount: (account: Account) => Promise<void>;
   handleQuickSync: (account: Account) => Promise<void>;
+  updateOrderManualCost: (recordId: string, newCost: number | null) => Promise<void>;
   handleLogout: () => Promise<void>;
   handleExport: () => void;
   handleExportWithOptions: (includeImages: boolean) => void;
@@ -77,6 +84,11 @@ interface DashboardProviderProps {
   role: 'owner' | 'user';
   permissions: { [key: string]: boolean };
   allowedAccounts?: string[];
+  display_name?: string;
+  is_kpi?: boolean;
+  can_view_leaderboard?: boolean;
+  kpi_team?: string;
+  viewable_kpi_teams?: string[];
   // We pass auth logic from outside (App.tsx) or we could just use the hook here if we didn't need to conditionally render the provider.
   // Given App.tsx structure, we already have user/role there.
   onLogout: () => Promise<void>;
@@ -88,7 +100,9 @@ interface DashboardProviderProps {
 }
 
 export const DashboardProvider: React.FC<DashboardProviderProps> = ({
-  children, user, teamId, role, permissions, allowedAccounts, onLogout,
+  children, user, teamId, role, permissions, allowedAccounts,
+  display_name, is_kpi, can_view_leaderboard, kpi_team, viewable_kpi_teams,
+  onLogout,
   timeZone, filterDateRange, selectedAccountId, searchTerm
 }) => {
 
@@ -110,7 +124,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     accountSyncStatuses,
     runSync,
     runHistoricalSync,
-    enqueueSyncTask
+    enqueueSyncTask,
+    updateOrderManualCost
   } = useDataSync({
     user,
     teamId,
@@ -639,6 +654,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   return (
     <DashboardContext.Provider value={{
       user, teamId, role, permissions, allowedAccounts,
+      display_name, is_kpi, can_view_leaderboard, kpi_team, viewable_kpi_teams,
       accounts: visibleAccounts, // Filtered for data display
       allAccounts, // All accounts (unfiltered)
       managementAccounts, // For MailManager - respects canManageSettings
@@ -652,6 +668,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       handleSyncClick,
       handleResyncAccount,
       handleQuickSync,
+      updateOrderManualCost,
       handleLogout: onLogout,
       handleExport,
       handleExportWithOptions,
