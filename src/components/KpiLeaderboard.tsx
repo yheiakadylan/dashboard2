@@ -213,6 +213,7 @@ const KpiLeaderboard: React.FC<KpiLeaderboardProps> = ({ teamId, exportTrigger }
             sellerMap[normalizedName].current.mockup += r.mockup || 0;
             sellerMap[normalizedName].current.listing += r.listing || 0;
             sellerMap[normalizedName].current.fulfill += r.fulfill || 0;
+            sellerMap[normalizedName].current.revenue += r.revenue || 0;
         });
 
         // -- Step 3: Overlay previous-week reports --
@@ -225,6 +226,7 @@ const KpiLeaderboard: React.FC<KpiLeaderboardProps> = ({ teamId, exportTrigger }
             sellerMap[normalizedName].prev.mockup += r.mockup || 0;
             sellerMap[normalizedName].prev.listing += r.listing || 0;
             sellerMap[normalizedName].prev.fulfill += r.fulfill || 0;
+            sellerMap[normalizedName].prev.revenue += r.revenue || 0;
         });
 
         return Object.values(sellerMap);
@@ -256,16 +258,21 @@ const KpiLeaderboard: React.FC<KpiLeaderboardProps> = ({ teamId, exportTrigger }
 
             let currentRev = 0;
             let prevRev = 0;
-            for (const r of allRecords) {
-                if (r.kind !== 'order') continue;
-                if (accountFilter === 'NONE') continue;
-                if (accountFilter && !accountFilter.has(r.account)) continue;
-                const dateStr = r.dt_local.split('T')[0];
-                if (dateStr >= currentRange.start && dateStr <= currentRange.end) {
-                    currentRev += r.amount || 0;
-                } else if (dateStr >= prevRange.start && dateStr <= prevRange.end) {
-                    prevRev += r.amount || 0;
+            
+            if (accountFilter !== 'NONE') {
+                for (const r of allRecords) {
+                    if (r.kind !== 'order') continue;
+                    if (accountFilter && !accountFilter.has(r.account)) continue;
+                    const dateStr = r.dt_local.split('T')[0];
+                    if (dateStr >= currentRange.start && dateStr <= currentRange.end) {
+                        currentRev += r.amount || 0;
+                    } else if (dateStr >= prevRange.start && dateStr <= prevRange.end) {
+                        prevRev += r.amount || 0;
+                    }
                 }
+            } else {
+                currentRev = entry.current.revenue;
+                prevRev = entry.prev.revenue;
             }
 
             const e = { ...entry };

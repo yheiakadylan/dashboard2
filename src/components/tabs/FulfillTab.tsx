@@ -12,11 +12,13 @@ interface FulfillTabProps {
 }
 
 import useMediaQuery from '../../hooks/useMediaQuery';
+import { useDashboard } from '../../contexts/DashboardContext';
 
 // ... (other imports)
 
 const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
     const isDesktop = useMediaQuery('(min-width: 768px)');
+    const { updateOrderManualCost, updateOrderFfCode } = useDashboard();
 
     return (
         <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
@@ -67,6 +69,8 @@ const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
                                 headers={processedData.fulfill.table.headers}
                                 data={processedData.fulfill.table.rows}
                                 autoHeight={false}
+                                onUpdateCost={updateOrderManualCost}
+                                onUpdateFfCode={updateOrderFfCode}
                             />
                         </Suspense>
                     </div>

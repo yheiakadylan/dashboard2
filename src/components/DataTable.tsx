@@ -64,7 +64,7 @@ const useContainerSize = (ref: React.RefObject<HTMLDivElement>) => {
 
 // SortDirection type imported from utils now
 
-const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, onUpdateCost, autoHeight = false, mobileRowHeight, forceCardView = false, mobileBreakpoint = 768, columnWidths, scrollParentId }) => {
+const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, onUpdateCost, onUpdateFfCode, autoHeight = false, mobileRowHeight, forceCardView = false, mobileBreakpoint = 768, columnWidths, scrollParentId }) => {
     const [sortColumn, setSortColumn] = useState<number | null>(null);
     const [sortDirection, setSortDirection] = useState<SortDirection>(null);
     const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set());
@@ -184,6 +184,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         onViewDayDetails,
         onViewOrderDetails,
         onUpdateCost,
+        onUpdateFfCode,
         onResyncClick: handleResyncClick,
         onImageClick: setPreviewImage,
         isMobile,

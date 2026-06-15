@@ -4,6 +4,7 @@ import CachedImage from './CachedImage';
 import { ListChildComponentProps, RowData } from './types';
 import { HIDDEN_MOBILE_HEADERS } from '../../constants';
 import EditableCostCell from './EditableCostCell';
+import EditableFfCodeCell from './EditableFfCodeCell';
 
 // Helper to check if a header should be hidden on mobile (Only applied in Desktop View now)
 const isHiddenOnDesktopMobileView = (header: string) => HIDDEN_MOBILE_HEADERS.includes(header);
@@ -96,7 +97,7 @@ const renderTextContent = (cell: any) => {
 }
 
 const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) => {
-    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, onUpdateCost, columnWidths } = data;
+    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, onUpdateCost, onUpdateFfCode, columnWidths } = data;
     const row = items[index];
 
     return (
@@ -174,6 +175,17 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                                     recordId={cell.recordId} 
                                     isManual={cell.isManual} 
                                     onUpdateCost={onUpdateCost} 
+                                />
+                            </div>
+                        )
+                    }
+                    if (cell.type === 'editable_ffcode') {
+                        return (
+                            <div key={cellIndex} className={cellClass} style={customStyle}>
+                                <EditableFfCodeCell 
+                                    value={cell.value} 
+                                    recordId={cell.recordId} 
+                                    onUpdateFfCode={onUpdateFfCode} 
                                 />
                             </div>
                         )

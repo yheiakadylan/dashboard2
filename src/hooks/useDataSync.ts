@@ -679,10 +679,32 @@ export const useDataSync = ({
                 return r;
             }));
             
-            addNotification(isManual ? `Đã lưu chi phí thủ công.` : `Đã xóa chi phí thủ công.`, "success");
+            addNotification(isManual ? `Đã lưu manual cost.` : `Đã xóa manual cost.`, "success");
         } catch (error) {
             console.error("Update manual cost error:", error);
-            addNotification("Lỗi khi lưu chi phí thủ công.", "error");
+            addNotification("Lỗi khi lưu manual cost.", "error");
+        }
+    }, [teamId, addNotification]);
+
+    // --- Core Logic: Update Order FF Code ---
+    const updateOrderFfCode = useCallback(async (recordId: string, newFfCode: string) => {
+        try {
+            const updatedData: Partial<Record> = { ff_code: newFfCode };
+
+            await updateRecordsInFirebase(teamId, [{ id: recordId, ...updatedData }]);
+            
+            // Update local state
+            setRecords(prevRecords => prevRecords.map(r => {
+                if (r.id === recordId) {
+                    return { ...r, ...updatedData } as Record;
+                }
+                return r;
+            }));
+            
+            addNotification(`Đã cập nhật FF Code.`, "success");
+        } catch (error) {
+            console.error("Update FF Code error:", error);
+            addNotification("Lỗi khi cập nhật FF Code.", "error");
         }
     }, [teamId, addNotification]);
 
@@ -854,6 +876,7 @@ export const useDataSync = ({
         runHistoricalSync,
         enqueueSyncTask,
         resyncCostsManual,
-        updateOrderManualCost
+        updateOrderManualCost,
+        updateOrderFfCode
     };
 };

@@ -64,6 +64,7 @@ interface DashboardContextType {
   handleResyncAccount: (account: Account) => Promise<void>;
   handleQuickSync: (account: Account) => Promise<void>;
   updateOrderManualCost: (recordId: string, newCost: number | null) => Promise<void>;
+  updateOrderFfCode: (recordId: string, newFfCode: string) => Promise<void>;
   handleLogout: () => Promise<void>;
   handleExport: () => void;
   handleExportWithOptions: (includeImages: boolean) => void;
@@ -125,7 +126,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     runSync,
     runHistoricalSync,
     enqueueSyncTask,
-    updateOrderManualCost
+    updateOrderManualCost,
+    updateOrderFfCode
   } = useDataSync({
     user,
     teamId,
@@ -669,6 +671,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       handleResyncAccount,
       handleQuickSync,
       updateOrderManualCost,
+      updateOrderFfCode,
       handleLogout: onLogout,
       handleExport,
       handleExportWithOptions,

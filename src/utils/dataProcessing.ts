@@ -399,7 +399,7 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
             o.amount,
             o.currency || 'USD',
             { type: 'editable_cost', value: o.cost_total ?? null, recordId: o.id!, isManual: !!o.is_manual_cost },
-            o.ff_code || '-',
+            { type: 'editable_ffcode', value: o.ff_code || null, recordId: o.id! },
             o.order_id && caseMap.has(o.order_id) ? 'Yes' : 'No',
             o.order_id && helpMap.has(o.order_id) ? 'Yes' : 'No',
             accountLabelMap.get(o.account) || o.account,
@@ -528,7 +528,7 @@ const getFulfillRecords = (
             r.order_id || 'N/A',
             r.product_name || '-',
             provider,
-            ffCode,
+            { type: 'editable_ffcode', value: r.ff_code || null, recordId: r.id! },
             { type: 'editable_cost', value: r.cost_total ?? null, recordId: r.id!, isManual: !!r.is_manual_cost },
             accountLabelMap.get(r.account) || r.account,
         ];

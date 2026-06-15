@@ -33,7 +33,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [selectedRecords, setSelectedRecords] = useState<Record[]>([]);
     
-    const { updateOrderManualCost } = useDashboard();
+    const { updateOrderManualCost, updateOrderFfCode } = useDashboard();
 
     // Identify Variants and Source column indices dynamically
     const variantsIndex = processedData.orders.headers.findIndex(h => h === 'Variants');
@@ -87,6 +87,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
                             onViewOrderDetails={handleViewOrderDetails}
                             onResyncOrder={handleResyncOrder}
                             onUpdateCost={updateOrderManualCost}
+                            onUpdateFfCode={updateOrderFfCode}
                             mobileRowHeight={340}
                             autoHeight={false}
                         />

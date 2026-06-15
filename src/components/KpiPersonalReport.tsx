@@ -57,10 +57,12 @@ interface EditableNumberCellProps {
     baseData: Partial<KpiReport>;
     isEditable?: boolean;
     remainingText?: string;
+    isCurrency?: boolean;
+    textClassName?: string;
     onUpdate: (reportId: string, field: string, newValue: any) => void;
 }
 
-const EditableNumberCell: React.FC<EditableNumberCellProps> = ({ value, reportId, field, teamId, baseData, isEditable = true, remainingText, onUpdate }) => {
+const EditableNumberCell: React.FC<EditableNumberCellProps> = ({ value, reportId, field, teamId, baseData, isEditable = true, remainingText, isCurrency = false, textClassName = '', onUpdate }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editValue, setEditValue] = useState(String(value));
     const [isSaving, setIsSaving] = useState(false);
@@ -102,18 +104,20 @@ const EditableNumberCell: React.FC<EditableNumberCellProps> = ({ value, reportId
         );
     }
 
+    const displayValue = isCurrency && value > 0 ? `$${value.toFixed(2)}` : (value === 0 && isCurrency ? '0' : value);
+
     return (
-        <div className="flex flex-col items-center justify-center gap-0.5">
+        <div className="flex flex-col gap-0.5 w-full h-full">
             <div
-                className={`flex items-center justify-center rounded-md border border-transparent w-full min-w-[4rem] max-w-[6rem] mx-auto h-7 relative ${isEditable ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 group' : ''}`}
+                className={`flex items-center rounded-md border border-transparent w-full h-7 relative px-1 ${isEditable ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 group' : ''}`}
                 onClick={() => { if(isEditable) { setEditValue(String(value)); setIsEditing(true); } }}
                 title={isEditable ? "Click để chỉnh sửa" : ""}
             >
-                <span className={`text-sm ${value === 0 ? 'text-gray-400 dark:text-gray-600' : ''}`}>{value}</span>
+                <span className={`w-full ${textClassName} ${value === 0 ? 'text-gray-400 dark:text-gray-600' : ''}`}>{displayValue}</span>
                 {isEditable && <PencilIcon className="absolute top-1 right-1 h-3 w-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
             </div>
             {remainingText && !isEditing && (
-                <div className="text-[10px] text-gray-500 font-normal leading-tight whitespace-nowrap">{remainingText}</div>
+                <div className="text-[10px] text-gray-500 font-normal leading-tight whitespace-nowrap text-center">{remainingText}</div>
             )}
         </div>
     );
@@ -361,6 +365,7 @@ interface ReportRow {
     uEmail: string;
     report: KpiReport;   // existing or placeholder
     isPlaceholder: boolean;
+    hasShops?: boolean;
 }
 
 // ---- Main Component ----
@@ -578,10 +583,21 @@ const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTri
     // Enrich rows with live revenue
     const enrichedRows = useMemo(() => rows.map(row => {
         const liveKey = `${row.dateStr}_${normalizeName(row.displayName)}`;
-        const live = revenueByUserDate[liveKey] || { revenue: 0, baseCost: 0 };
-        const grossProfit = live.revenue - live.baseCost;
-        const profitMargin = live.revenue > 0 ? (grossProfit / live.revenue) * 100 : 0;
-        return { ...row, report: { ...row.report, revenue: live.revenue, baseCost: live.baseCost, grossProfit, profitMargin } };
+        const accs = row.kpiUser.allowedAccounts;
+        const hasShops = accs && accs.length > 0;
+        
+        let finalRevenue = row.report.revenue || 0;
+        let finalBaseCost = row.report.baseCost || 0;
+        
+        if (hasShops) {
+            const live = revenueByUserDate[liveKey] || { revenue: 0, baseCost: 0 };
+            finalRevenue = live.revenue;
+            finalBaseCost = live.baseCost;
+        }
+
+        const grossProfit = finalRevenue - finalBaseCost;
+        const profitMargin = finalRevenue > 0 ? (grossProfit / finalRevenue) * 100 : 0;
+        return { ...row, report: { ...row.report, revenue: finalRevenue, baseCost: finalBaseCost, grossProfit, profitMargin }, hasShops };
     }), [rows, revenueByUserDate]);
 
     // Summary By Team
@@ -802,24 +818,32 @@ const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTri
                                                                 </div>
                                                             </td>
                                                             {/* Editable: Mockup, Listing, Fulfill */}
-                                                            <td className="p-2 text-center bg-yellow-50/40 dark:bg-yellow-900/10 border-r border-gray-100 dark:border-gray-800">
-                                                                <EditableNumberCell isEditable={isRowEditable} value={r.mockup} reportId={docId} field="mockup" teamId={teamId} baseData={isPlaceholder ? baseData : undefined} onUpdate={handleFieldUpdate} remainingText={getRemainingText('mockup')} />
+                                                            <td className={`p-2 text-center bg-yellow-50/40 dark:bg-yellow-900/10 border-r border-gray-100 dark:border-gray-800`}>
+                                                                <EditableNumberCell isEditable={isRowEditable} value={r.mockup} reportId={docId} field="mockup" teamId={teamId} baseData={isPlaceholder ? baseData : undefined} onUpdate={handleFieldUpdate} remainingText={getRemainingText('mockup')} textClassName="text-sm text-center" />
                                                             </td>
-                                                            <td className="p-2 text-center bg-yellow-50/40 dark:bg-yellow-900/10 border-r border-gray-100 dark:border-gray-800">
-                                                                <EditableNumberCell isEditable={isRowEditable} value={r.listing} reportId={docId} field="listing" teamId={teamId} baseData={isPlaceholder ? baseData : undefined} onUpdate={handleFieldUpdate} remainingText={getRemainingText('listing')} />
+                                                            <td className={`p-2 text-center bg-yellow-50/40 dark:bg-yellow-900/10 border-r border-gray-100 dark:border-gray-800`}>
+                                                                <EditableNumberCell isEditable={isRowEditable} value={r.listing} reportId={docId} field="listing" teamId={teamId} baseData={isPlaceholder ? baseData : undefined} onUpdate={handleFieldUpdate} remainingText={getRemainingText('listing')} textClassName="text-sm text-center" />
                                                             </td>
-                                                            <td className="p-2 text-center bg-yellow-50/40 dark:bg-yellow-900/10 border-r border-gray-100 dark:border-gray-800">
-                                                                <EditableNumberCell isEditable={isRowEditable} value={r.fulfill} reportId={docId} field="fulfill" teamId={teamId} baseData={isPlaceholder ? baseData : undefined} onUpdate={handleFieldUpdate} remainingText={getRemainingText('fulfill')} />
+                                                            <td className={`p-2 text-center bg-yellow-50/40 dark:bg-yellow-900/10 border-r border-gray-100 dark:border-gray-800`}>
+                                                                <EditableNumberCell isEditable={isRowEditable} value={r.fulfill} reportId={docId} field="fulfill" teamId={teamId} baseData={isPlaceholder ? baseData : undefined} onUpdate={handleFieldUpdate} remainingText={getRemainingText('fulfill')} textClassName="text-sm text-center" />
                                                             </td>
-                                                            {/* Auto-calc (read-only) */}
-                                                            <td className="p-3 text-right whitespace-nowrap bg-blue-50/40 dark:bg-blue-900/10 border-r border-gray-100 dark:border-gray-800">
-                                                                {r.revenue > 0 ? <span className="font-medium">${r.revenue.toFixed(2)}</span> : <span className="text-gray-400 dark:text-gray-600">--</span>}
+                                                            {/* Revenue & BaseCost (Editable if !hasShops) */}
+                                                            <td className={`p-2 align-middle bg-blue-50/40 dark:bg-blue-900/10 border-r border-gray-100 dark:border-gray-800 text-right`}>
+                                                                {row.hasShops ? (
+                                                                    r.revenue > 0 ? <span className="font-medium mr-1">${r.revenue.toFixed(2)}</span> : <span className="text-gray-400 dark:text-gray-600 mr-1">--</span>
+                                                                ) : (
+                                                                    <EditableNumberCell isEditable={isRowEditable} value={r.revenue} reportId={docId} field="revenue" teamId={teamId} baseData={isPlaceholder ? baseData : undefined} onUpdate={handleFieldUpdate} isCurrency={true} textClassName="font-medium text-right pr-1 block" />
+                                                                )}
                                                             </td>
-                                                            <td className="p-3 text-right whitespace-nowrap text-orange-600 dark:text-orange-400 bg-blue-50/40 dark:bg-blue-900/10 border-r border-gray-100 dark:border-gray-800">
-                                                                {r.baseCost > 0 ? `$${r.baseCost.toFixed(2)}` : <span className="text-gray-400 dark:text-gray-600">--</span>}
+                                                            <td className={`p-2 align-middle text-orange-600 dark:text-orange-400 bg-blue-50/40 dark:bg-blue-900/10 border-r border-gray-100 dark:border-gray-800 text-right`}>
+                                                                {row.hasShops ? (
+                                                                    r.baseCost > 0 ? <span className="mr-1">${r.baseCost.toFixed(2)}</span> : <span className="text-gray-400 dark:text-gray-600 mr-1">--</span>
+                                                                ) : (
+                                                                    <EditableNumberCell isEditable={isRowEditable} value={r.baseCost} reportId={docId} field="baseCost" teamId={teamId} baseData={isPlaceholder ? baseData : undefined} onUpdate={handleFieldUpdate} isCurrency={true} textClassName="text-right pr-1 block" />
+                                                                )}
                                                             </td>
                                                             <td className={`p-3 text-right font-medium whitespace-nowrap bg-blue-50/40 dark:bg-blue-900/10 border-r border-gray-100 dark:border-gray-800 ${r.grossProfit > 0 ? 'text-green-600 dark:text-green-400' : r.grossProfit < 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
-                                                                {r.revenue > 0 ? `$${r.grossProfit.toFixed(2)}` : <span className="text-gray-400 dark:text-gray-600">--</span>}
+                                                                {(r.revenue > 0 || r.baseCost > 0) ? `$${r.grossProfit.toFixed(2)}` : <span className="text-gray-400 dark:text-gray-600">--</span>}
                                                             </td>
                                                             <td className="p-3 text-right text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap bg-blue-50/40 dark:bg-blue-900/10 border-r border-gray-100 dark:border-gray-800">
                                                                 {r.revenue > 0 ? `${r.profitMargin.toFixed(1)}%` : <span className="text-gray-400 dark:text-gray-600">--</span>}
