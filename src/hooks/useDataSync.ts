@@ -708,6 +708,28 @@ export const useDataSync = ({
         }
     }, [teamId, addNotification]);
 
+    // --- Core Logic: Update Order Provider ---
+    const updateOrderProvider = useCallback(async (recordId: string, newProvider: string) => {
+        try {
+            const updatedData: Partial<Record> = { provider: newProvider };
+
+            await updateRecordsInFirebase(teamId, [{ id: recordId, ...updatedData }]);
+            
+            // Update local state
+            setRecords(prevRecords => prevRecords.map(r => {
+                if (r.id === recordId) {
+                    return { ...r, ...updatedData } as Record;
+                }
+                return r;
+            }));
+            
+            addNotification(`Đã cập nhật Provider.`, "success");
+        } catch (error) {
+            console.error("Update Provider error:", error);
+            addNotification("Lỗi khi cập nhật Provider.", "error");
+        }
+    }, [teamId, addNotification]);
+
     // --- Core Logic: Manual Cost Resync ---
     const resyncCostsManual = useCallback(async () => {
         if (isSyncing) {
@@ -877,6 +899,7 @@ export const useDataSync = ({
         enqueueSyncTask,
         resyncCostsManual,
         updateOrderManualCost,
-        updateOrderFfCode
+        updateOrderFfCode,
+        updateOrderProvider
     };
 };

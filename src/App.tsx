@@ -280,7 +280,7 @@ const DashboardLayout: React.FC = () => {
                 <TabSettings />
             )}
             {selectedOrder && (
-                <OrderDetailModal record={selectedOrder} onClose={closeOrderDetail} />
+                <OrderDetailModal record={selectedOrder} onClose={closeOrderDetail} onResyncOrder={handleResyncOrder} />
             )}
             <BottomNav tabs={visibleTabs} />
             <InstallPrompt />

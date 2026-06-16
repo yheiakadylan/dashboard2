@@ -29,6 +29,7 @@ const Header: React.FC = () => {
     teamId, // For NotificationCenter Firestore sync
     allowedAccounts, // For notification filtering by shop
     performGlobalSearch, // Global Search Function
+    clearGlobalSearch, // Restore Search Function
   } = useDashboard();
 
   const {
@@ -87,12 +88,13 @@ const Header: React.FC = () => {
       if (e.key === 'Escape' && isSearchExpanded) {
         setIsSearchExpanded(false);
         setSearchTerm('');
+        clearGlobalSearch();
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isSearchExpanded, isSyncing, handleSyncClick, setSearchTerm]);
+  }, [isSearchExpanded, isSyncing, handleSyncClick, setSearchTerm, clearGlobalSearch]);
 
   // --- HÀM LÀM SẠCH THÔNG BÁO ---
   const formatSyncState = (rawState: string) => {
@@ -113,7 +115,8 @@ const Header: React.FC = () => {
   const handleSearchClear = useCallback(() => {
     setSearchTerm('');
     setIsSearchExpanded(false);
-  }, [setSearchTerm]);
+    clearGlobalSearch();
+  }, [setSearchTerm, clearGlobalSearch]);
 
   const handleMobileMenuToggle = useCallback(() => {
     toggleMobileMenu();
@@ -197,7 +200,12 @@ const Header: React.FC = () => {
                   ref={searchInputRef}
                   type="text"
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    if (e.target.value === '') {
+                      clearGlobalSearch();
+                    }
+                  }}
                   placeholder="Search..."
                   className="w-full pl-10 pr-8 py-1.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
                   onBlur={() => {
@@ -233,7 +241,7 @@ const Header: React.FC = () => {
                   onClick={() => setSourceFilter(src)}
                   className={`px-3 py-1.5 text-xs font-semibold rounded-sm transition-all duration-200 ${sourceFilter === src
                     ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                    : 'text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                     }`}
                 >
                   {src === 'All' ? 'All' : src === 'Ebay_Sales' ? 'eBay' : 'Etsy'}
@@ -251,7 +259,7 @@ const Header: React.FC = () => {
                   onClick={() => setSupportFilter(filter)}
                   className={`px-3 py-1.5 text-xs font-semibold rounded-sm transition-all duration-200 ${supportFilter === filter
                     ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                    : 'text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                     }`}
                 >
                   {filter}
@@ -378,7 +386,12 @@ const Header: React.FC = () => {
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                if (e.target.value === '') {
+                  clearGlobalSearch();
+                }
+              }}
               placeholder="Search Orders, Customers..."
               className="w-full pl-10 pr-3 py-2.5 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg text-base focus:ring-2 focus:ring-blue-500 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 transition-colors"
               onKeyDown={(e) => {

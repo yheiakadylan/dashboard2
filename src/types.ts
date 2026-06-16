@@ -59,13 +59,14 @@ export interface OrderDetails {
 }
 
 export interface RefundDetails {
-  refundAmount: number;
-  refundCurrency: string;
-  deductedFromShop: number;
-  deductedCurrency: string;
-  refundedFee: number;
-  feeCurrency: string;
-  reason: string;
+  refundAmount?: number;
+  refundCurrency?: string;
+  deductedFromShop?: number;
+  deductedCurrency?: string;
+  refundedFee?: number;
+  feeCurrency?: string;
+  reason?: string;
+  total_refund_amount?: number;
 }
 
 export interface Record {
@@ -87,6 +88,7 @@ export interface Record {
   is_manual_cost?: boolean; // Flag to indicate if cost was manually entered
   status?: string;
   refund_details?: RefundDetails;
+  provider?: string;
 }
 
 export interface CostData {
@@ -102,6 +104,7 @@ export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%
   direction?: 'up' | 'down' | 'neutral';
+  refundInfo?: string;
 }
 
 export interface KpiData {
@@ -111,7 +114,7 @@ export interface KpiData {
 // FIX: Allowed null in TableData rows to support records with missing cost data.
 export interface TableData {
   headers: string[];
-  rows: (string | number | null | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string } | { type: 'action_group', actions: any[] } | { type: 'editable_cost', value: number | null, recordId: string, isManual: boolean })[][];
+  rows: (string | number | boolean | null | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string } | { type: 'action_group', actions: any[] } | { type: 'editable_cost', value: number | null, recordId: string, isManual: boolean } | { type: 'editable_ffcode', value: string | null, recordId: string } | { type: 'editable_provider', value: string | null, recordId: string } | { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string })[][];
 }
 
 export interface OverviewChartData {
@@ -151,6 +154,8 @@ export interface ProcessedData {
     table: TableData;
     merchizeChartData: FulfillChartData[];
     printwayChartData: FulfillChartData[];
+    allProductChartData?: FulfillChartData[];
+    totalCost?: number;
   };
   summary: {
     kpis: KpiData;

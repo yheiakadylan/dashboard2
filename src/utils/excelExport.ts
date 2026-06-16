@@ -154,6 +154,11 @@ const cleanCellData = (cell: any): string | number | null => {
         }
         if (cell.type === 'button') return decodeHTMLEntities(cell.label || '');
         if (cell.type === 'action_group') return '';
+        if (cell.type === 'text_with_subtitle') {
+            const mainText = decodeHTMLEntities(cell.main || '');
+            const subText = decodeHTMLEntities(cell.subtitle || '').replace(/[↩\s]/g, '');
+            return subText ? `${mainText} (Refund: ${subText})` : mainText;
+        }
         // Fallback for other objects
         return JSON.stringify(cell);
     }
@@ -300,10 +305,26 @@ const addTableToSheet = async (
     // 1. Fill Text Data First (Fast synchronous op)
     tableData.rows.forEach((row, rIndex) => {
         const currentRow = sheet.getRow(startRow + 1 + rIndex);
-        const cleanRow = row.map(cell => cleanCellData(cell));
+        
+        // We trim the row to the length of headers, so the hidden isRef boolean is excluded from output
+        const isRefunded = (sheet.name === 'Orders' || sheet.name === 'Ebay' || sheet.name === 'Etsy') && row[row.length - 1] === true;
+        const trimmedRow = row.slice(0, tableData.headers.length);
+        
+        const cleanRow = trimmedRow.map(cell => cleanCellData(cell));
         currentRow.values = cleanRow;
         currentRow.height = (includeImages && imageColIndex !== -1) ? 75 : 25;
         currentRow.alignment = { vertical: 'middle', horizontal: 'left' };
+
+        if (isRefunded) {
+            currentRow.eachCell((cell) => {
+                cell.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FFFFCCCC' } // Light Red highlight for refunds
+                };
+                cell.font = { color: { argb: 'FF990000' } };
+            });
+        }
     });
 
     // 2. Process Images in Batches (Parallel Fetch -> Sequential Add)

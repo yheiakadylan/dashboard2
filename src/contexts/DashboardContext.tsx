@@ -65,10 +65,12 @@ interface DashboardContextType {
   handleQuickSync: (account: Account) => Promise<void>;
   updateOrderManualCost: (recordId: string, newCost: number | null) => Promise<void>;
   updateOrderFfCode: (recordId: string, newFfCode: string) => Promise<void>;
+  updateOrderProvider: (recordId: string, newProvider: string) => Promise<void>;
   handleLogout: () => Promise<void>;
   handleExport: () => void;
   handleExportWithOptions: (includeImages: boolean) => void;
   performGlobalSearch: (term: string) => Promise<void>;
+  clearGlobalSearch: () => Promise<void>;
 
 
 
@@ -127,7 +129,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     runHistoricalSync,
     enqueueSyncTask,
     updateOrderManualCost,
-    updateOrderFfCode
+    updateOrderFfCode,
+    updateOrderProvider
   } = useDataSync({
     user,
     teamId,
@@ -652,6 +655,21 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }
   };
 
+  const clearGlobalSearch = async () => {
+    setIsProcessing(true);
+    setSyncState('Restoring data...');
+    try {
+      const { getRecordsForDateRange } = await import('../services/firebaseService');
+      const updatedDisplayRecords = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
+      setRecords(updatedDisplayRecords);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsProcessing(false);
+      setSyncState(null);
+    }
+  };
+
 
   return (
     <DashboardContext.Provider value={{
@@ -672,10 +690,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       handleQuickSync,
       updateOrderManualCost,
       updateOrderFfCode,
+      updateOrderProvider,
       handleLogout: onLogout,
       handleExport,
       handleExportWithOptions,
       performGlobalSearch,
+      clearGlobalSearch,
       processedData
 
 

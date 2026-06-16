@@ -18,7 +18,7 @@ import { useDashboard } from '../../contexts/DashboardContext';
 
 const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
     const isDesktop = useMediaQuery('(min-width: 768px)');
-    const { updateOrderManualCost, updateOrderFfCode } = useDashboard();
+    const { updateOrderManualCost, updateOrderFfCode, updateOrderProvider } = useDashboard();
 
     return (
         <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
@@ -60,10 +60,7 @@ const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
 
             <div className="px-2 md:px-6 pb-2">
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                    <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
-                        All Fulfillment Records
-                    </h3>
-                    <div style={{ height: 'calc(100vh - 140px)' }}>
+                    <div style={{ height: 'calc(100vh - 200px)' }}>
                         <Suspense fallback={<LoadingSpinner />}>
                             <DataTable
                                 headers={processedData.fulfill.table.headers}
@@ -71,6 +68,7 @@ const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
                                 autoHeight={false}
                                 onUpdateCost={updateOrderManualCost}
                                 onUpdateFfCode={updateOrderFfCode}
+                                onUpdateProvider={updateOrderProvider}
                             />
                         </Suspense>
                     </div>

@@ -4,6 +4,7 @@ import CachedImage from './CachedImage';
 import { ListChildComponentProps, RowData } from './types';
 import EditableCostCell from './EditableCostCell';
 import EditableFfCodeCell from './EditableFfCodeCell';
+import EditableProviderCell from './EditableProviderCell';
 
 const renderActionCell = (cell: any, _cellIndex: number, loadingItems: Set<string>, onResyncClick: (id: string) => void, onViewOrderDetails?: (id: string) => void, onViewDayDetails?: (date: string) => void, rowData?: any[], isMobile: boolean = false) => {
     if (cell === 'Click for detail' && onViewDayDetails && rowData) {
@@ -82,6 +83,18 @@ const renderTextContent = (cell: any) => {
         }
         return cell.display;
     }
+    if (cell && typeof cell === 'object' && cell.type === 'text_with_subtitle') {
+        return (
+            <span className="flex flex-col items-start leading-tight group">
+                <span>{cell.main}</span>
+                {cell.subtitle && (
+                    <span className={`text-[10px] mt-0.5 ${cell.subtitleClass || 'text-gray-500'}`}>
+                        {cell.subtitle}
+                    </span>
+                )}
+            </span>
+        );
+    }
     return typeof cell === 'number'
         ? (cell === 0
             ? <span className="text-gray-300 dark:text-gray-600">--</span>
@@ -89,11 +102,11 @@ const renderTextContent = (cell: any) => {
                 ? cell.toLocaleString('en-US')
                 : cell.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
         )
-        : (typeof cell === 'string' ? cell : '');
+        : (typeof cell === 'string' ? cell : cell);
 }
 
 const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) => {
-    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, onUpdateCost, onUpdateFfCode, isMobile } = data;
+    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, onUpdateCost, onUpdateFfCode, onUpdateProvider, isMobile } = data;
     const row = items[index];
 
     const findIdx = (name: string) => headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
@@ -142,11 +155,13 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
             .filter((item) => item !== null) as { h: string; val: any; i: number; isMoney?: boolean }[];
 
         const viewAction = actions?.actions?.find((a: any) => a.type === 'view');
-        const viewId = viewAction?.id;
+        const viewId = typeof row[row.length - 1] === 'string' ? row[row.length - 1] : (typeof row[row.length - 2] === 'string' ? row[row.length - 2] : null);
+
+        const isRefunded = row[row.length - 1] === true;
 
         return (
             <div style={{ ...style, willChange: 'transform' }} className="px-4 py-2">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 h-full flex flex-col justify-between">
+                <div className={`rounded-lg shadow-sm border-2 p-3 h-full flex flex-col gap-2 transition-colors ${isRefunded ? 'bg-red-50/80 dark:bg-red-900/10 border-red-300 dark:border-red-800' : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700'}`}>
                     <div className="flex gap-4 mb-3 items-start">
                         {imageCell?.src ? (
                             <CachedImage src={imageCell.src} alt={imageCell.alt} onClick={() => imageCell.fullSrc && onImageClick(imageCell.fullSrc)} className="w-[85px] h-[85px] min-w-[85px] flex-shrink-0 object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
@@ -156,7 +171,15 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         <div className="flex-grow min-w-0">
                             <div className="pb-1">
                                 {orderIdIndex !== -1 && (
-                                    <span className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Order #{orderIdValue}</span>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider flex items-center gap-2">
+                                        <span>Order #{typeof orderIdValue === 'object' && orderIdValue !== null && 'main' in orderIdValue ? (orderIdValue as any).main : String(orderIdValue)}</span>
+                                        {isRefunded && (!orderIdValue || typeof orderIdValue !== 'object' || !('type' in orderIdValue)) && (
+                                            <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded">
+                                                <span>↩</span>
+                                                <span>Refunded</span>
+                                            </span>
+                                        )}
+                                    </span>
                                 )}
                                 <h4
                                     className={`text-base font-bold text-gray-900 dark:text-white leading-tight mt-0.5 truncate ${viewId ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400' : ''}`}
@@ -174,7 +197,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     <div className={`grid ${orderIdIndex === -1 ? 'grid-cols-3 gap-2' : 'grid-cols-2 gap-x-4 gap-y-2'} mb-3 flex-grow content-start border-t border-gray-100 dark:border-gray-700 pt-3`}>
                         {bodyItems.map((item) => {
                             const isMoney = item.isMoney || (typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Cost') || item.h.includes('Amount')));
-                            const valueClass = isMoney ? 'text-gray-900 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300';
+                            const valueClass = isMoney ? `text-gray-900 dark:text-white font-bold ${isRefunded ? 'text-gray-400 dark:text-gray-500' : ''}` : 'text-gray-700 dark:text-gray-300';
                             
                             const renderValue = () => {
                                 if (item.val && typeof item.val === 'object') {
@@ -197,6 +220,17 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                                                     value={item.val.value} 
                                                     recordId={item.val.recordId} 
                                                     onUpdateFfCode={onUpdateFfCode} 
+                                                />
+                                            </div>
+                                        );
+                                    }
+                                    if (item.val.type === 'editable_provider') {
+                                        return (
+                                            <div className="h-6">
+                                                <EditableProviderCell 
+                                                    value={item.val.value} 
+                                                    recordId={item.val.recordId} 
+                                                    onUpdateProvider={onUpdateProvider} 
                                                 />
                                             </div>
                                         );
@@ -280,6 +314,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         // GENERIC LAYOUT (for Overview, Summary, etc.)
         const titleHeader = headers[0];
         const titleValue = row[0];
+        const isRefunded = row[row.length - 1] === true;
 
         const bodyItems = headers.map((h, i) => {
             if (i === 0 || i === actionIndex || h === 'DateTime') return null;
@@ -292,7 +327,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
         return (
 
             <div style={{ ...style, willChange: 'transform' }} className="px-2 py-1.5 has-mobile-card">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 h-full flex flex-col justify-between">
+                <div className={`rounded-lg shadow-sm border p-3 h-full flex flex-col justify-between transition-colors ${isRefunded ? 'bg-red-50/80 dark:bg-red-900/10 border-red-400 dark:border-red-700' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'}`}>
                     <div className="flex justify-between items-start mb-2 border-b border-gray-100 dark:border-gray-700 pb-2">
                         <div className="w-full">
                             <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">{titleHeader}</span>
@@ -305,7 +340,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                         {bodyItems.map((item) => {
                             if (item.val === 'Click for detail') return null;
                             const isMoney = typeof item.val === 'number' && (item.h.includes('Revenue') || item.h.includes('Funds') || item.h.includes('Cost'));
-                            const valueClass = isMoney ? 'text-gray-900 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300 font-medium';
+                            const valueClass = isMoney ? `text-gray-900 dark:text-white font-bold ${isRefunded ? 'text-gray-400 dark:text-gray-500' : ''}` : 'text-gray-700 dark:text-gray-300 font-medium';
                             return (
                                 <div key={item.i} className="flex flex-col min-w-0">
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate" title={item.h}>{item.h}</span>

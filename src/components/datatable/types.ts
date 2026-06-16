@@ -17,6 +17,7 @@ export interface RowData {
     onViewOrderDetails?: (recordId: string) => void;
     onUpdateCost?: (recordId: string, newCost: number | null) => Promise<void>;
     onUpdateFfCode?: (recordId: string, newFfCode: string) => Promise<void>;
+    onUpdateProvider?: (recordId: string, newProvider: string) => Promise<void>;
     onResyncClick: (id: string) => void;
     onImageClick: (src: string) => void;
     isMobile: boolean;
@@ -30,6 +31,7 @@ export interface DataTableProps {
     onViewOrderDetails?: (recordId: string) => void;
     onUpdateCost?: (recordId: string, newCost: number | null) => Promise<void>;
     onUpdateFfCode?: (recordId: string, newFfCode: string) => Promise<void>;
+    onUpdateProvider?: (recordId: string, newProvider: string) => Promise<void>;
     onResyncOrder?: (recordId: string) => Promise<void>;
     autoHeight?: boolean;
     mobileRowHeight?: number;

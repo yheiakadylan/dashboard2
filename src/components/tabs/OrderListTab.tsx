@@ -32,8 +32,9 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     const [showOrderSelector, setShowOrderSelector] = useState(false);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [selectedRecords, setSelectedRecords] = useState<Record[]>([]);
+    const [statusFilter, setStatusFilter] = useState<'All' | 'New' | 'Refunded'>('All');
     
-    const { updateOrderManualCost, updateOrderFfCode } = useDashboard();
+    const { updateOrderManualCost, updateOrderFfCode, updateOrderProvider } = useDashboard();
 
     // Identify Variants and Source column indices dynamically
     const variantsIndex = processedData.orders.headers.findIndex(h => h === 'Variants');
@@ -62,12 +63,21 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
             });
         }
 
+        if (statusFilter !== 'All') {
+            rows = rows.filter(row => {
+                const isRefunded = row[ORDER_LIST_INDICES.IS_REFUNDED] as unknown as boolean;
+                if (statusFilter === 'Refunded') return isRefunded;
+                if (statusFilter === 'New') return !isRefunded;
+                return true;
+            });
+        }
+
         if (variantsIndex !== -1 || sourceIndex !== -1) {
             rows = rows.map(row => row.filter((_, i) => i !== variantsIndex && i !== sourceIndex));
         }
 
         return rows;
-    }, [processedData.orders.rows, dayFilter, sourceFilter, timeZone, variantsIndex, sourceIndex]);
+    }, [processedData.orders.rows, dayFilter, sourceFilter, statusFilter, timeZone, variantsIndex, sourceIndex]);
 
     const handleOrderSelection = (selectedIds: Set<string>) => {
         const records = allRecords.filter(r => r.id && selectedIds.has(r.id));
@@ -79,7 +89,24 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     return (
         <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] relative">
             <div className="p-2 md:p-6">
-                <div style={{ height: 'calc(100vh - 120px)' }}>
+                <div className="flex gap-2 mb-4">
+                    {(['All', 'New', 'Refunded'] as const).map((status) => (
+                        <button
+                            key={status}
+                            onClick={() => setStatusFilter(status)}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                statusFilter === status
+                                    ? (status === 'Refunded' 
+                                        ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 ring-2 ring-red-500/50' 
+                                        : 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 ring-2 ring-blue-500/50')
+                                    : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+                            }`}
+                        >
+                            {status}
+                        </button>
+                    ))}
+                </div>
+                <div style={{ height: 'calc(100vh - 170px)' }}>
                     <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
                         <DataTable
                             headers={displayHeaders}
@@ -88,6 +115,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
                             onResyncOrder={handleResyncOrder}
                             onUpdateCost={updateOrderManualCost}
                             onUpdateFfCode={updateOrderFfCode}
+                            onUpdateProvider={updateOrderProvider}
                             mobileRowHeight={340}
                             autoHeight={false}
                         />

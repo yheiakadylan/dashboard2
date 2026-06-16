@@ -96,6 +96,11 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value }) => {
           <div>
             <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white truncate" title={value.value}>{value.value}</p>
             {renderComparison(value as KpiValue)}
+            {(value as KpiValue).refundInfo && (
+              <p className="text-xs text-red-600 dark:text-red-400 font-medium mt-0.5" title="Refunded amount">
+                ↩ {(value as KpiValue).refundInfo}
+              </p>
+            )}
           </div>
         ) : (
           <div className="mt-2 space-y-3">
@@ -106,6 +111,11 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value }) => {
                   <span className="text-lg font-bold text-gray-900 dark:text-white">{kpiVal.value}</span>
                 </div>
                 {renderComparison(kpiVal)}
+                {kpiVal.refundInfo && (
+                  <p className="text-[11px] text-red-600 dark:text-red-400 font-medium mt-0.5 text-right" title="Refunded amount">
+                    ↩ {kpiVal.refundInfo}
+                  </p>
+                )}
               </div>
             ))}
           </div>

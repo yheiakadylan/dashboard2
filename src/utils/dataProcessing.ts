@@ -11,6 +11,11 @@ const formatCurrency = (value: number): string => {
     }).format(value);
 };
 
+const isRefundedStatus = (r: Record): boolean => {
+    if (!r) return false;
+    return r.source === 'Etsy_Refunded' || r.status === 'Refunded';
+};
+
 const formatDate = (dateStr: string, timeZone: string): string => {
     try {
         const date = new Date(dateStr);
@@ -97,7 +102,44 @@ export const processData = (
         }
     });
 
-    const uniqueRecords = Array.from(uniqueRecordsMap.values());
+    const uniqueRecordsRaw = Array.from(uniqueRecordsMap.values());
+    
+    // --- Merge Refunded Status into Original Orders ---
+    const statusMap = new Map<string, { status: string, refund_details?: any, refund_dt?: string, refund_amount?: number }>();
+    
+    uniqueRecordsRaw.forEach(r => {
+        if (r.kind === 'order' && r.order_id && r.source === 'Etsy_Refunded') {
+            const existing = statusMap.get(r.order_id);
+            const amt = Math.abs(r.amount);
+            if (existing) {
+                existing.refund_amount = (existing.refund_amount || 0) + amt;
+                if (r.refund_details) existing.refund_details = r.refund_details; // Override or merge details
+            } else {
+                statusMap.set(r.order_id, { status: 'Refunded', refund_details: r.refund_details, refund_dt: r.dt_local, refund_amount: amt });
+            }
+        }
+    });
+
+    const uniqueRecords = uniqueRecordsRaw.filter(r => {
+        if (r.kind === 'order' && r.order_id) {
+            if (r.source === 'Etsy_Refunded') return false; // Hide standalone refund records
+            
+            const refundInfo = statusMap.get(r.order_id);
+            if (refundInfo) {
+                // Merge info into the original order
+                r.status = refundInfo.status;
+                if (!r.refund_details && refundInfo.refund_details) {
+                    r.refund_details = refundInfo.refund_details;
+                }
+                // Also store the refund amount inside refund_details if it doesn't exist, or we can just attach it to the record
+                if (!r.refund_details) {
+                     r.refund_details = {};
+                }
+                r.refund_details.total_refund_amount = refundInfo.refund_amount;
+            }
+        }
+        return true;
+    });
     // ---------------------------
 
     const overviewData = calculateOverview(uniqueRecords, filterDateRange, timeZone, role, permissions);
@@ -335,7 +377,7 @@ const calculateOverview = (
 }
 
 const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Currency", "Cost", "FF Code", "Case", "Help", "Account", "DateTime", "Source", "Actions"];
+    const headers = ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Currency", "Cost", "Provider", "FF Code", "Case", "Help", "Account", "DateTime", "Source"];
     const orders = records.filter(r => r.kind === 'order');
     const cases = records.filter(r => r.kind === 'case');
     const helps = records.filter(r => r.kind === 'help');
@@ -346,13 +388,7 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
     const sortedOrders = [...orders].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
 
     const rows = sortedOrders.map(o => {
-        const actions = [];
-        if (o.details) {
-            actions.push({ type: 'view', label: 'View', id: o.id! });
-        }
-        if (o.email_id) {
-            actions.push({ type: 'resync', label: 'Resync', id: o.id! });
-        }
+
 
         // --- New logic to get product name and image ---
         let productName = o.product_name || 'N/A';
@@ -391,23 +427,31 @@ const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, t
         if (o.source === 'Etsy_Sales') displaySource = 'Etsy';
         else if (o.source === 'Ebay_Sales') displaySource = 'eBay';
 
+        let provider = o.provider || '-';
+        if (!o.provider && o.ff_code) {
+           if (o.ff_code.startsWith('PWN')) provider = 'Printway';
+           else if (o.ff_code !== '-' && o.ff_code !== 'owner') provider = 'Merchize';
+        }
+
         return [
-            { type: 'image', src: productImage, fullSrc: fullProductImage, alt: productName }, // New cell for image
+            { type: 'image' as const, src: productImage, fullSrc: fullProductImage, alt: productName }, // New cell for image
             productName, // New cell for product name
             variants, // New cell for variants
             o.order_id || 'N/A',
             o.amount,
             o.currency || 'USD',
-            { type: 'editable_cost', value: o.cost_total ?? null, recordId: o.id!, isManual: !!o.is_manual_cost },
-            { type: 'editable_ffcode', value: o.ff_code || null, recordId: o.id! },
+            { type: 'editable_cost' as const, value: o.cost_total ?? null, recordId: o.id!, isManual: !!o.is_manual_cost },
+            { type: 'editable_provider' as const, value: provider, recordId: o.id! }, // New cell for provider
+            { type: 'editable_ffcode' as const, value: o.ff_code || null, recordId: o.id! },
             o.order_id && caseMap.has(o.order_id) ? 'Yes' : 'No',
             o.order_id && helpMap.has(o.order_id) ? 'Yes' : 'No',
             accountLabelMap.get(o.account) || o.account,
             formatDateTime(o.dt_local, timeZone),
             displaySource,
-            { type: 'action_group', actions } as any,
-            o.dt_local, // Add raw ISO string for filtering, will not be displayed
-            o.source, // Add source string for filtering, will not be displayed
+            o.dt_local, // Add raw ISO string for filtering, will not be displayed (Index 14)
+            o.source, // Add source string for filtering, will not be displayed (Index 15)
+            o.id!, // Add record ID for click-to-view detail (Index 16)
+            isRefundedStatus(o) // Hidden boolean for refunded styling (Index 17)
         ];
     });
 
@@ -458,7 +502,8 @@ const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sale
             r.currency || 'USD',
             accountLabelMap.get(r.account) || r.account,
             formatDateTime(r.dt_local, timeZone),
-            { type: 'action_group', actions } as any
+            { type: 'action_group', actions } as any,
+            isRefundedStatus(r)
         ];
     });
 
@@ -491,61 +536,62 @@ const getFulfillRecords = (
     timeZone: string,
     manualCosts: any[],
     filterDateRange: { from: string, to: string }
-): { table: TableData; merchizeChartData: FulfillChartData[]; printwayChartData: FulfillChartData[] } => {
+): { table: TableData; merchizeChartData: FulfillChartData[]; printwayChartData: FulfillChartData[]; allProductChartData: FulfillChartData[]; totalCost: number; } => {
 
     const headers = ["Date", "Order Number", "Product Name", "Provider", "Fulfillment Code", "Cost (USD)", "Shop Account"];
+
+    let fulfillTotalCost = 0;
+    const fulfillStats = { totalCount: 0 };
 
     // 1. Xử lý Manual Costs (Chi phí nhập tay)
     const filteredManualCosts = manualCosts.filter(cost =>
         cost.date >= filterDateRange.from && cost.date <= filterDateRange.to
     );
 
-    const manualRows = filteredManualCosts.map(cost => [
-        cost.date,
-        "N/A (Manual)",
-        "N/A (Manual)",
-        cost.providerName,
-        "owner",
-        cost.cost,
-        "Manual Entry",
-    ]);
+    const manualRows = filteredManualCosts.map(cost => {
+        fulfillTotalCost += cost.cost;
+        fulfillStats.totalCount++;
+        return [
+            cost.date,
+            "N/A (Manual)",
+            "N/A (Manual)",
+            cost.providerName,
+            "owner",
+            cost.cost,
+            "Manual Entry"
+        ];
+    });
 
     // 2. Xử lý Email Records (Chi phí từ API/Email)
     const fulfillRecords = records.filter(r => r.kind === 'order' && (r.ff_code || r.cost_total || r.product_name));
 
-    const emailRows = fulfillRecords.map(r => {
-        const ffCode = r.ff_code || '-';
-        let provider = '-';
-
-        if (ffCode.startsWith('PWN')) {
-            provider = 'Printway';
-        } else if (ffCode !== '-' && ffCode !== 'owner') {
-            provider = 'Merchize';
-        }
-
-        return [
-            formatDate(r.dt_local, timeZone),
-            r.order_id || 'N/A',
-            r.product_name || '-',
-            provider,
-            { type: 'editable_ffcode', value: r.ff_code || null, recordId: r.id! },
-            { type: 'editable_cost', value: r.cost_total ?? null, recordId: r.id!, isManual: !!r.is_manual_cost },
-            accountLabelMap.get(r.account) || r.account,
-        ];
-    });
-
-    // 3. Calculate Chart Data
     const merchizeProductCounts = new Map<string, number>();
     const printwayProductCounts = new Map<string, number>();
+    const allProductCounts = new Map<string, number>();
 
-    emailRows.forEach(row => {
-        const productNameCell = row[2] as string; // Product Name is at index 2
-        const provider = row[3] as string; // Provider is at index 3
+    const emailRows = fulfillRecords.map(r => {
+        const ffCode = r.ff_code || '-';
+        let provider = r.provider || '-';
+        if (!r.provider && ffCode) {
+            if (ffCode.startsWith('PWN')) {
+                provider = 'Printway';
+            } else if (ffCode !== '-' && ffCode !== 'owner') {
+                provider = 'Merchize';
+            }
+        }
 
-        if (productNameCell && productNameCell !== '-' && productNameCell !== 'N/A (Manual)') {
-            const products = productNameCell.split(',').map(p => p.trim());
+        fulfillStats.totalCount++;
+        if (r.cost_total) fulfillTotalCost += r.cost_total;
+
+        const productNameStr = r.product_name || '-';
+
+        if (productNameStr && productNameStr !== '-') {
+            const products = productNameStr.split(',').map(p => p.trim());
             products.forEach(product => {
                 if (product) {
+                    allProductCounts.set(product, (allProductCounts.get(product) || 0) + 1);
+                    
+                    // Note: 'provider' could be an editable cell object or string, but we are in the map
                     if (provider === 'Merchize') {
                         merchizeProductCounts.set(product, (merchizeProductCounts.get(product) || 0) + 1);
                     } else if (provider === 'Printway') {
@@ -554,8 +600,19 @@ const getFulfillRecords = (
                 }
             });
         }
+
+        return [
+            formatDate(r.dt_local, timeZone),
+            r.order_id || 'N/A',
+            productNameStr,
+            { type: 'editable_provider' as const, value: provider, recordId: r.id! },
+            { type: 'editable_ffcode' as const, value: r.ff_code || null, recordId: r.id! },
+            { type: 'editable_cost' as const, value: r.cost_total ?? null, recordId: r.id!, isManual: !!r.is_manual_cost },
+            accountLabelMap.get(r.account) || r.account
+        ];
     });
 
+    // 3. Calculate Chart Data
     const processCounts = (counts: Map<string, number>): FulfillChartData[] => {
         const sorted = Array.from(counts.entries())
             .map(([name, count]) => ({ name, count }))
@@ -566,13 +623,20 @@ const getFulfillRecords = (
 
     const merchizeChartData = processCounts(merchizeProductCounts);
     const printwayChartData = processCounts(printwayProductCounts);
+    const allProductChartData = processCounts(allProductCounts);
 
     // 4. Kết hợp và Sắp xếp
     emailRows.sort((a, b) => new Date(b[0] as string).getTime() - new Date(a[0] as string).getTime());
 
     const rows = [...manualRows, ...emailRows];
 
-    return { table: { headers, rows }, merchizeChartData, printwayChartData };
+    return { 
+        table: { headers, rows }, 
+        merchizeChartData, 
+        printwayChartData, 
+        allProductChartData, 
+        totalCost: fulfillTotalCost, 
+    };
 }
 
 const calculateSummary = (
@@ -601,8 +665,10 @@ const calculateSummary = (
 
     type RawKpis = {
         orderIds: Set<string>;
+        refOrderIds: Set<string>;
         shops: Set<string>;
         revenueByCurrency: { [c: string]: number };
+        refundByCurrency: { [c: string]: number };
         fundsByCurrency: { [c: string]: number };
         costByCurrency: { [c: string]: number };
     };
@@ -610,8 +676,10 @@ const calculateSummary = (
     const getRawKpis = (recordsToProcess: Record[]): RawKpis => {
         const raw: RawKpis = {
             orderIds: new Set(),
+            refOrderIds: new Set(),
             shops: new Set(),
             revenueByCurrency: {},
+            refundByCurrency: {},
             fundsByCurrency: {},
             costByCurrency: {},
         };
@@ -619,7 +687,16 @@ const calculateSummary = (
             raw.shops.add(r.account);
             const currency = r.currency || 'USD';
             if (r.kind === 'order') {
-                if (r.order_id) raw.orderIds.add(r.order_id);
+                if (r.order_id) {
+                    raw.orderIds.add(r.order_id);
+                    if (isRefundedStatus(r)) {
+                        raw.refOrderIds.add(r.order_id);
+                        const refAmt = r.refund_details?.total_refund_amount || r.refund_details?.refundAmount || 0;
+                        if (refAmt > 0) {
+                            raw.refundByCurrency[currency] = (raw.refundByCurrency[currency] || 0) + refAmt;
+                        }
+                    }
+                }
                 if (r.amount > 0) {
                     raw.revenueByCurrency[currency] = (raw.revenueByCurrency[currency] || 0) + r.amount;
                 }
@@ -653,13 +730,15 @@ const calculateSummary = (
     kpis['Total Orders'] = {
         value: currentRawKpis.orderIds.size.toString(),
         ...ordersComparison,
+        refundInfo: currentRawKpis.refOrderIds.size > 0 ? `${currentRawKpis.refOrderIds.size} refunded` : undefined
     };
 
     kpis['Shops'] = { value: currentRawKpis.shops.size.toString() };
 
     const processFinancialKpi = (
         currentData: { [c: string]: number },
-        previousData: { [c: string]: number } | null
+        previousData: { [c: string]: number } | null,
+        refundData?: { [c: string]: number }
     ): { [currency: string]: KpiValue } | null => {
         const allCurrencies = new Set([...Object.keys(currentData), ...(previousData ? Object.keys(previousData) : [])]);
         if (allCurrencies.size === 0) return null;
@@ -668,16 +747,18 @@ const calculateSummary = (
         Array.from(allCurrencies).sort().forEach(c => {
             const current = currentData[c] || 0;
             const previous = previousData?.[c] || 0;
+            const refund = refundData?.[c] || 0;
             const comparison = previousRawKpis ? calculatePercentageChange(current, previous) : {};
             financialKpis[c] = {
                 value: formatCurrency(current),
                 ...comparison,
+                ...(refund > 0 ? { refundInfo: `${formatCurrency(refund)} refunded` } : {})
             };
         });
         return financialKpis;
     }
 
-    const revenueKpis = processFinancialKpi(currentRawKpis.revenueByCurrency, previousRawKpis?.revenueByCurrency || null);
+    const revenueKpis = processFinancialKpi(currentRawKpis.revenueByCurrency, previousRawKpis?.revenueByCurrency || null, currentRawKpis.refundByCurrency);
     kpis['Revenue'] = revenueKpis || { value: '---' };
 
     if (role === 'owner' || permissions.viewFunds) {
@@ -699,13 +780,15 @@ const calculateSummary = (
             orders: Set<string>,
             revenue: { [currency: string]: number },
             funds: { [currency: string]: number },
-            cost: { [currency: string]: number }
+            cost: { [currency: string]: number },
+            refund: { [currency: string]: number },
+            refOrderIds: Set<string>
         }
     } = {};
 
     // Initialize shopData for ALL accounts to ensure 0-order shops are listed
     accountLabelMap.forEach((_label, email) => {
-        shopData[email] = { revenue: {}, orders: new Set(), funds: {}, cost: {} };
+        shopData[email] = { revenue: {}, orders: new Set(), funds: {}, cost: {}, refund: {}, refOrderIds: new Set() };
     });
 
     const allTableCurrencies = { revenue: new Set<string>(), funds: new Set<string>(), cost: new Set<string>() };
@@ -717,7 +800,7 @@ const calculateSummary = (
         const shopLabel = accountLabelMap.get(r.account) || r.account;
 
         if (!shopData[r.account]) {
-            shopData[r.account] = { revenue: {}, orders: new Set(), funds: {}, cost: {} };
+            shopData[r.account] = { revenue: {}, orders: new Set(), funds: {}, cost: {}, refund: {}, refOrderIds: new Set() };
         }
 
         // Init Product Stats Map for Shop
@@ -728,6 +811,13 @@ const calculateSummary = (
         const currency = r.currency || 'USD';
         if (r.kind === 'order') {
             if (r.order_id) shopData[r.account].orders.add(r.order_id);
+            if (isRefundedStatus(r)) {
+                if (r.order_id) shopData[r.account].refOrderIds.add(r.order_id);
+                const refAmt = r.refund_details?.total_refund_amount || r.refund_details?.refundAmount || 0;
+                if (refAmt > 0) {
+                    shopData[r.account].refund[currency] = (shopData[r.account].refund[currency] || 0) + refAmt;
+                }
+            }
             if (r.amount > 0) {
                 shopData[r.account].revenue[currency] = (shopData[r.account].revenue[currency] || 0) + r.amount;
                 allTableCurrencies.revenue.add(currency);
@@ -808,11 +898,16 @@ const calculateSummary = (
 
     const tableRows = Object.entries(shopData).map(([account, data]) => {
         const revenue = formatMixedCurrency(data.revenue);
+        const refund = formatMixedCurrency(data.refund);
 
         const row = [
             accountLabelMap.get(account) || account,
-            data.orders.size,
-            { type: 'value_with_unit' as const, value: revenue.value, display: revenue.display }
+            data.refOrderIds.size > 0 
+                ? { type: 'text_with_subtitle' as const, main: data.orders.size.toString(), subtitle: `↩ ${data.refOrderIds.size}`, subtitleClass: 'text-red-500 font-medium' } 
+                : data.orders.size,
+            refund.value > 0 
+                ? { type: 'text_with_subtitle' as const, main: revenue.display, subtitle: `↩ ${refund.display}`, subtitleClass: 'text-red-500 font-medium' } 
+                : { type: 'value_with_unit' as const, value: revenue.value, display: revenue.display }
         ];
 
         if (role === 'owner' || permissions.viewFunds) {

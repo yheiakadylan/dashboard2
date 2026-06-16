@@ -833,61 +833,61 @@ const ViewIdeasModal: React.FC<{
     // Gather all ideas for this user from all days in the current week
     const userReports = currentReports.filter(r => r.sellerName.trim().toLowerCase().replace(/\s+/g, '-') === normalizedName);
     
-    // Sort by date descending
-    userReports.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
+    // Accumulate ideas by type
+    const aggregatedIdeasMap = new Map<string, number>();
     let totalIdeas = 0;
+
+    userReports.forEach(report => {
+        const ideas = report.ideas || [];
+        ideas.forEach(idea => {
+            const type = idea.type.trim();
+            // Capitalize first letter for consistency
+            const standardizedType = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
+            aggregatedIdeasMap.set(standardizedType, (aggregatedIdeasMap.get(standardizedType) || 0) + idea.count);
+            totalIdeas += idea.count;
+        });
+    });
+
+    const aggregatedIdeas = Array.from(aggregatedIdeasMap.entries())
+                                 .map(([type, count]) => ({ type, count }))
+                                 .sort((a, b) => b.count - a.count);
     
     return (
         <div 
             className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4"
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
-            <div className="bg-white dark:bg-gray-800 rounded-xl max-w-2xl w-full flex flex-col max-h-[85vh] shadow-2xl">
-                <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
-                    <h3 className="font-semibold text-lg dark:text-white">Ideas Detail - {sellerName}</h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            <div className="bg-white dark:bg-gray-800 rounded-xl max-w-2xl w-full flex flex-col max-h-[85vh] shadow-2xl animate-modal-scale">
+                <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-t-xl">
+                    <h3 className="font-semibold text-xl text-gray-900 dark:text-white">Ideas Detail - {sellerName}</h3>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                 </div>
-                <div className="p-5 overflow-y-auto flex-1">
-                    {userReports.length === 0 ? (
-                        <div className="text-center text-gray-500 py-8">No ideas for this week.</div>
+                <div className="p-6 overflow-y-auto flex-1">
+                    {aggregatedIdeas.length === 0 ? (
+                        <div className="text-center text-gray-500 dark:text-gray-400 py-12 flex flex-col items-center">
+                            <svg className="w-12 h-12 mb-4 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                            <p>No ideas recorded for this week.</p>
+                        </div>
                     ) : (
-                        <div className="space-y-6">
-                            {userReports.map(report => {
-                                const ideas = report.ideas || [];
-                                if (ideas.length === 0) return null;
-                                const dateObj = new Date(report.date + 'T00:00:00');
-                                const dayStr = dateObj.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
-                                
-                                const dayTotal = ideas.reduce((s, i) => s + i.count, 0);
-                                totalIdeas += dayTotal;
-
-                                return (
-                                    <div key={report.id} className="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                                        <div className="bg-gray-100 dark:bg-gray-800 px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                                            <span className="font-medium text-gray-800 dark:text-gray-200">{dayStr}</span>
-                                            <span className="text-sm font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-2 py-0.5 rounded-full">{dayTotal} ideas</span>
-                                        </div>
-                                        <div className="p-4 space-y-2">
-                                            {ideas.map((idea, idx) => (
-                                                <div key={idx} className="flex gap-3 text-sm items-center">
-                                                    <div className="flex-none w-32 font-medium text-gray-600 dark:text-gray-400 capitalize">{idea.type}</div>
-                                                    <div className="flex-none w-12 text-center font-semibold bg-gray-200 dark:bg-gray-700 rounded-md px-1">{idea.count}</div>
-                                                </div>
-                                            ))}
-                                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {aggregatedIdeas.map((idea, idx) => (
+                                <div key={idx} className="flex justify-between items-center p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors group">
+                                    <div className="font-medium text-gray-800 dark:text-gray-200 truncate pr-4 capitalize" title={idea.type}>
+                                        {idea.type}
                                     </div>
-                                );
-                            })}
-                            {totalIdeas === 0 && <div className="text-center text-gray-500 py-8">No ideas for this week.</div>}
+                                    <div className="flex-shrink-0 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300 font-bold px-3 py-1 rounded-lg min-w-[3rem] text-center shadow-sm">
+                                        {idea.count}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>
-                <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 rounded-b-xl flex justify-between items-center">
-                    <span className="font-medium text-gray-700 dark:text-gray-300">Total this week:</span>
-                    <span className="text-lg font-bold text-blue-600 dark:text-blue-400">{totalIdeas} Ideas</span>
+                <div className="p-5 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/80 rounded-b-xl flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10">
+                    <span className="font-medium text-gray-600 dark:text-gray-400">Total this week</span>
+                    <span className="text-xl font-black text-blue-600 dark:text-blue-400 bg-white dark:bg-gray-900 px-4 py-1.5 rounded-xl border border-blue-100 dark:border-gray-700 shadow-sm">{totalIdeas} Ideas</span>
                 </div>
             </div>
         </div>

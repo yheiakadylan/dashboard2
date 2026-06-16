@@ -7,4 +7,5 @@
 export const ORDER_LIST_INDICES = {
     DT_LOCAL_RAW: 14, // Hidden column for date filtering
     SOURCE: 15,       // Hidden column for source filtering
+    IS_REFUNDED: 17,  // Hidden boolean: true if order is Refunded (for row highlight)
 } as const;
