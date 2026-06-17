@@ -15,6 +15,7 @@ import ExportProgressBar from '../ui/ExportProgressBar';
 import NotificationCenter from '../../features/notifications/components/NotificationCenter';
 import FilterPopover from '../ui/FilterPopover';
 import ActiveFilterTags from '../ui/ActiveFilterTags';
+import { useNotification } from '../../contexts/NotificationContext';
 
 const CustomSelect: React.FC<{
   value: string;
@@ -129,10 +130,13 @@ const Header: React.FC = () => {
     allowedAccounts, // For notification filtering by shop
     performGlobalSearch, // Global Search Function
     clearGlobalSearch, // Clear Global Search
+    handleBulkFetchSKU, // Bulk fetch SKU
     boards,
     selectedBoardId,
     setSelectedBoardId,
     user,
+    processedData,
+    records,
   } = useDashboard();
 
   const {
@@ -158,6 +162,8 @@ const Header: React.FC = () => {
     setIsMobileMenuOpen,
     toggleMobileMenu,
     setIsNotificationDetailOpen,
+    setIsOrderSelectorOpen,
+    setIsGoogleSheetModalOpen,
   } = useUI();
 
   // Create userProfile for notification filtering
@@ -168,6 +174,123 @@ const Header: React.FC = () => {
     allowedAccounts,
     email: useDashboard().user?.email // Include email for soft delete
   } : null;
+
+  const { addNotification } = useNotification();
+  const [isApiLoading, setIsApiLoading] = useState(false);
+  const [showActionButtons, setShowActionButtons] = useState(false);
+
+  const triggerBulkSyncSkuToTasks = async () => {
+    if (isApiLoading) return;
+    const currentOrders = processedData.orders.rows;
+    if (currentOrders.length === 0) {
+      addNotification('No orders to sync.', 'info');
+      return;
+    }
+    
+    setIsApiLoading(true);
+    try {
+      const orderIds = currentOrders.map(r => r[13]); // RECORD_ID index
+      const targetRecords = records.filter(r => orderIds.includes(r.id) && r.status !== 'Refunded');
+      
+      if (targetRecords.length === 0) {
+        addNotification('No valid orders to sync.', 'info');
+        setIsApiLoading(false);
+        return;
+      }
+      
+      const payloadOrders = targetRecords.map(r => {
+        const skuString = r.details?.items?.map(i => i.sku).filter(Boolean).join(', ') || 'NULL';
+        const items = r.details?.items?.map(i => {
+            const variations = [];
+            if (i.variant) variations.push(i.variant);
+            if (i.variant2) variations.push(i.variant2);
+            return {
+                title: i.name || '',
+                sku: i.sku || 'NULL',
+                variations
+            };
+        }) || [];
+        
+        return {
+            orderId: r.order_id,
+            skuString,
+            items
+        };
+      });
+
+      const res = await fetch('/api/lark-events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'bulk-sync-sku-to-tasks',
+          secret: 'test1234',
+          orders: payloadOrders
+        })
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        addNotification(`Success: Synced ${data.updatedCount || payloadOrders.length} orders`, 'success');
+      } else {
+        addNotification(`Failed: ${data.message || 'Unknown error'}`, 'error');
+      }
+    } catch (e: any) {
+      addNotification(`Error: ${e.message}`, 'error');
+    } finally {
+      setIsApiLoading(false);
+    }
+  };
+
+  const triggerBulkFetchSku = async () => {
+    if (isApiLoading) return;
+    const currentOrders = processedData.orders.rows;
+    if (currentOrders.length === 0) {
+      addNotification('No orders to fetch.', 'info');
+      return;
+    }
+    
+    setIsApiLoading(true);
+    try {
+      const orderIds = currentOrders.map(r => r[13]);
+      const targetRecords = records.filter(r => {
+        if (!orderIds.includes(r.id) || r.status === 'Refunded') return false;
+        if (!r.details?.items || r.details.items.length === 0) return true;
+        return r.details.items.some(item => !item.sku || item.sku.trim() === '');
+      });
+      
+      if (targetRecords.length === 0) {
+        addNotification('No valid orders to fetch (all have SKUs).', 'info');
+        setIsApiLoading(false);
+        return;
+      }
+      
+      const payloadOrders = targetRecords.map(r => ({
+          orderId: r.order_id,
+          account: r.account
+      }));
+
+      const res = await fetch('/api/lark-events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'bulk-trigger-sku-fetch',
+          secret: 'test1234',
+          orders: payloadOrders
+        })
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        addNotification(`Success: Triggered ${data.count || payloadOrders.length} orders`, 'success');
+      } else {
+        addNotification(`Failed: ${data.message || 'Unknown error'}`, 'error');
+      }
+    } catch (e: any) {
+      addNotification(`Error: ${e.message}`, 'error');
+    } finally {
+      setIsApiLoading(false);
+    }
+  };
 
   const [isBoardDropdownOpen, setIsBoardDropdownOpen] = useState(false);
   const boardDropdownRef = useRef<HTMLDivElement>(null);
@@ -219,6 +342,13 @@ const Header: React.FC = () => {
         e.preventDefault();
         setIsSearchExpanded(true);
         setTimeout(() => searchInputRef.current?.focus(), 100);
+        return;
+      }
+
+      // Ctrl+H: Toggle action buttons (Sync SKU, Fetch SKU)
+      if (e.ctrlKey && e.key === 'h') {
+        e.preventDefault();
+        setShowActionButtons(prev => !prev);
         return;
       }
 
@@ -439,17 +569,35 @@ const Header: React.FC = () => {
           </div>
 
           {/* Combined Filter - Only for Order List */}
-          {/* Updated Filter Dropdowns - Order List */}
-          {/* Filter Popover - Only for Order List */}
           {activeTab === 'Order List' && (
-            <FilterPopover
-              sourceFilter={sourceFilter}
-              statusFilter={statusFilter}
-              onApply={(source, status) => {
-                setSourceFilter(source as any);
-                setStatusFilter(status as any);
-              }}
-            />
+            <>
+              {showActionButtons && (
+                <>
+                  <button 
+                    onClick={triggerBulkSyncSkuToTasks} 
+                    disabled={isApiLoading}
+                    className="hidden lg:block px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md text-sm font-medium shadow-sm transition-colors whitespace-nowrap"
+                  >
+                    {isApiLoading ? 'Syncing...' : 'Sync SKU to Task'}
+                  </button>
+                  <button 
+                    onClick={triggerBulkFetchSku} 
+                    disabled={isApiLoading}
+                    className="hidden lg:block px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-md text-sm font-medium shadow-sm transition-colors whitespace-nowrap"
+                  >
+                    {isApiLoading ? 'Fetching...' : 'Bulk Fetch SKU'}
+                  </button>
+                </>
+              )}
+              <FilterPopover
+                sourceFilter={sourceFilter}
+                statusFilter={statusFilter}
+                onApply={(source, status) => {
+                  setSourceFilter(source as any);
+                  setStatusFilter(status as any);
+                }}
+              />
+            </>
           )}
 
           {/* Support Filter - Only for Support Tab */}
@@ -482,6 +630,18 @@ const Header: React.FC = () => {
           />
 
           <TimezoneSelect value={timeZone} onChange={setTimeZone} options={timezones} />
+
+          {/* Manual Sync Button */}
+          <button
+            onClick={handleSyncClick}
+            disabled={isSyncing}
+            className="p-1.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            title="Sync Now (Ctrl+S)"
+          >
+            <svg className={`w-5 h-5 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
 
           {/* Notification Center */}
           <NotificationCenter teamId={teamId} onDetailModalChange={setIsNotificationDetailOpen} userProfile={userProfile} accounts={accounts} />
@@ -551,16 +711,38 @@ const Header: React.FC = () => {
 
         {/* Right: Mobile Menu Toggle & Theme */}
         <div className="flex md:hidden items-center gap-1">
-          {/* Mobile Order List Filter — same FilterPopover as desktop */}
+          {/* Mobile Order List Filter & Action Buttons */}
           {activeTab === 'Order List' && (
-            <FilterPopover
-              sourceFilter={sourceFilter}
-              statusFilter={statusFilter}
-              onApply={(source, status) => {
-                setSourceFilter(source as any);
-                setStatusFilter(status as any);
-              }}
-            />
+            <>
+              {showActionButtons && (
+                <>
+                  <button 
+                    onClick={triggerBulkSyncSkuToTasks} 
+                    disabled={isApiLoading}
+                    className="p-1.5 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-800 disabled:opacity-50 rounded-md transition-colors"
+                    title="Sync SKU to Task"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  </button>
+                  <button 
+                    onClick={triggerBulkFetchSku} 
+                    disabled={isApiLoading}
+                    className="p-1.5 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-800 disabled:opacity-50 rounded-md transition-colors mr-1"
+                    title="Bulk Fetch SKU"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  </button>
+                </>
+              )}
+              <FilterPopover
+                sourceFilter={sourceFilter}
+                statusFilter={statusFilter}
+                onApply={(source, status) => {
+                  setSourceFilter(source as any);
+                  setStatusFilter(status as any);
+                }}
+              />
+            </>
           )}
 
           {activeTab === 'Support' && (
@@ -576,6 +758,18 @@ const Header: React.FC = () => {
               triggerClassName="h-9 py-0"
             />
           )}
+
+          {/* Manual Sync Button - Mobile */}
+          <button
+            onClick={handleSyncClick}
+            disabled={isSyncing}
+            className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md focus:outline-none disabled:opacity-50"
+            aria-label="Sync Now"
+          >
+            <svg className={`w-5 h-5 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
 
           {/* Notification Center - Mobile */}
           <NotificationCenter teamId={teamId} onDetailModalChange={setIsNotificationDetailOpen} userProfile={userProfile} accounts={accounts} />

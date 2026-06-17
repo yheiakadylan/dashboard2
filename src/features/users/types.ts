@@ -9,7 +9,6 @@ export interface UserRole {
     viewProductsTab?: boolean;
     viewSupportTab?: boolean;
     viewFulfillTab?: boolean;
-    viewListingTab?: boolean;
 
     // KPI permissions
     viewKpiOrders?: boolean;
@@ -34,7 +33,6 @@ export interface UserRole {
     canManageMappings?: boolean;
     canResyncOrder?: boolean;
     canSyncData?: boolean;
-    canManageListingTracking?: boolean;
   };
   allowedAccounts?: string[];
 }

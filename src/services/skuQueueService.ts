@@ -8,6 +8,7 @@ export interface SkuJob {
     status: 'pending' | 'processing' | 'completed' | 'failed';
     priority: boolean;
     sku?: string;
+    customerFiles?: string[];
     error?: string;
     created_at: string;
     updated_at: string;

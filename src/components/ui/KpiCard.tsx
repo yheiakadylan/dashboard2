@@ -171,7 +171,7 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
             <div className="flex flex-col gap-1">
               <div className="flex items-baseline gap-2">
                 <p
-                  className={`text-2xl font-black text-gray-900 dark:text-white truncate tracking-tight ${(displayValue as KpiValue).conversionDetails ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-b-2 border-dotted border-gray-300 dark:border-gray-600' : ''}`}
+                  className={`text-2xl font-black text-gray-900 dark:text-white tracking-tight ${(displayValue as KpiValue).conversionDetails ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-b-2 border-dotted border-gray-300 dark:border-gray-600' : ''}`}
                   onClick={handleValueClick}
                   title={(displayValue as KpiValue).conversionDetails ? "Click to view conversion details" : ""}
                 >

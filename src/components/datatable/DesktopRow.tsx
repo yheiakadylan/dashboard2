@@ -127,42 +127,6 @@ const renderTextContent = (cell: any, selectedKeys?: Set<string>, onToggleSelect
         );
     }
 
-    if (cell && typeof cell === 'object' && cell.type === 'mapping_select') {
-        return (
-            <select
-                title="Select Category"
-                className="w-full p-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 transition-all outline-none"
-                value={cell.value === 'Unmapped' ? '' : cell.value}
-                onChange={(e) => cell.onCategoryChange(cell.name, cell.variant, e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-            >
-                <option value="">-- Unmapped --</option>
-                {[...cell.categories].sort((a, b) => a.name.localeCompare(b.name)).map((cat: any) => (
-                    <option key={cat.code} value={cat.code}>
-                        {cat.name}
-                    </option>
-                ))}
-            </select>
-        );
-    }
-
-    if (cell && typeof cell === 'object' && cell.type === 'mapping_action') {
-        return (
-            <button
-                onClick={async (e) => {
-                    e.stopPropagation();
-                    const code = prompt(`Enter category code for "${cell.name}":`, cell.currentCategory === 'Unmapped' ? '' : cell.currentCategory);
-                    if (code) await cell.onCategoryChange(cell.name, cell.variant, code.toUpperCase());
-                }}
-                className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                title="Manual Entry"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-            </button>
-        );
-    }
 
     return typeof cell === 'number'
         ? (cell === 0
@@ -273,37 +237,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             </div>
                         );
                     }
-                    if (cell.type === 'loading_mapping') {
-                        return (
-                            <div key={cellIndex} className={cellClass} style={customStyle}>
-                                <div className="flex items-center gap-2 animate-pulse text-blue-400 dark:text-blue-500">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400 dark:bg-blue-500"></div>
-                                    <span className="text-[10px] font-bold uppercase tracking-widest italic">Mapping...</span>
-                                </div>
-                            </div>
-                        );
-                    }
-                    if (cell.type === 'listing_link') {
-                        return (
-                            <div key={cellIndex} className={cellClass} style={customStyle}>
-                                <a 
-                                    href={`https://www.etsy.com/listing/${cell.id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-700 transition-all font-mono group/link"
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        window.open(`https://www.etsy.com/listing/${cell.id}`, 'etsy_listing', 'width=1000,height=800,scrollbars=yes');
-                                    }}
-                                    title={`Open Etsy Listing ${cell.id}`}
-                                >
-                                    <span>{cell.id}</span>
-                                    <ExternalLink size={10} className="text-blue-400 group-hover/link:text-blue-600 transition-colors" />
-                                </a>
-                            </div>
-                        );
-                    }
+
                 }
 
                 // 2. Second Priority: Special Headers with specific layout but potentially simple values

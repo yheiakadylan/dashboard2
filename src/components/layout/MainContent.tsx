@@ -10,7 +10,6 @@ import ProductsTab from '../tabs/ProductsTab';
 import SupportTab from '../tabs/SupportTab';
 import OrderListTab from '../tabs/OrderListTab';
 import FulfillTab from '../tabs/FulfillTab';
-import ListingTab from '../tabs/ListingTab';
 
 
 interface MainContentProps {
@@ -54,27 +53,6 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
     const shouldShowSkeleton = isLoading || isFetchingNewRange || (isProcessing && !hasData);
 
     if (shouldShowSkeleton) {
-        if (activeTab === 'Overview') {
-            return (
-                <div className="p-2 md:p-6 space-y-6 animate-fade-in">
-                    {/* KPIs */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6">
-                        <SkeletonLoader variant="kpi-card" count={5} />
-                    </div>
-                    {/* Charts */}
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        <SkeletonLoader variant="chart" count={1} className="h-80" />
-                        <SkeletonLoader variant="chart" count={1} className="h-80" />
-                    </div>
-                    {/* Table */}
-                    <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                        <div className="h-6 w-32 bg-gray-200 dark:bg-gray-700 rounded mb-4 animate-pulse" />
-                        <SkeletonLoader variant="table-row" count={5} />
-                    </div>
-                </div>
-            );
-        }
-
         if (activeTab === 'Order List' || activeTab === 'Products') {
             return (
                 <div className="p-2 md:p-6 animate-fade-in">
@@ -83,13 +61,16 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
             );
         }
 
-        // Default skeleton for other tabs
-        return (
-            <div className="p-4 animate-fade-in">
-                <SkeletonLoader variant="table-row" count={8} />
-            </div>
-        );
+        if (activeTab !== 'Overview') {
+            // Default skeleton for other tabs except Overview (which renders its own skeleton/empty state now)
+            return (
+                <div className="p-4 animate-fade-in">
+                    <SkeletonLoader variant="table-row" count={8} />
+                </div>
+            );
+        }
     }
+    // (Overview skeleton rendering logic moved/removed to allow immediate UI render)
 
     // Render content with optional processing overlay
     const renderContent = () => {
@@ -136,13 +117,6 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
                     return (
                         <Suspense fallback={<div className="p-4 animate-fade-in"><SkeletonLoader variant="table-row" count={8} /></div>}>
                             <FulfillTab processedData={processedData} />
-                        </Suspense>
-                    );
-
-                case 'Listing':
-                    return (
-                        <Suspense fallback={<div className="p-4 animate-fade-in"><SkeletonLoader variant="table-row" count={8} /></div>}>
-                            <ListingTab />
                         </Suspense>
                     );
 

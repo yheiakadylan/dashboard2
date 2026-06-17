@@ -114,50 +114,7 @@ const renderTextContent = (cell: any, selectedKeys?: Set<string>, onToggleSelect
                 </span>
             );
         }
-        if (cell.type === 'mapping_select') {
-            return (
-                <select
-                    title="Select Category"
-                    className="w-full p-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 transition-all outline-none"
-                    value={cell.value === 'Unmapped' ? '' : cell.value}
-                    onChange={(e) => cell.onCategoryChange(cell.name, cell.variant, e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    <option value="">-- Unmapped --</option>
-                    {[...cell.categories].sort((a, b) => a.name.localeCompare(b.name)).map((cat: any) => (
-                        <option key={cat.code} value={cat.code}>
-                            {cat.name}
-                        </option>
-                    ))}
-                </select>
-            );
-        }
-        if (cell.type === 'loading_mapping') {
-            return (
-                <div className="flex items-center gap-2 animate-pulse text-indigo-400 dark:text-indigo-500 py-0.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500"></div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest italic">Mapping</span>
-                </div>
-            );
-        }
-        if (cell.type === 'listing_link') {
-            return (
-                <a 
-                    href={`https://www.etsy.com/listing/${cell.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-bold hover:underline"
-                    onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        window.open(`https://www.etsy.com/listing/${cell.id}`, 'etsy_listing', 'width=1000,height=800,scrollbars=yes');
-                    }}
-                >
-                    <span>{cell.id}</span>
-                    <ExternalLink size={10} />
-                </a>
-            );
-        }
+
     }
     return typeof cell === 'number'
         ? (cell === 0

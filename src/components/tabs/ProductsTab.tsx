@@ -6,14 +6,24 @@ import DataTable from '../ui/DataTable';
 import { useUI } from '../../contexts/UIContext';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { hasPermission } from '../../utils/permissionHelper';
-import CategoryManagementModal from '../modals/CategoryManagementModal';
 import { useNotification } from '../../contexts/NotificationContext';
 import TopProductsChart from '../charts/TopProductsChart';
 import Pagination from '../ui/Pagination';
 import { Search, Filter, CheckSquare, X, ChevronRight, Zap, Package, ChevronLeft, Check, ChevronDown, Tag } from 'lucide-react';
 import { exportInventoryToExcel } from '../../utils/excelExport';
+import { db } from '../../services/firebaseService';
+import { collection, getDocs } from 'firebase/firestore';
 
 const ITEMS_PER_PAGE = 200;
+
+const getStaffFromSku = (sku: string): string => {
+    if (!sku || sku === '-') return 'Unknown';
+    const parts = sku.split('-');
+    if (parts.length > 1) {
+        return parts[1] || 'Unknown';
+    }
+    return 'Unknown';
+};
 
 interface ProductsTabProps {
     processedData: ProcessedData;
@@ -21,99 +31,55 @@ interface ProductsTabProps {
 
 const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
     const { globalUsdMode } = useUI();
-    const { exchangeRates, categories, updateMapping, bulkSaveCategories, role, permissions } = useDashboard();
+    const { exchangeRates, categories } = useDashboard();
     const { addNotification } = useNotification();
 
-    const canManageMappings = useMemo(() => hasPermission(role, permissions, 'canManageMappings'), [role, permissions]);
-
-    const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-    const [isSavingCategories, setIsSavingCategories] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
 
     const [searchTerm, setSearchTerm] = useState('');
-    const [categoryFilter, setCategoryFilter] = useState('Unmapped');
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [categoryFilter, setCategoryFilter] = useState('All');
     const [currentPage, setCurrentPage] = useState(0);
-    const [viewMode, setViewMode] = useState<'product' | 'variant'>('product');
-    const { bulkUpdateMappings } = useDashboard();
+    const [viewMode, setViewMode] = useState<'product' | 'variant' | 'staff'>('product');
+
+    const [userDisplayNames, setUserDisplayNames] = useState<{ [empID: string]: string }>({});
+
+    useEffect(() => {
+        const fetchUsers = async () => {
+            try {
+                const usersCol = collection(db, 'users');
+                const usersSnapshot = await getDocs(usersCol);
+                const mapping: { [empID: string]: string } = {};
+                usersSnapshot.docs.forEach(doc => {
+                    const data = doc.data();
+                    if (data.empID && data.displayName) {
+                        mapping[String(data.empID).trim()] = data.displayName;
+                    }
+                });
+                setUserDisplayNames(mapping);
+            } catch (e) {
+                console.error("Error fetching users for staff mapping:", e);
+            }
+        };
+        fetchUsers();
+    }, []);
     
     const inventoryRef = React.useRef<HTMLDivElement>(null);
 
     const handleCategoryClick = useCallback((item: any) => {
         if (item.code) {
             setCategoryFilter(item.code);
-        } else if (item.name === 'Unmapped') {
-            setCategoryFilter('Unmapped');
         }
 
         // Scroll to inventory section
         inventoryRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, []);
 
-    // Auto-select Unmapped if any exist, otherwise All
-    useEffect(() => {
-        if (processedData.products?.rows) {
-            const hasUnmapped = processedData.products.rows.some(row => !row[10] || row[10] === 'Unmapped');
-            if (hasUnmapped) {
-                setCategoryFilter('Unmapped');
-            } else {
-                setCategoryFilter('All');
-            }
-        }
-    }, [processedData.products]);
-
     // Reset page when filtering
     useEffect(() => {
         setCurrentPage(0);
     }, [searchTerm, categoryFilter]);
 
-    const handleCategoryChange = useCallback(async (name: string, variant: string, categoryCode: string) => {
-        try {
-            await updateMapping({
-                name: name.trim(),
-                variant: '', // Always map at the product level for consistency
-                category_code: categoryCode
-            });
-            const catName = categories.find(c => c.code === categoryCode)?.name || categoryCode;
-            addNotification(`Mapped "${name}" to ${catName}`, 'success');
-        } catch (error) {
-            addNotification('Failed to update mapping', 'error');
-        }
-    }, [updateMapping, addNotification, categories]);
 
-    const handleBulkApply = useCallback(async (categoryCode: string) => {
-        if (selectedIds.size === 0) return;
-
-        setIsSavingCategories(true);
-        try {
-            const mappingsToUpdate = Array.from(selectedIds).map(id => {
-                const [name, variant] = id.split('|');
-                return {
-                    name,
-                    variant: '', // Consistent with handleCategoryChange
-                    category_code: categoryCode
-                } as any;
-            });
-
-            await bulkUpdateMappings(mappingsToUpdate);
-            const catName = categories.find(c => c.code === categoryCode)?.name || categoryCode;
-            addNotification(`Bulk applied ${catName} to ${selectedIds.size} products`, 'success');
-            setSelectedIds(new Set());
-        } catch (error) {
-            addNotification('Failed to bulk apply category', 'error');
-        } finally {
-            setIsSavingCategories(false);
-        }
-    }, [selectedIds, bulkUpdateMappings, addNotification, categories]);
-
-    const toggleSelect = useCallback((key: string) => {
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            if (next.has(key)) next.delete(key);
-            else next.add(key);
-            return next;
-        });
-    }, []);
 
     // Advanced search logic: +include, -exclude
     const filterByAdvancedSearch = useCallback((text: string, query: string) => {
@@ -141,12 +107,11 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
         if (categoryFilter !== 'All') {
             rows = rows.filter(row => {
                 const rowCatCode = row[10] || row[3];
-                if (categoryFilter === 'Unmapped') return String(rowCatCode).toLowerCase() === 'unmapped' || !rowCatCode;
                 return rowCatCode === categoryFilter;
             });
         }
         if (searchTerm) {
-            rows = rows.filter(row => filterByAdvancedSearch(`${row[1]} ${row[4]}`, searchTerm));
+            rows = rows.filter(row => filterByAdvancedSearch(`${row[1]} ${row[2]} ${row[4]}`, searchTerm));
         }
         return rows;
     }, [processedData.products.rows, searchTerm, categoryFilter, filterByAdvancedSearch]);
@@ -157,7 +122,6 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
         if (categoryFilter !== 'All') {
             rows = rows.filter(row => {
                 const rowCatCode = row[6] || row[0];
-                if (categoryFilter === 'Unmapped') return String(rowCatCode).toLowerCase() === 'unmapped' || !rowCatCode;
                 return rowCatCode === categoryFilter;
             });
         }
@@ -169,8 +133,93 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
 
     // Final filtered list for display
     const filteredRows = useMemo(() => {
-        return viewMode === 'product' ? filteredProducts : filteredVariants;
-    }, [viewMode, filteredProducts, filteredVariants]);
+        if (viewMode === 'product') return filteredProducts;
+        if (viewMode === 'variant') return filteredVariants;
+
+        const staffMap = new Map<string, {
+            staffCode: string;
+            quantity: number;
+            revenueUSD: number;
+            revenuesByCurrency: { [currency: string]: number };
+        }>();
+
+        filteredProducts.forEach(row => {
+            const sku = row[1] as string;
+            const staffCode = getStaffFromSku(sku);
+            const quantity = (row[6] as number) || 0;
+            const currency = (row[8] as string) || 'USD';
+            const rawRevenue = (row[9] as number) || 0;
+
+            let rate = 1;
+            if (exchangeRates && currency !== 'USD') {
+                rate = exchangeRates[currency] || 1;
+            }
+            const revenueUSD = rawRevenue * rate;
+
+            if (!staffMap.has(staffCode)) {
+                staffMap.set(staffCode, {
+                    staffCode,
+                    quantity: 0,
+                    revenueUSD: 0,
+                    revenuesByCurrency: {}
+                });
+            }
+
+            const staffData = staffMap.get(staffCode)!;
+            staffData.quantity += quantity;
+            staffData.revenueUSD += revenueUSD;
+            staffData.revenuesByCurrency[currency] = (staffData.revenuesByCurrency[currency] || 0) + rawRevenue;
+        });
+
+        return Array.from(staffMap.values())
+            .filter(staffData => !!userDisplayNames[staffData.staffCode])
+            .sort((a, b) => b.revenueUSD - a.revenueUSD)
+            .map(staffData => {
+                let revenueCell;
+                if (globalUsdMode && exchangeRates) {
+                    revenueCell = {
+                        type: 'value_with_unit' as const,
+                        value: staffData.revenueUSD,
+                        display: `$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(staffData.revenueUSD)}`
+                    };
+                } else {
+                    const currencies = Object.keys(staffData.revenuesByCurrency);
+                    if (currencies.length === 0) {
+                        revenueCell = {
+                            type: 'value_with_unit' as const,
+                            value: 0,
+                            display: '$0.00 USD'
+                        };
+                    } else if (currencies.length === 1) {
+                        const cur = currencies[0];
+                        const val = staffData.revenuesByCurrency[cur];
+                        revenueCell = {
+                            type: 'value_with_unit' as const,
+                            value: val,
+                            display: `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val)} ${cur}`
+                        };
+                    } else {
+                        const displayStr = currencies
+                            .map(cur => `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(staffData.revenuesByCurrency[cur])} ${cur}`)
+                            .join(' + ');
+                        revenueCell = {
+                            type: 'value_with_unit' as const,
+                            value: staffData.revenueUSD,
+                            display: displayStr
+                        };
+                    }
+                }
+
+                const displayName = userDisplayNames[staffData.staffCode] || 'Unknown';
+
+                return [
+                    staffData.staffCode,
+                    displayName,
+                    staffData.quantity,
+                    revenueCell
+                ];
+            });
+    }, [viewMode, filteredProducts, filteredVariants, exchangeRates, globalUsdMode, userDisplayNames]);
 
     const handleExportInventory = useCallback(async () => {
         setIsExporting(true);
@@ -180,7 +229,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
             // For export, we always include ALL categories as per user request
             // but we still honor the search term if the user is looking for something specific
             const exportProducts = searchTerm ?
-                processedData.products.rows.filter(row => filterByAdvancedSearch(`${row[1]} ${row[4]}`, searchTerm)) :
+                processedData.products.rows.filter(row => filterByAdvancedSearch(`${row[1]} ${row[2]} ${row[4]}`, searchTerm)) :
                 processedData.products.rows;
 
             const exportVariants = searchTerm ?
@@ -202,30 +251,15 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
         }
     }, [processedData.products, processedData.variants, searchTerm, filterByAdvancedSearch, globalUsdMode, exchangeRates, addNotification]);
 
-    const handleSelectAll = useCallback(() => {
-        const allFilteredKeys = filteredRows.map(row => `${row[1]}|${row[4]}`);
-        const allSelected = allFilteredKeys.every(key => selectedIds.has(key));
 
-        if (allSelected) {
-            // Unselect all in current view
-            setSelectedIds(prev => {
-                const next = new Set(prev);
-                allFilteredKeys.forEach(key => next.delete(key));
-                return next;
-            });
-        } else {
-            // Select all in current view
-            setSelectedIds(prev => {
-                const next = new Set(prev);
-                allFilteredKeys.forEach(key => next.add(key));
-                return next;
-            });
-        }
-    }, [filteredRows, selectedIds]);
 
     // Headers: ['Checkbox', 'Image', 'Product Name', 'Listing ID', 'Category', 'Variant/Size', 'Shop', 'Quantity', 'Revenue']
     const displayRows = useMemo(() => {
         const rows = filteredRows;
+
+        if (viewMode === 'staff') {
+            return rows;
+        }
 
         if (viewMode === 'variant') {
             return rows.map(row => {
@@ -257,26 +291,12 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
         }
 
         return rows.map(row => {
-            const pName = row[1] as string;
-            const pListingId = row[2] as string;
+            const pSku = row[1] as string;
+            const pName = row[2] as string;
             const pCategory = row[3] as string;
             const pVariant = row[4] as string;
-            const rowKey = `${pName}|${pVariant}`;
+            const pGroupingKey = row[11] as string;
 
-            const checkbox = {
-                type: 'checkbox' as const,
-                idKey: rowKey,
-                checked: selectedIds.has(rowKey)
-            };
-
-            const categoryComponent = canManageMappings ? {
-                type: 'mapping_select' as const,
-                value: row[10] || pCategory, // Index 10 is category code
-                name: pName,
-                variant: pVariant,
-                categories: categories,
-                onCategoryChange: handleCategoryChange
-            } : pCategory;
 
             const currency = row[8] as string; // Index 8 is currency
             const rawRevenue = row[9] as number; // Index 9 is raw revenue
@@ -296,20 +316,23 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
             }
 
             return [
-                checkbox,
                 row[0],
+                pSku,
                 pName,
-                pListingId,
-                categoryComponent,
+                pCategory,
                 pVariant,
                 row[5], // Shop
                 row[6], // Quantity
                 revenueCell
             ];
         });
-    }, [filteredRows, globalUsdMode, exchangeRates, categories, handleCategoryChange, selectedIds, canManageMappings, viewMode]);
+    }, [filteredRows, globalUsdMode, exchangeRates, categories, viewMode]);
 
-    const headers = viewMode === 'product' ? ['Select', ...processedData.products.headers] : processedData.variants.headers;
+    const headers = viewMode === 'product'
+        ? processedData.products.headers
+        : viewMode === 'staff'
+            ? ['Staff Code', 'Staff Name', 'Quantity', 'Revenue']
+            : processedData.variants.headers;
 
     const totalPages = Math.ceil(displayRows.length / ITEMS_PER_PAGE);
     const paginatedRows = useMemo(() => {
@@ -344,75 +367,22 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                 <div className="mb-8" ref={inventoryRef} id="inventory-section">
                     <div className="flex flex-col h-auto md:h-[800px] border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 overflow-visible md:overflow-hidden shadow-sm">
                         <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md relative z-30">
-                            {/* Improved Selection Overlay */}
-                            {selectedIds.size > 0 && canManageMappings && (
-                                <div className="absolute inset-x-0 -top-[1px] -bottom-[1px] z-40 bg-indigo-50/95 dark:bg-indigo-900/90 backdrop-blur-sm border-y border-indigo-200 dark:border-indigo-800 flex items-center px-4 md:px-6 animate-in slide-in-from-top duration-300">
-                                    <div className="flex items-center justify-between w-full">
-                                        <div className="flex items-center gap-4 md:gap-8">
-                                            <div className="flex items-center gap-3">
-                                                <div className="hidden sm:flex items-center justify-center w-8 h-8 rounded-full bg-indigo-600">
-                                                    <Check size={16} className="text-white" strokeWidth={3} />
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm md:text-base font-bold text-indigo-900 dark:text-indigo-100 leading-none">{selectedIds.size} Items Selected</p>
-                                                    <p className="hidden sm:block text-[10px] text-indigo-600 dark:text-indigo-400 uppercase tracking-wider font-bold mt-1">Bulk Mapping Mode</p>
-                                                </div>
-                                            </div>
-                                            
-                                            <div className="h-8 w-px bg-indigo-200 dark:bg-indigo-800 hidden md:block"></div>
-
-                                            <div className="flex items-center gap-2">
-                                                <button 
-                                                    onClick={() => setSelectedIds(new Set())} 
-                                                    className="px-3 py-1.5 md:px-4 md:py-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-800/50 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-2"
-                                                >
-                                                    <X size={14} />
-                                                    <span>Deselect</span>
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex items-center gap-3 md:gap-4">
-                                            <span className="text-xs md:text-sm font-bold text-indigo-700 dark:text-indigo-300 hidden sm:block">Assign to:</span>
-                                            <div className="relative group">
-                                                <select 
-                                                    className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-xs md:text-sm font-bold rounded-xl px-4 py-2 md:px-5 md:py-2.5 min-w-[160px] md:min-w-[220px] outline-none ring-1 ring-indigo-200 dark:ring-indigo-800 focus:ring-4 focus:ring-indigo-500/10 cursor-pointer appearance-none pr-10 hover:shadow-sm transition-all shadow-sm"
-                                                    onChange={(e) => e.target.value && handleBulkApply(e.target.value)}
-                                                    defaultValue=""
-                                                >
-                                                    <option value="" disabled>Choose Category...</option>
-                                                    {[...categories].sort((a, b) => a.name.localeCompare(b.name)).map(cat => (
-                                                        <option key={cat.code} value={cat.code}>{cat.name}</option>
-                                                    ))}
-                                                </select>
-                                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                                                    <ChevronDown size={14} className="text-indigo-600" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
                             <div className="flex items-center justify-between w-full lg:w-auto gap-4">
-                                <label className="relative flex items-center gap-3 cursor-pointer group select-none">
-                                    <div className="relative">
-                                        <input
-                                            type="checkbox"
-                                            className="peer sr-only"
-                                            checked={filteredRows.length > 0 && filteredRows.every(row => selectedIds.has(`${row[1]}|${row[4]}`))}
-                                            onChange={handleSelectAll}
-                                        />
-                                        <div className="w-6 h-6 bg-white dark:bg-gray-900 border-2 border-gray-300 dark:border-gray-600 rounded-lg transition-all peer-checked:bg-indigo-600 peer-checked:border-indigo-600 group-hover:border-indigo-500 shadow-sm"></div>
-                                        <Check className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 text-white opacity-0 transition-opacity peer-checked:opacity-100" strokeWidth={4} />
-                                    </div>
+                                {viewMode === 'product' ? (
                                     <div className="flex flex-col">
-                                        <span className="text-xs font-bold text-gray-700 dark:text-gray-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors uppercase tracking-wider">
-                                            {filteredRows.length > 0 && filteredRows.every(row => selectedIds.has(`${row[1]}|${row[4]}`)) ? 'Deselect All' : 'Select All'}
+                                        <span className="text-xs font-bold text-gray-700 dark:text-gray-200 uppercase tracking-wider">
+                                            Product Summary
                                         </span>
                                         <span className="text-[10px] text-gray-400 font-medium">({filteredRows.length} items)</span>
                                     </div>
-                                </label>
+                                ) : (
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-bold text-gray-700 dark:text-gray-200 uppercase tracking-wider">
+                                            {viewMode === 'staff' ? 'Staff Summary' : 'Variant Summary'}
+                                        </span>
+                                        <span className="text-[10px] text-gray-400 font-medium">({filteredRows.length} items)</span>
+                                    </div>
+                                )}
 
                                 {/* Export Button - Mobile Only here */}
                                 <div className="lg:hidden flex-shrink-0">
@@ -455,10 +425,11 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                                     <select
                                         className="w-full pl-9 pr-10 py-2 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none appearance-none cursor-pointer font-medium"
                                         value={viewMode}
-                                        onChange={(e) => setViewMode(e.target.value as 'product' | 'variant')}
+                                        onChange={(e) => setViewMode(e.target.value as 'product' | 'variant' | 'staff')}
                                     >
                                         <option value="product">Group by Product</option>
                                         <option value="variant">Group by Variant</option>
+                                        <option value="staff">Group by Staff</option>
                                     </select>
                                     <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
                                         <ChevronDown size={14} className="text-gray-400" />
@@ -475,7 +446,6 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                                         onChange={(e) => setCategoryFilter(e.target.value)}
                                     >
                                         <option value="All">All Categories</option>
-                                        <option value="Unmapped">Unmapped</option>
                                         <optgroup label="Categories">
                                             {[...categories].sort((a, b) => a.name.localeCompare(b.name)).map(cat => (
                                                 <option key={cat.code} value={cat.code}>{cat.name}</option>
@@ -487,15 +457,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                                     </div>
                                 </div>
 
-                                {canManageMappings && (
-                                    <button
-                                        onClick={() => setIsCategoryModalOpen(true)}
-                                        className="flex items-center justify-center gap-2 h-[38px] px-5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 rounded-xl shadow-sm hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all font-bold text-xs uppercase tracking-widest active:scale-95 w-full sm:w-auto"
-                                    >
-                                        <Tag size={13} className="text-indigo-500" />
-                                        <span>Category</span>
-                                    </button>
-                                )}
+
 
                                 {/* Export Button - Desktop Only here */}
                                 <button
@@ -518,24 +480,20 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                                 <DataTable
                                     headers={headers}
                                     data={paginatedRows}
-                                    selectedKeys={selectedIds}
-                                    onToggleSelect={toggleSelect}
-                                    onRowClick={(row) => {
-                                        if (viewMode === 'variant') return;
-                                        const pName = row[2] as string;
-                                        const pVariant = row[5] as string;
-                                        toggleSelect(`${pName}|${pVariant}`);
-                                    }}
                                     columnWidths={viewMode === 'product' ? {
-                                        'Select': 50,
                                         'Image': 80,
+                                        'SKU': 200,
                                         'Product Name': 300,
-                                        'Listing ID': 140,
                                         'Category': 160,
                                         'Variant/Size': 180,
                                         'Shop': 120,
                                         'Quantity': 80,
                                         'Revenue': 120
+                                    } : viewMode === 'staff' ? {
+                                        'Staff Code': 150,
+                                        'Staff Name': 200,
+                                        'Quantity': 100,
+                                        'Revenue': 150
                                     } : {
                                         'Category': 200,
                                         'Variant/Size': 400,
@@ -554,25 +512,6 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ processedData }) => {
                     </div>
                 </div>
             </div>
-
-            <CategoryManagementModal
-                isOpen={isCategoryModalOpen}
-                onClose={() => setIsCategoryModalOpen(false)}
-                existingCategories={categories}
-                onSaveAll={async (newCats) => {
-                    setIsSavingCategories(true);
-                    try {
-                        await bulkSaveCategories(newCats);
-                        addNotification('Categories updated', 'success');
-                    } catch (e) {
-                        addNotification('Failed to update categories', 'error');
-                        throw e;
-                    } finally {
-                        setIsSavingCategories(false);
-                    }
-                }}
-                isLoading={isSavingCategories}
-            />
         </div>
     );
 };

@@ -80,8 +80,6 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
                 return <Truck className={iconClass} />;
             case 'Support':
                 return <HelpCircle className={iconClass} />;
-            case 'Listing':
-                return <Package className={iconClass} />;
             default:
                 return <Home className={iconClass} />;
         }

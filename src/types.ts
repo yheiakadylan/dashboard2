@@ -13,19 +13,6 @@ export interface Account {
   scan_start_date?: string; // Ngày bắt đầu của lịch sử email, được tìm thấy bởi giai đoạn dò tìm
   lastKnownHistoryId?: string; // ID cuối cùng mà webhook đã xử lý
   platforms?: string[]; // 'etsy', 'ebay'
-
-  // Listing Tracker fields
-  listing_tracking_enabled?: boolean; // Enable/disable crawling for this shop
-  total_listings?: number; // Current total active listings
-  last_listing_crawl?: Date; // Last crawl timestamp
-  last_crawl_stats?: {
-    added: number;
-    removed: number;
-    total: number;
-    timestamp: string;
-  };
-  last_crawl_error?: string; // ✅ Error message if last crawl failed
-  last_crawl_error_at?: Date; // ✅ Timestamp of last error
   worker_status?: {
     status: 'idle' | 'processing' | 'error';
     last_heartbeat: string;
@@ -46,11 +33,12 @@ export interface OrderItem {
   image?: string;
   transactionId?: string;
   sku?: string;
-  listing_id?: string;
-  category_code?: string; // Mapped category code
+  category_code?: string;
+  customerFiles?: string[]; // Mapped category code
 }
 
 export interface OrderDetails {
+  customerFiles?: string[];
   customerName: string;
   customerEmail: string;
   shippingAddress: {
@@ -93,7 +81,6 @@ export interface Record {
   details?: OrderDetails;
   status?: 'New' | 'Refunded';
   refund_details?: RefundDetails;
-  listing_id?: string; // Mapped from listing tracker based on image
   category_code?: string; // Overall category code for the record (if applicable)
 }
 
@@ -101,15 +88,6 @@ export interface Category {
   id: string; // Firestore document ID
   code: string; // Unique identifier (e.g., MUG-11OZ)
   name: string; // Display name
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface ProductMapping {
-  id?: string;
-  name: string; // Original product name
-  variant: string; // Variant string (normalized)
-  category_code: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -132,7 +110,7 @@ export interface CostData {
   product_name?: string;
 }
 
-export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill' | 'Listing';
+export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill';
 export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%
@@ -185,7 +163,6 @@ export interface TopProduct {
   category?: string;
   classification?: string;
   size?: string;
-  listing_id?: string | { type: 'listing_link' | 'loading_mapping'; id?: string };
   shop?: string;
 }
 
@@ -216,7 +193,6 @@ export interface ProcessedData {
     topProductsByCategory: { [category: string]: TopProduct[] };
     topProductsBySize: { [size: string]: TopProduct[] };
     categoryComparison: TopProduct[];
-    unmappedKeywords: { keyword: string; count: number }[];
   };
   products: TableData;
   variants: TableData;
@@ -245,20 +221,3 @@ export interface UserProfile {
   [key: string]: any;
 }
 
-export interface DailyStats {
-  date: string;
-  new_listings: number;
-  removed_listings: number;
-  total_listings?: number;
-  shops?: {
-    [key: string]: {
-      new: number;
-      removed: number;
-      total: number;
-    }
-  };
-  shops_crawled?: number;
-  crawl_errors?: number;
-  createdAt?: string;
-  source?: string;
-}

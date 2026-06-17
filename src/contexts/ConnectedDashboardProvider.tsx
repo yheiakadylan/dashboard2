@@ -3,7 +3,7 @@ import { User } from 'firebase/auth';
 import { UserProfile } from '../features/auth/hooks/useAuthLogic';
 import { DashboardProvider } from './DashboardContext';
 import { useUI } from './UIContext';
-import { CrawlerProvider } from './CrawlerContext';
+
 
 interface ConnectedDashboardProviderProps {
     user: User;
@@ -33,9 +33,7 @@ const ConnectedDashboardProvider: React.FC<ConnectedDashboardProviderProps> = ({
             searchTerm={searchTerm}
             globalUsdMode={globalUsdMode}
         >
-            <CrawlerProvider>
-                {children}
-            </CrawlerProvider>
+            {children}
         </DashboardProvider>
     );
 };

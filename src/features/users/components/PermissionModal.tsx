@@ -16,14 +16,13 @@ const PermissionModal: React.FC<PermissionModalProps> = ({ user, onSave, onClose
     tabs: {
       title: 'Tabs',
       description: 'Which sections user can see in sidebar',
-      keys: ['viewOverviewTab', 'viewOrderListTab', 'viewProductsTab', 'viewSupportTab', 'viewFulfillTab', 'viewListingTab'] as const,
+      keys: ['viewOverviewTab', 'viewOrderListTab', 'viewProductsTab', 'viewSupportTab', 'viewFulfillTab'] as const,
       labels: {
         viewOverviewTab: 'Overview',
         viewOrderListTab: 'Order List',
         viewProductsTab: 'Products',
         viewSupportTab: 'Support',
         viewFulfillTab: 'Fulfill',
-        viewListingTab: 'Listing Tracker',
       }
     },
     kpis: {
@@ -42,13 +41,12 @@ const PermissionModal: React.FC<PermissionModalProps> = ({ user, onSave, onClose
     actions: {
       title: 'Actions',
       description: 'System actions & Data access',
-      keys: ['canEditCost', 'canExportData', 'canResyncOrder', 'canSyncData', 'canManageListingTracking', 'canManageUsers', 'canManageMailSettings', 'canManageSettings', 'canManageMappings', 'viewMerchizeData', 'viewPrintwayData', 'viewEbayData', 'viewEtsyData'] as const,
+      keys: ['canEditCost', 'canExportData', 'canResyncOrder', 'canSyncData', 'canManageUsers', 'canManageMailSettings', 'canManageSettings', 'canManageMappings', 'viewMerchizeData', 'viewPrintwayData', 'viewEbayData', 'viewEtsyData'] as const,
       labels: {
         canEditCost: 'Edit Manual Cost',
         canExportData: 'Export Data',
         canResyncOrder: 'Resync Single Order',
         canSyncData: 'Sync All/New Data',
-        canManageListingTracking: 'Admin Listing Config',
         canManageUsers: 'Admin Users',
         canManageMailSettings: 'Admin Mail Accounts',
         canManageSettings: 'Admin General Settings',

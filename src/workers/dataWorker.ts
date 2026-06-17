@@ -12,9 +12,7 @@ interface WorkerMessage {
     permissions: { [key: string]: boolean };
     manualCosts: ManualCost[];
     exchangeRates: { [currency: string]: number } | null;
-    productMappings: any[];
     categories: any[];
-    listingsMapping: { imageMap: { [key: string]: string }, nameMap: { [key: string]: string } } | null;
 }
 
 self.onmessage = (e: MessageEvent<WorkerMessage>) => {
@@ -29,9 +27,7 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
         permissions,
         manualCosts,
         exchangeRates,
-        productMappings,
-        categories,
-        listingsMapping
+        categories
     } = e.data;
 
     try {
@@ -45,9 +41,7 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
             permissions,
             manualCosts,
             exchangeRates,
-            productMappings,
-            categories,
-            listingsMapping
+            categories
         );
         self.postMessage({ success: true, data: processed, requestId });
     } catch (error: any) {

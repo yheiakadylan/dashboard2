@@ -35,6 +35,13 @@ interface ExtractedItem {
     title: string;
     quantity: number;
     variations: { name: string; value: string }[] | string;
+    transaction_id?: string;
+    customerFiles?: string[];
+}
+
+interface FetchSKUResult {
+    extractedItems: ExtractedItem[] | string;
+    customerFiles: string[];
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -337,7 +344,12 @@ async function processQueue(teamId: string) {
             // Sync successfully fetched SKU 
             if (skuResult !== "NULL") {
                 try {
-                    const skuString = Array.isArray(skuResult) ? skuResult.map(i => i.sku).join(', ') : skuResult;
+                    const isObj = typeof skuResult === 'object' && skuResult !== null && !Array.isArray(skuResult);
+                    const resultObj = isObj ? (skuResult as FetchSKUResult) : null;
+                    const extractedItemsArray: ExtractedItem[] | string = resultObj ? resultObj.extractedItems : (skuResult as ExtractedItem[] | string);
+                    const globalCustomerFiles: string[] = resultObj ? (resultObj.customerFiles || []) : [];
+
+                    const skuString = Array.isArray(extractedItemsArray) ? extractedItemsArray.map(i => i.sku).join(', ') : String(extractedItemsArray);
                     
                     // 1. Update internal records for Dashboardvikcom (Marketing/Ads data)
                     const recordsRef = collection(db, 'user', teamId, 'records');
@@ -348,10 +360,15 @@ async function processQueue(teamId: string) {
                         const data = recordDoc.data();
                         if (data.details && data.details.items) {
                             const newItems = data.details.items.map((item: any, idx: number) => {
-                                if (Array.isArray(skuResult) && skuResult[idx]) {
-                                    return { ...item, sku: skuResult[idx].sku };
+                                if (Array.isArray(extractedItemsArray) && extractedItemsArray[idx]) {
+                                    const extItem = extractedItemsArray[idx];
+                                    return { 
+                                        ...item, 
+                                        sku: extItem.sku,
+                                        ...(extItem.customerFiles && extItem.customerFiles.length > 0 ? { customerFiles: extItem.customerFiles } : {})
+                                    };
                                 }
-                                return { ...item, sku: skuString };
+                                return { ...item, sku: skuString, ...(globalCustomerFiles.length > 0 ? { customerFiles: globalCustomerFiles } : {}) };
                             });
                             await updateDoc(doc(db, 'user', teamId, 'records', recordDoc.id), {
                                 'details.items': newItems
@@ -367,35 +384,58 @@ async function processQueue(teamId: string) {
                     const tasks = taskSnap.docs.map(d => ({ id: d.id, ...d.data() as any }));
 
                     if (tasks.length > 0) {
-                        const extractedItems = Array.isArray(skuResult) ? skuResult : [];
+                        const extractedItems = Array.isArray(extractedItemsArray) ? extractedItemsArray : [];
                         
                         for (const task of tasks) {
                             // Filter: Only enrich 'new' or 'draft' tasks
                             if (task.status !== 'draft' && task.status !== 'new') continue;
 
                             let taskSku = skuString;
+                            let taskCustomerFiles: string[] = []; // Default empty array to prevent undefined error
                             let v1 = task.variant1;
                             let v2 = task.variant2;
 
-                            // If multiple items, find the best match based on variations/title
                             if (extractedItems.length > 1) {
                                 let maxScore = -1;
+                                let bestMatch: ExtractedItem | null = null;
                                 for (const ext of extractedItems) {
                                     let score = 0;
                                     if (task.title && ext.title && ext.title.toLowerCase().includes(task.title.toLowerCase().substring(0, 10))) score += 10;
                                     const taskVars = [(task.variant1 || "").toLowerCase(), (task.variant2 || "").toLowerCase()].filter(Boolean);
                                     if (Array.isArray(ext.variations)) {
-                                        const extVars = ext.variations.map(v => v.value.toLowerCase()).filter(Boolean);
-                                        const matches = taskVars.filter(tv => extVars.some(ev => ev.includes(tv) || tv.includes(ev)));
+                                        const extVars = ext.variations.map((v: { value?: string }) => (v.value || "").toLowerCase()).filter(Boolean);
+                                        const matches = taskVars.filter((tv: string) => extVars.some((ev: string) => ev.includes(tv) || tv.includes(ev)));
                                         score += matches.length * 50;
                                     }
                                     if (score > maxScore) {
                                         maxScore = score;
-                                        taskSku = ext.sku;
+                                        bestMatch = ext;
+                                    }
+                                }
+                                if (bestMatch) {
+                                    taskSku = bestMatch.sku;
+                                    if (bestMatch.customerFiles && bestMatch.customerFiles.length > 0) {
+                                        taskCustomerFiles = bestMatch.customerFiles;
                                     }
                                 }
                             } else if (extractedItems.length === 1) {
                                 taskSku = extractedItems[0].sku;
+                                if (extractedItems[0].customerFiles && extractedItems[0].customerFiles.length > 0) {
+                                    taskCustomerFiles = extractedItems[0].customerFiles;
+                                } else if (globalCustomerFiles && globalCustomerFiles.length > 0) {
+                                    taskCustomerFiles = globalCustomerFiles;
+                                }
+                            }
+
+                            // ALWAYS update customerFiles directly to Firestore tasks first
+                            if (taskCustomerFiles && taskCustomerFiles.length > 0) {
+                                try {
+                                    await updateDoc(doc(db, 'tasks', task.id), {
+                                        customerFiles: taskCustomerFiles
+                                    });
+                                } catch (e) {
+                                    console.error(`Failed to update customerFiles for task ${task.id}`, e);
+                                }
                             }
 
                             // CALL CENTRAL ENRICHMENT API
@@ -407,7 +447,8 @@ async function processQueue(teamId: string) {
                                         taskId: task.id,
                                         sku: taskSku,
                                         variant1: v1,
-                                        variant2: v2
+                                        variant2: v2,
+                                        customerFiles: taskCustomerFiles
                                     })
                                 });
                                 const apiData = await apiRes.json();
@@ -467,69 +508,66 @@ async function processQueue(teamId: string) {
     isProcessing = false;
 }
 
-async function fetchSKU(orderId: string): Promise<ExtractedItem[] | string> {
+async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
+    let extractedItems: ExtractedItem[] | string = "NULL";
+    let shopId = "";
+    let csrfToken = "";
+    
+    // 1. Fetch search_query hiddenly to get SKU JSON, shop_id, and csrf_token
     try {
-        const response = await fetch(`https://www.etsy.com/your/orders/sold/new?search_query=${orderId}`, {
+        const searchResponse = await fetch(`https://www.etsy.com/your/orders/sold/new?search_query=${orderId}`, {
             headers: {
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept': 'text/html',
                 'Accept-Language': 'en-US,en;q=0.9',
-                'Cache-Control': 'max-age=0',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'same-origin',
-                'Sec-Fetch-User': '?1',
-                'Upgrade-Insecure-Requests': '1'
             }
         });
-        
-        if (response.status === 429) {
-            console.warn("Rate limited by Etsy! Backing off for 10 minutes.");
-            rateLimitUntil = Date.now() + 10 * 60 * 1000;
-            return "NULL_RATE_LIMIT";
-        }
-        
-        if (response.status === 403) {
-             console.warn("403 Forbidden! Possible Cloudflare block. Backing off for 10 minutes.");
-             rateLimitUntil = Date.now() + 10 * 60 * 1000;
-             return "NULL_RATE_LIMIT";
-        }
-        
-        const html = await response.text();
-        
-        if (html.includes('class="sign-in-button-wrapper"') || html.includes('id="sign-in"') || html.includes('name="user_id" content=""') || html.includes('/signin?')) {
-            console.error("Etsy Session Expired / Logged out! Pausing completely.");
-            isEtsyLoggedOut = true;
-            return "NULL_AUTH_REQUIRED";
-        }
-        
-        // --- [NEW LOGIC] Parse Etsy.Context JSON for precise item mapping ---
-        try {
+        if (searchResponse.status === 200) {
+            const searchHtml = await searchResponse.text();
+            if (searchHtml.includes('class="sign-in-button-wrapper"') || searchHtml.includes('id="sign-in"')) {
+                isEtsyLoggedOut = true;
+                return "NULL_AUTH_REQUIRED";
+            }
+            
+            // Extract shopId and csrfToken for API v3
+            const shopIdMatch = searchHtml.match(/"shop_id"\s*:\s*"?(\d+)"?/);
+            if (shopIdMatch) shopId = shopIdMatch[1];
+            
+            const csrfMatch = searchHtml.match(/<meta name="csrf_nonce" content="([^"]+)"/);
+            if (csrfMatch) csrfToken = csrfMatch[1];
+            
             const contextPrefix = 'Etsy.Context=';
-            const startIndex = html.indexOf(contextPrefix);
+            const startIndex = searchHtml.indexOf(contextPrefix);
             if (startIndex > -1) {
                 const jsonStart = startIndex + contextPrefix.length;
-                let jsonEnd = html.indexOf(';</script>', jsonStart);
-                if (jsonEnd === -1) jsonEnd = html.indexOf('</script>', jsonStart);
-                
+                let jsonEnd = searchHtml.indexOf(';</script>', jsonStart);
+                if (jsonEnd === -1) jsonEnd = searchHtml.indexOf('</script>', jsonStart);
                 if (jsonEnd > -1) {
-                    let jsonStr = html.substring(jsonStart, jsonEnd).trim();
+                    let jsonStr = searchHtml.substring(jsonStart, jsonEnd).trim();
                     if (jsonStr.endsWith(';')) jsonStr = jsonStr.slice(0, -1);
-                    
                     const data = JSON.parse(jsonStr);
                     const orders = data?.data?.initial_data?.orders?.orders_search?.orders || [];
+                    const items: ExtractedItem[] = [];
                     
-                    const extractedItems: ExtractedItem[] = [];
-                    
+                    // Fallback for shop_id if regex fails
+                    if (!shopId && data?.data?.initial_data?.shop_id) {
+                        shopId = String(data.data.initial_data.shop_id);
+                    }
+
                     if (orders.length > 0) {
-                        // Find the exact order (though usually return only 1 from search query)
                         const currentOrder = orders.find((o: any) => String(o.order_id) === String(orderId)) || orders[0];
-                        const transactions = currentOrder.transactions || [];
                         
+                        // Another fallback for shop_id
+                        if (!shopId && currentOrder.shop_id) {
+                            shopId = String(currentOrder.shop_id);
+                        }
+
+                        const transactions = currentOrder.transactions || [];
                         for (const tx of transactions) {
-                            extractedItems.push({
+                            items.push({
                                 sku: tx.product?.product_identifier || "NULL",
                                 title: tx.product?.title || "",
                                 quantity: tx.quantity || 1,
+                                transaction_id: tx.transaction_id ? String(tx.transaction_id) : undefined,
                                 variations: (tx.variations || []).map((v: any) => ({
                                     name: v.property || '',
                                     value: v.value || ''
@@ -537,31 +575,73 @@ async function fetchSKU(orderId: string): Promise<ExtractedItem[] | string> {
                             });
                         }
                     }
-                    
-                    if (extractedItems.length > 0) {
-                        return extractedItems;
-                    }
+                    if (items.length > 0) extractedItems = items;
                 }
             }
-        } catch (parseError) {
-            console.error("JSON Parsing failed, falling back to regex:", parseError);
         }
-
-        // Fallback to simple regex if JSON fails
-        let extractedSku = "NULL";
-        try {
-            const regex = /"product_identifier"\s*:\s*"([^"]+)"/g;
-            const matches = [...html.matchAll(regex)];
-            if (matches.length > 0) {
-                extractedSku = matches.map(m => m[1]).filter(Boolean).join(', ');
-            }
-        } catch (error) {
-            console.error("SKU Extraction Error:", error);
-        }
-        
-        return extractedSku;
-    } catch (error) {
-        console.error("Fetch SKU error:", error);
-        return "NULL"; 
+    } catch (e) {
+        console.error("SKU Fetch Error", e);
     }
+
+    console.log(`%c[Debug API v3] orderId: ${orderId} | shop_id: "${shopId}" | csrf_token: "${csrfToken ? csrfToken.substring(0, 6) + '***' : 'MISSING'}"`, "color: #bada55; font-size: 14px; font-weight: bold;");
+
+    // 2. Fetch Personalization Files via API v3
+    let customerFiles: string[] = [];
+    if (shopId && csrfToken) {
+        try {
+            const apiRes = await fetch(`https://www.etsy.com/api/v3/ajax/shop/${shopId}/mission-control/orders/personalization-files/${orderId}`, {
+                headers: {
+                    'x-csrf-token': csrfToken,
+                    'x-requested-with': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                }
+            });
+            
+            if (apiRes.ok) {
+                const filesData = await apiRes.json();
+                const itemFiles: Record<string, string[]> = {};
+                const globalUrls = new Set<string>();
+                
+                if (Array.isArray(filesData)) {
+                    filesData.forEach(f => {
+                        if (f.url) {
+                            let url = f.url;
+                            // Ensure high res url
+                            url = url.replace(/_\d+x\d+\./, '_fullxfull.');
+                            globalUrls.add(url);
+                            
+                            if (f.transaction_id) {
+                                const txId = String(f.transaction_id);
+                                if (!itemFiles[txId]) itemFiles[txId] = [];
+                                itemFiles[txId].push(url);
+                            }
+                        }
+                    });
+                    
+                    customerFiles = Array.from(globalUrls);
+                    
+                    // Map files to specific transaction items
+                    if (Array.isArray(extractedItems)) {
+                        extractedItems.forEach(item => {
+                            if (item.transaction_id && itemFiles[item.transaction_id]) {
+                                item.customerFiles = itemFiles[item.transaction_id];
+                            }
+                        });
+                    }
+                }
+                console.log(`[API v3] orderId=${orderId} -> found ${customerFiles.length} global files`);
+            } else {
+                console.warn(`[API v3] Failed with status ${apiRes.status}`);
+            }
+        } catch (apiErr) {
+            console.error("[API v3] Fetch error:", apiErr);
+        }
+    } else {
+        console.warn(`[API v3] Missing shopId (${shopId}) or csrfToken (${csrfToken}), skipping API fetch.`);
+    }
+
+    return {
+        extractedItems,
+        customerFiles
+    };
 }

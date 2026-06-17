@@ -21,7 +21,7 @@ import { splitDateRange } from '../utils/dateChunking';
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { fetchCostsForRecords } from '../services/fulfillmentService';
 import { User } from 'firebase/auth';
-import { getImageMapFromManifests, applyListingIdsToRecord } from '../services/listingService';
+
 
 interface UseDataSyncProps {
     user: User | null;
@@ -40,16 +40,33 @@ export const useDataSync = ({
     timeZone,
     addNotification
 }: UseDataSyncProps) => {
-    const [allAccounts, setAllAccounts] = useState<Account[]>([]);
+    // --- 1. State Declarations ---
+    const [allAccounts, setAllAccounts] = useState<Account[]>(() => {
+        // Initialize from cache if possible
+        if (teamId) {
+            try {
+                const cached = localStorage.getItem(`vikcom_accounts_${teamId}`);
+                if (cached) return JSON.parse(cached);
+            } catch (e) {}
+        }
+        return [];
+    });
     const [records, setRecords] = useState<Record[]>([]);
     const [previousPeriodRecords, setPreviousPeriodRecords] = useState<Record[] | null>(null);
     const [manualCosts, setManualCosts] = useState<ManualCost[]>([]);
 
     // Ref to track latest accounts for safety checks in async functions
-    const allAccountsRef = useRef<Account[]>([]);
+    const allAccountsRef = useRef<Account[]>(allAccounts);
+
     useEffect(() => {
         allAccountsRef.current = allAccounts;
-    }, [allAccounts]);
+        // Update cache when accounts change
+        if (teamId && allAccounts.length > 0) {
+            try {
+                localStorage.setItem(`vikcom_accounts_${teamId}`, JSON.stringify(allAccounts));
+            } catch (e) {}
+        }
+    }, [allAccounts, teamId]);
 
     // Loading States
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -238,26 +255,10 @@ export const useDataSync = ({
             if (signal?.aborted) return [];
 
             let finalNewRecords = newRecordsWithCost;
+            let addedRecords: Record[] = [];
             if (finalNewRecords.length > 0) {
-                try {
-                    // Optimized: Only fetch map if we have items to map
-                    // Could check if any record has details.items first
-                    const hasItems = finalNewRecords.some(r => r.details?.items && r.details.items.length > 0);
-                    if (hasItems) {
-                        const imageMap = await getImageMapFromManifests(teamId);
-                        if (imageMap.size > 0) {
-                            finalNewRecords = finalNewRecords.map(record => {
-                                const result = applyListingIdsToRecord(record, imageMap);
-                                return result.record;
-                            });
-                        }
-                    }
-                } catch (e) {
-                    console.error('Auto-mapping listing IDs failed:', e);
-                }
+                addedRecords = await saveRecordsToFirebase(teamId, finalNewRecords);
             }
-
-            const addedRecords = await saveRecordsToFirebase(teamId, finalNewRecords);
 
             if (signal?.aborted) return [];
 
@@ -450,6 +451,8 @@ export const useDataSync = ({
                     return;
                 }
 
+                // If cache had the same accounts, we don't need to overwrite state unnecessarily
+                // But we still update to ensure we have the absolute latest from server
                 setAllAccounts(fbAccounts);
                 setRecords(initialDisplayRecords);
                 setManualCosts(manualCostEntries);
@@ -470,55 +473,21 @@ export const useDataSync = ({
                     });
                 }
 
-                // Delay sync by 5 seconds to let UI render with existing data first
+                // Delay background tasks by 5 seconds to let UI render with existing data first
                 if (fbAccounts.length > 0 && !signal.aborted) {
                     setTimeout(async () => {
                         if (signal.aborted) {
                             return;
                         }
 
-                        // Create sync AbortController
-                        syncAbortControllerRef.current = new AbortController();
-                        const syncSignal = syncAbortControllerRef.current.signal;
+                        // Schedule realtime sync after data stabilizes
+                        scheduleRealtimeSync();
 
-                        setSyncState('Auto-syncing...');
-
-                        try {
-                            // Silence the initial sync progress to prevent UI flashing "Processing..."
-                            const silentProgress = () => { };
-                            const syncResult = await runSync(fbAccounts, initialDisplayRecords, undefined, syncSignal, silentProgress, true);
-
-                            if (syncSignal.aborted) {
-                                return;
-                            }
-
-                            // Only refresh view if sync actually brought in new data OR updated old records
-                            if (syncResult.length > 0) {
-                                const updatedDisplayRecords = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
-                                if (syncSignal.aborted) return;
-                                setRecords(updatedDisplayRecords);
-                            } else {
-                                console.log("Initial sync yielded no new records. Skipping re-fetch to prevent UI flash.");
-                            }
-
-                            const latestAccounts = await getAccountsFromFirebase(teamId);
-
-                            if (syncSignal.aborted) return;
-                            setAllAccounts(latestAccounts);
-
-                            // Schedule realtime sync after data stabilizes (10 seconds after sync completes)
-                            scheduleRealtimeSync();
-
-                            // Run historical sync in background
-                            const accountsForHistoricalSync = latestAccounts.filter(acc => !acc.historical_sync_complete);
-                            if (accountsForHistoricalSync.length > 0 && !syncSignal.aborted) {
-                                historicalSyncAbortControllerRef.current = new AbortController();
-                                runHistoricalSync(accountsForHistoricalSync, initialDisplayRecords, historicalSyncAbortControllerRef.current.signal);
-                            }
-                        } catch (error) {
-                            if (syncSignal.aborted) return;
-                            console.error("Failed during initial sync:", error);
-                            addNotification("Initial sync encountered an error.", "error");
+                        // Run historical sync in background
+                        const accountsForHistoricalSync = fbAccounts.filter(acc => !acc.historical_sync_complete);
+                        if (accountsForHistoricalSync.length > 0 && !signal.aborted) {
+                            historicalSyncAbortControllerRef.current = new AbortController();
+                            runHistoricalSync(accountsForHistoricalSync, initialDisplayRecords, historicalSyncAbortControllerRef.current.signal);
                         }
                     }, 5000); // 5 second delay
                 }
@@ -771,6 +740,11 @@ export const useDataSync = ({
                 setAllAccounts(updatedAccounts);
                 return;
             }
+
+            // Prevent notifying if the accounts are exactly what we already have in cache/state
+            const prevAccounts = allAccountsRef.current;
+            // Removed early return here so worker_status updates can flow through to the UI
+            // The notification logic below already safely checks for label/id changes.
 
             // Only send notifications after the initial app load completed
             if (initialLoadCompleteRef.current) {

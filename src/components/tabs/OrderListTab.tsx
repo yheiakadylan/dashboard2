@@ -35,9 +35,8 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     handleResyncOrder,
     allRecords
 }) => {
-    const { isOrderSelectorOpen, setIsOrderSelectorOpen, globalUsdMode } = useUI();
+    const { isOrderSelectorOpen, setIsOrderSelectorOpen, isGoogleSheetModalOpen, setIsGoogleSheetModalOpen, globalUsdMode } = useUI();
     const { exchangeRates } = useDashboard();
-    const [showGoogleSheetModal, setShowGoogleSheetModal] = useState(false);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [selectedRecords, setSelectedRecords] = useState<Record[]>([]);
     const isDesktop = useMediaQuery('(min-width: 768px)');
@@ -182,14 +181,14 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
                 onClose={() => setIsOrderSelectorOpen(false)}
                 allRecords={allRecords}
                 onConfirm={handleOrderSelection}
-                onOpenSettings={() => setShowGoogleSheetModal(true)}
+                onOpenSettings={() => setIsGoogleSheetModalOpen(true)}
             />
 
             {/* Google Sheet Config Modal - NO records */}
-            {showGoogleSheetModal && (
+            {isGoogleSheetModalOpen && (
                 <GoogleSheetModal
-                    isOpen={showGoogleSheetModal}
-                    onClose={() => setShowGoogleSheetModal(false)}
+                    isOpen={isGoogleSheetModalOpen}
+                    onClose={() => setIsGoogleSheetModalOpen(false)}
                     records={[]}
                 />
             )}

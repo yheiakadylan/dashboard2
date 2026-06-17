@@ -61,49 +61,26 @@ function formatSource(source: string): string {
     return source.replace(/_/g, ' ');
 }
 
-function slimImage(src: string | undefined): string | undefined {
-    if (!src) return src;
-    if (src.length > 50000 && src.startsWith('data:')) return src.substring(0, 500);
-    return src;
+function getOptimizedImageProps(src: string | undefined | null): { src: string | null, fullSrc?: string } {
+    if (!src) return { src: null };
+    if (src.length > 50000 && src.startsWith('data:')) return { src: src.substring(0, 500) };
+    
+    // Etsy image optimization
+    // Convert fullxfull to 75x75 for thumbnail, keep fullxfull for preview
+    if (src.includes('etsystatic.com') && src.includes('il_fullxfull.')) {
+        return {
+            src: src.replace('il_fullxfull.', 'il_75x75.'),
+            fullSrc: src
+        };
+    }
+    
+    return { src, fullSrc: src };
 }
 
 
 function isRefundedStatus(r: Record): boolean {
     if (!r) return false;
     return r.source === 'Etsy_Refunded' || r.status === 'Refunded';
-}
-
-export function resolveListingId(item: any, listingsMapping: any): string | undefined {
-    if (!listingsMapping) {
-        if (isDev) console.warn('[resolveListingId] listingsMapping is NULL - check DashboardContext');
-        return undefined;
-    }
-
-    if (item.listing_id && item.listing_id !== 'None') return String(item.listing_id);
-
-    const orderImg = (item.image || '').trim();
-    if (orderImg && listingsMapping.imageMap[orderImg]) {
-        return listingsMapping.imageMap[orderImg];
-    }
-
-    const rawName = item.name || '';
-    const name = decodeHTMLEntities(rawName).trim().toLowerCase();
-    const baseName = name.split(/[\-\u2013\u2014\(\[,\/]/)[0].trim();
-    
-    if (listingsMapping.nameMap[name]) {
-        return listingsMapping.nameMap[name];
-    }
-
-    if (baseName && listingsMapping.nameMap[baseName]) {
-        return listingsMapping.nameMap[baseName];
-    }
-
-    if (rawName && isDev) {
-        console.log(`[Debug Listing Map] Fail: "${rawName}" | Base: "${baseName}" | Img: ${orderImg.substring(0, 50)}...`);
-        console.log(`[Debug Listing Map] Map sizes - ImageMap: ${Object.keys(listingsMapping.imageMap).length}, NameMap: ${Object.keys(listingsMapping.nameMap).length}`);
-    }
-
-    return undefined;
 }
 
 function extractSize(variant: string | undefined): string {
@@ -129,37 +106,16 @@ export function processData(
     permissions: { [key: string]: boolean },
     manualCosts: any[],
     exchangeRates: { [currency: string]: number } | null,
-    productMappings: any[] = [],
-    categories: any[] = [],
-    listingsMapping: any = null
+    categories: any[] = []
 ): ProcessedData {
     if (isDev) {
-        console.log('[Worker] ProcessData called with', records.length, 'records.', 
-          listingsMapping ? `Mapping data: ${Object.keys(listingsMapping.imageMap).length} images, ${Object.keys(listingsMapping.nameMap).length} names` : 'NO mapping data');
+        console.log('[Worker] ProcessData called with', records.length, 'records.');
     }
 
     const accountLabelMap = new Map(accounts.map(acc => [acc.email, acc.label || acc.email]));
     const categoryNameMap = new Map(categories.map(c => [c.code, c.name]));
 
-    const mappingsLookup = new Map<string, string>();
-    if (productMappings && Array.isArray(productMappings)) {
-        productMappings.forEach(m => {
-            const rawName = m.name.trim().toLowerCase();
-            const rawVariant = (m.variant || '').trim().toLowerCase();
-            
-            // KEY 1: Original key as saved (for backward compatibility)
-            mappingsLookup.set(`${rawName}|${rawVariant}`, m.category_code);
-            
-            // KEY 2: Normalized key — same algorithm used at lookup time
-            const normalizedKey = normalizeVariantForKey(m.variant || '');
-            mappingsLookup.set(`${rawName}||norm||${normalizedKey}`, m.category_code);
-            
-            // KEY 3: Product-level fallback (no variant)
-            if (!mappingsLookup.has(`${rawName}|`)) {
-                mappingsLookup.set(`${rawName}|`, m.category_code);
-            }
-        });
-    }
+
 
     // --- 1. Deduplication pass ---
     const deduplicate = (recs: Record[]) => {
@@ -210,6 +166,31 @@ export function processData(
     const overviewChart = new Map<string, { orders: Set<string>, rev: Map<string, number> }>();
     const overviewAllCurrs = { rev: new Set<string>(), funds: new Set<string>(), cost: new Set<string>(), chart: new Set<string>() };
 
+    // --- Pre-fill overviewDaily to ensure all dates in range are shown even if 0 ---
+    const fromTime = new Date(filterDateRange.from).getTime();
+    const toTime = new Date(filterDateRange.to).getTime();
+    if (!isNaN(fromTime) && !isNaN(toTime) && fromTime <= toTime) {
+        const current = new Date(fromTime);
+        while (current.getTime() <= toTime) {
+            const dKey = formatDate(current.toISOString(), timeZone);
+            if (dKey !== 'Invalid Date' && !overviewDaily.has(dKey)) {
+                overviewDaily.set(dKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
+            }
+            if (!isHourly && dKey !== 'Invalid Date' && !overviewChart.has(dKey)) {
+                overviewChart.set(dKey, { orders: new Set(), rev: new Map() });
+            }
+            current.setDate(current.getDate() + 1);
+        }
+        // Ensure 'to' date is fully captured (boundary safety)
+        const toDKey = formatDate(new Date(toTime).toISOString(), timeZone);
+        if (toDKey !== 'Invalid Date' && !overviewDaily.has(toDKey)) {
+            overviewDaily.set(toDKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
+        }
+        if (!isHourly && toDKey !== 'Invalid Date' && !overviewChart.has(toDKey)) {
+            overviewChart.set(toDKey, { orders: new Set(), rev: new Map() });
+        }
+    }
+
     const kpiRaw = { orderIds: new Set<string>(), shops: new Set<string>(), revenue: new Map<string, number>(), funds: new Map<string, number>(), cost: new Map<string, number>(), refOrderIds: new Set<string>(), refund: new Map<string, number>() };
     const shopSummaryData = new Map<string, { revenue: Map<string, number>, orders: Set<string>, funds: Map<string, number>, cost: Map<string, number>, refund: Map<string, number>, refOrderIds: Set<string> }>();
     
@@ -228,10 +209,6 @@ export function processData(
     const fulfillCounts = { all: new Map<string, number>(), refunded: new Map<string, number>() };
     let fulfillTotalCost = 0;
     const fulfillStats = { totalCount: 0, refCount: 0 };
-    
-    const unmappedKwCounts = new Map<string, number>();
-
-    const kwStopSet = new Set(['a', 'an', 'the', 'and', 'or', 'but', 'if', 'then', 'else', 'when', 'at', 'by', 'for', 'with', 'about', 'in', 'on', 'to', 'of', 'personalized', 'custom', 'gift', 'gift for', 'design', 't-shirt', 'mug', 'shirt', 'hoodie', 'personalization', 'mockup', 'bundle', 'svg', 'png', 'jpg', 'digital', 'download']);
 
     uniqueRecords.forEach(r => {
         const currency = r.currency || 'USD';
@@ -283,54 +260,64 @@ export function processData(
                 // Product Statistics (Summary & Products Tab)
                 if (r.details?.items?.length) {
                     const financials = r.details.financials;
-                    const netRevenue = (financials?.itemTotal || 0) - (financials?.discount || 0);
                     const totalListValue = r.details.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                    const totalQuantity = r.details.items.reduce((sum, item) => sum + item.quantity, 0);
+                    
+                    const totalDiscount = financials?.discount || 0;
+                    const totalShipping = financials?.shipping || 0;
+
+                    const shippingPerItem = totalQuantity > 0 ? totalShipping / totalQuantity : 0;
 
                     r.details.items.forEach(item => {
                         const name = decodeHTMLEntities(item.name.trim());
                         const variant = decodeHTMLEntities(item.variant?.trim() || '');
                         const cleaned = cleanVariantForAggregation(variant);
                         const displayedVariant = formatVariantForDisplay(cleaned);
-                        const resolvedId = resolveListingId(item, listingsMapping);
-                        const listingId = resolvedId 
-                            ? { type: 'listing_link' as const, id: resolvedId } 
-                            : (listingsMapping ? 'None' : { type: 'loading_mapping' as const });
                         const groupedKey = normalizeVariantForKey(cleaned);
                         
-                        // Multi-level mapping lookup: ListingID > NormKey > Display > Cleaned > Product-level
+                        // Multi-level mapping lookup
                         const nameLower = name.toLowerCase();
-                        const catCode = (resolvedId ? mappingsLookup.get(resolvedId) : undefined) ||
-                                         mappingsLookup.get(`${nameLower}||norm||${groupedKey}`) ||
-                                         mappingsLookup.get(`${nameLower}|${displayedVariant.toLowerCase()}`) ||
-                                         mappingsLookup.get(`${nameLower}|${cleaned.toLowerCase()}`) || 
-                                         mappingsLookup.get(`${nameLower}|`) || 
-                                         item.category_code || r.category_code || 'Unmapped';
+                        const sku = decodeHTMLEntities(item.sku?.trim() || '');
+                        const groupingKey = sku || name;
+                        const groupingKeyLower = groupingKey.toLowerCase();
+                        
+                        let catCode = 'Unknown';
+                        if (sku) {
+                            catCode = sku.split('-')[0];
+                        }
 
                         const catName = categoryNameMap.get(catCode) || catCode;
+                        
                         const weight = totalListValue > 0 ? (item.price * item.quantity) / totalListValue : (1 / r.details!.items.length);
-                        const itemRevenue = netRevenue * weight;
+                        const proportionalDiscount = totalDiscount * weight;
+                        const proportionalShipping = shippingPerItem * item.quantity;
+                        
+                        // Tax is ignored since it's remitted by Etsy and doesn't affect seller's net revenue
+                        const itemRevenue = (item.price * item.quantity) - proportionalDiscount + proportionalShipping;
+                        
                         const itemRevenueUSD = (currency === 'USD' ? itemRevenue : (exchangeRates?.[currency] ? itemRevenue * exchangeRates[currency] : itemRevenue));
                         const size = extractSize(variant);
 
                         // Summary Stats
                         if (!pByShop.has(shopLabel)) pByShop.set(shopLabel, new Map());
                         const ps = pByShop.get(shopLabel)!;
-                        if (!ps.has(name)) ps.set(name, { qty: 0, rev: 0, revUSD: 0, image: item.image, cat: catCode, classification: variant, size, listingId, currency });
-                        const s = ps.get(name); s.qty += item.quantity; s.rev += item.quantity * item.price; s.revUSD += itemRevenueUSD;
+                        if (!ps.has(groupingKey)) ps.set(groupingKey, { name, qty: 0, rev: 0, revUSD: 0, image: item.image, cat: catCode, classification: variant, size, currency });
+                        const s = ps.get(groupingKey); s.qty += item.quantity; s.rev += item.quantity * item.price; s.revUSD += itemRevenueUSD;
 
                         if (!pByCat.has(catCode)) pByCat.set(catCode, new Map());
                         const pc = pByCat.get(catCode)!;
-                        if (!pc.has(name)) pc.set(name, { qty: 0, rev: 0, revUSD: 0, image: item.image, shop: shopLabel, classification: variant, size, listingId, currency });
-                        const c = pc.get(name); c.qty += item.quantity; c.rev += item.quantity * item.price; c.revUSD += itemRevenueUSD;
+                        if (!pc.has(groupingKey)) pc.set(groupingKey, { name, qty: 0, rev: 0, revUSD: 0, image: item.image, shop: shopLabel, classification: variant, size, currency });
+                        const c = pc.get(groupingKey); c.qty += item.quantity; c.rev += item.quantity * item.price; c.revUSD += itemRevenueUSD;
 
                         // Detailed Products Tab Map
-                        const prodKey = `${name.toLowerCase()}|${displayedVariant}|${shopEmail.toLowerCase()}`;
+                        const prodKey = `${groupingKeyLower}|${displayedVariant}|${shopEmail.toLowerCase()}`;
                         
                         if (!productStatsTableMap.has(prodKey)) {
                             productStatsTableMap.set(prodKey, { 
                                 image: item.image, 
                                 name, 
-                                listingId, 
+                                sku,
+                                groupingKey,
                                 variant: displayedVariant, 
                                 category: catName, 
                                 categoryCode: catCode, 
@@ -361,15 +348,7 @@ export function processData(
                         const vt = variantStatsTableMap.get(varKey);
                         vt.quantity += item.quantity; vt.revenue += itemRevenue; vt.revenueUSD += itemRevenueUSD;
 
-                        // Keywords for unmapped
-                        if (catCode === 'Unmapped') {
-                            const words = name.toLowerCase().split(/[^a-z0-9]+/);
-                            for (const w of words) {
-                                if (w.length > 2 && !kwStopSet.has(w)) {
-                                    unmappedKwCounts.set(w, (unmappedKwCounts.get(w) || 0) + item.quantity);
-                                }
-                            }
-                        }
+
 
                     });
                 }
@@ -384,7 +363,7 @@ export function processData(
                 const finalDateCell = (isRef && refundDtStr) ? { type: 'text_with_subtitle' as const, main: dateDisplay, subtitle: `↩ ${refundDtStr}`, subtitleClass: 'text-red-600 font-bold bg-red-100 rounded px-1' } : dateDisplay;
 
                 const commonOrderRow = [
-                    { type: 'image' as const, src: pImg, alt: shopPName }, shopPName, pVars, r.order_id || 'N/A', r.amount, currency,
+                    { type: 'image' as const, ...getOptimizedImageProps(pImg), alt: shopPName }, shopPName, pVars, r.order_id || 'N/A', r.amount, currency,
                     r.cost_total ?? null, r.ff_code || '-', r.order_id && caseMap.has(r.order_id) ? caseMap.get(r.order_id) : 'No',
                     r.order_id && helpMap.has(r.order_id) ? helpMap.get(r.order_id) : 'No', shopLabel,
                     finalDateCell, formatSource(r.source), r.id, r.dt_local, r.source, finalStatus === 'Refunded'
@@ -392,9 +371,9 @@ export function processData(
                 ordersTabRows.push(commonOrderRow);
 
                 if (r.source === 'Etsy_Sales') {
-                    etsyRows.push([{ type: 'image' as const, src: pImg, alt: shopPName }, shopPName, r.order_id || 'N/A', r.amount, currency, shopLabel, finalDateCell, { type: 'action_group', actions: r.id ? [{ type: 'view', label: 'View', id: r.id }] : [] }, finalStatus === 'Refunded']);
+                    etsyRows.push([{ type: 'image' as const, ...getOptimizedImageProps(pImg), alt: shopPName }, shopPName, r.order_id || 'N/A', r.amount, currency, shopLabel, finalDateCell, { type: 'action_group', actions: r.id ? [{ type: 'view', label: 'View', id: r.id }] : [] }, finalStatus === 'Refunded', r.dt_local]);
                 } else if (r.source === 'Ebay_Sales') {
-                    ebayRows.push([{ type: 'image' as const, src: pImg, alt: shopPName }, shopPName, r.order_id || 'N/A', r.amount, currency, shopLabel, finalDateCell, { type: 'action_group', actions: r.id ? [{ type: 'view', label: 'View', id: r.id }] : [] }, finalStatus === 'Refunded']);
+                    ebayRows.push([{ type: 'image' as const, ...getOptimizedImageProps(pImg), alt: shopPName }, shopPName, r.order_id || 'N/A', r.amount, currency, shopLabel, finalDateCell, { type: 'action_group', actions: r.id ? [{ type: 'view', label: 'View', id: r.id }] : [] }, finalStatus === 'Refunded', r.dt_local]);
                 }
 
                 // Fulfillment logic
@@ -414,7 +393,7 @@ export function processData(
                     fulfillRows.push([
                         finalFfDateCell, r.order_id || 'N/A',
                         isRef ? { type: 'text_with_subtitle' as const, main: r.product_name || '-', subtitle: `↩ ${r.refund_details?.reason || sInfo?.refund_details?.reason || 'Refunded'}`, subtitleClass: 'text-red-500 font-medium' } : (r.product_name || '-'),
-                        provider, ffCode, r.cost_total ?? null, shopLabel, isRef
+                        provider, ffCode, r.cost_total ?? null, shopLabel, isRef, r.fulfill_date || r.dt_local
                     ]);
 
                     if (r.product_name) {
@@ -469,7 +448,7 @@ export function processData(
             overviewAllCurrs.cost.add('USD');
 
             // Add manual fulfill rows
-            fulfillRows.push([c.date, "N/A (Manual)", "N/A (Manual)", c.providerName, "owner", costUSD, "Manual Entry", false]);
+            fulfillRows.push([c.date, "N/A (Manual)", "N/A (Manual)", c.providerName, "owner", costUSD, "Manual Entry", false, c.date]);
             fulfillTotalCost += costUSD;
             fulfillStats.totalCount++; // Tăng count để refund rate chính xác
         });
@@ -670,7 +649,7 @@ export function processData(
         stats.forEach((map, key) => {
             res[key] = Array.from(map.entries()).map(([n, s]: [any, any]) => ({
                 name: n, quantity: s.qty, revenue: s.rev, revenueUSD: s.revUSD, image: s.image,
-                category: s.cat || key, shop: s.shop || key, classification: s.classification, size: s.size, listing_id: s.listingId, currency: s.currency
+                category: s.cat || key, shop: s.shop || key, classification: s.classification, size: s.size, currency: s.currency
             })).sort((a: any, b: any) => b.quantity - a.quantity).slice(0, 500);
         });
         return res;
@@ -689,10 +668,14 @@ export function processData(
     const processCounts = (counts: Map<string, number>) => Array.from(counts.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 10).reverse();
 
     // -- Products Tab Rows --
-    const finalProductRows = Array.from(productStatsTableMap.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 3000).map(p => [
-        { type: 'image', src: slimImage(p.image), alt: p.name }, p.name, p.listingId, p.category, p.variant, p.shop, p.quantity,
+    const finalProductRows = Array.from(productStatsTableMap.values()).sort((a, b) => {
+        const catCmp = a.categoryCode.localeCompare(b.categoryCode);
+        if (catCmp !== 0) return catCmp;
+        return b.revenue - a.revenue;
+    }).slice(0, 3000).map(p => [
+        { type: 'image', ...getOptimizedImageProps(p.image), alt: p.name }, p.sku || '-', p.name, p.category, p.variant, p.shop, p.quantity,
         { type: 'value_with_unit', value: p.revenue, display: `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(p.revenue)} ${p.currency}` },
-        p.currency, p.revenue, p.categoryCode
+        p.currency, p.revenue, p.categoryCode, p.groupingKey
     ]);
 
     const finalVariantRows = Array.from(variantStatsTableMap.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 3000).map(v => [
@@ -703,13 +686,13 @@ export function processData(
 
     return {
         overview: { table: { headers: overviewHeaders, rows: overviewRows as any }, chartData: overviewChartData },
-        orders: { headers: ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Curren", "Cost", "FF Code", "Case", "Help", "Account", "Date", "Source"], rows: ordersTabRows.sort((a, b) => new Date(b[14]).getTime() - new Date(a[14]).getTime()) },
-        ebay: { headers: ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"], rows: ebayRows.sort((a, b) => new Date(b[6]).getTime() - new Date(a[6]).getTime()) },
-        etsy: { headers: ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"], rows: etsyRows.sort((a, b) => new Date(b[6]).getTime() - new Date(a[6]).getTime()) },
-        cases: { headers: ["Order Number", "Message", "Source", "Account", "Date"], rows: caseRows.sort((a, b) => new Date(b[5]).getTime() - new Date(a[5]).getTime()) },
-        help: { headers: ["Order Number", "Help Kind", "Source", "Account", "Date"], rows: helpRows.sort((a, b) => new Date(b[5]).getTime() - new Date(a[5]).getTime()) },
+        orders: { headers: ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Curren", "Cost", "FF Code", "Case", "Help", "Account", "Date", "Source"], rows: ordersTabRows.sort((a, b) => (b[14] || '').localeCompare(a[14] || '')) },
+        ebay: { headers: ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"], rows: ebayRows.sort((a, b) => (b[9] || '').localeCompare(a[9] || '')) },
+        etsy: { headers: ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"], rows: etsyRows.sort((a, b) => (b[9] || '').localeCompare(a[9] || '')) },
+        cases: { headers: ["Order Number", "Message", "Source", "Account", "Date"], rows: caseRows.sort((a, b) => (b[5] || '').localeCompare(a[5] || '')) },
+        help: { headers: ["Order Number", "Help Kind", "Source", "Account", "Date"], rows: helpRows.sort((a, b) => (b[5] || '').localeCompare(a[5] || '')) },
         fulfill: {
-            table: { headers: ["Date", "Order Number", "Product Name", "Provider", "Fulfillment Code", "Cost (USD)", "Shop Account"], rows: fulfillRows.sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime()) as any },
+            table: { headers: ["Date", "Order Number", "Product Name", "Provider", "Fulfillment Code", "Cost (USD)", "Shop Account"], rows: fulfillRows.sort((a, b) => (b[8] || '').localeCompare(a[8] || '')) as any },
             merchizeChartData: [], printwayChartData: [], // Opt: Removed redundant provider-specific chart calculations
             allProductChartData: processCounts(fulfillCounts.all), refundedChartData: processCounts(fulfillCounts.refunded),
             totalCost: fulfillTotalCost, refundRate: fulfillStats.totalCount > 0 ? (fulfillStats.refCount / fulfillStats.totalCount) * 100 : 0
@@ -717,10 +700,9 @@ export function processData(
 
         summary: {
             kpis, table: { headers: ["Shop", "Orders", "Revenue", ...((role === 'owner' || permissions.viewKpiFunds) ? ["Funds"] : []), ...((role === 'owner' || permissions.viewKpiCost) ? ["Cost (USD)"] : []), ...((role === 'owner' || permissions.viewKpiEarn) ? ["Earn"] : [])], rows: summaryRows as any },
-            chartData: summaryChartData, topProductsByShop: transformStats(pByShop), topProductsByCategory: transformStats(pByCat), topProductsBySize: {}, categoryComparison: catComp, 
-            unmappedKeywords: Array.from(unmappedKwCounts.entries()).map(([keyword, count]) => ({ keyword, count })).sort((a, b) => b.count - a.count).slice(0, 50)
+            chartData: summaryChartData, topProductsByShop: transformStats(pByShop), topProductsByCategory: transformStats(pByCat), topProductsBySize: {}, categoryComparison: catComp
         },
-        products: { headers: ['Image', 'Product Name', 'Listing ID', 'Category', 'Variant/Size', 'Shop', 'Quantity', 'Revenue'], rows: finalProductRows },
+        products: { headers: ['Image', 'SKU', 'Product Name', 'Category', 'Variant/Size', 'Shop', 'Quantity', 'Revenue'], rows: finalProductRows },
         variants: { headers: ['Category', 'Variant/Size', 'Quantity', 'Revenue'], rows: finalVariantRows }
     };
 }

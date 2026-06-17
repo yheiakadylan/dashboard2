@@ -20,7 +20,7 @@ import {
 import { getAuth } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getMessaging, isSupported } from "firebase/messaging";
-import { Account, Record, UserProfile, Category, ProductMapping } from '../types';
+import { Account, Record, UserProfile, Category } from '../types';
 
 // Firebase configuration - uses VITE_ prefix for client-side access
 const firebaseConfig = {
@@ -687,6 +687,54 @@ export const addRecord = async (teamId: string, record: Record): Promise<Record>
   return { ...record, id: docRef.id };
 };
 
+export const bulkPushSkuJobs = async (teamId: string, records: Record[]): Promise<number> => {
+  if (!records || records.length === 0) return 0;
+  
+  const jobsRef = collection(db, 'user', teamId, 'sku_jobs');
+  let batch = writeBatch(db);
+  let count = 0;
+  let totalCount = 0;
+  
+  for (const record of records) {
+    if (record.order_id && record.account && record.source === 'Etsy_Sales') {
+      
+      // Check if this order actually needs SKU fetching
+      // True if it has items and ANY item is missing a SKU, OR if it has no items (to be safe)
+      let needsSku = true;
+      if (record.details?.items && record.details.items.length > 0) {
+        needsSku = record.details.items.some(item => !item.sku || item.sku.trim() === '');
+      }
+      
+      if (!needsSku) continue; // Skip if all items already have a SKU
+
+      const jobDocRef = doc(jobsRef, record.order_id);
+      batch.set(jobDocRef, {
+        order_id: record.order_id,
+        account: record.account,
+        status: 'pending',
+        priority: true, // Manual triggers get priority
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }, { merge: true });
+      
+      count++;
+      totalCount++;
+      
+      if (count >= 500) {
+        await batch.commit();
+        batch = writeBatch(db);
+        count = 0;
+      }
+    }
+  }
+  
+  if (count > 0) {
+    await batch.commit();
+  }
+  
+  return totalCount;
+};
+
 export const searchGlobalRecords = async (teamId: string, term: string): Promise<Record[]> => {
   if (!term || !term.trim()) return [];
 
@@ -853,48 +901,6 @@ export const deleteCategory = async (teamId: string, categoryId: string): Promis
   await deleteDoc(docRef);
 };
 
-export const getProductMappings = async (teamId: string): Promise<ProductMapping[]> => {
-  const col = collection(db, 'user', teamId, 'product_mappings');
-  const snap = await getDocs(col);
-  return snap.docs.map(doc => ({ ...(doc.data() as ProductMapping), id: doc.id }));
-};
-
-export const saveProductMapping = async (teamId: string, mapping: ProductMapping): Promise<void> => {
-  // Use a predictable ID: base64 of [name + variant] to ensure uniqueness and allow direct updates
-  const id = btoa(unescape(encodeURIComponent(`${mapping.name.trim().toLowerCase()}_${(mapping.variant || '').trim().toLowerCase()}`)));
-  const docRef = doc(db, 'user', teamId, 'product_mappings', id);
-  const data = {
-    ...mapping,
-    id,
-    updatedAt: new Date().toISOString()
-  };
-  if (!mapping.createdAt) (data as any).createdAt = new Date().toISOString();
-  await setDoc(docRef, data, { merge: true });
-};
-
-export const saveProductMappingsBulk = async (teamId: string, mappings: ProductMapping[]): Promise<void> => {
-  const { writeBatch } = await import('firebase/firestore');
-  const batch = writeBatch(db);
-  const now = new Date().toISOString();
-
-  mappings.forEach(mapping => {
-    const id = btoa(unescape(encodeURIComponent(`${mapping.name.trim().toLowerCase()}_${(mapping.variant || '').trim().toLowerCase()}`)));
-    const docRef = doc(db, 'user', teamId, 'product_mappings', id);
-    batch.set(docRef, {
-      ...mapping,
-      id,
-      updatedAt: now,
-      createdAt: mapping.createdAt || now
-    }, { merge: true });
-  });
-
-  await batch.commit();
-};
-
-export const deleteProductMapping = async (teamId: string, mappingId: string): Promise<void> => {
-  const docRef = doc(db, 'user', teamId, 'product_mappings', mappingId);
-  await deleteDoc(docRef);
-};
 
 // === [NEW] Worker Management Services ===
 

@@ -4,7 +4,7 @@ import { Tab } from '../types';
 import { useNotification } from './NotificationContext';
 
 // Constants moved here or imported? For now, defining strict types/constants.
-const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Listing', 'Products', 'Fulfill', 'Support'];
+const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Fulfill', 'Support'];
 
 interface UIContextType {
     // Layout
@@ -29,6 +29,8 @@ interface UIContextType {
     setIsNotificationDetailOpen: React.Dispatch<React.SetStateAction<boolean>>;
     isOrderSelectorOpen: boolean;
     setIsOrderSelectorOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    isGoogleSheetModalOpen: boolean;
+    setIsGoogleSheetModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
     selectedNotificationId: string | null;
     setSelectedNotificationId: React.Dispatch<React.SetStateAction<string | null>>;
 
@@ -165,6 +167,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const [isTabSettingsOpen, setIsTabSettingsOpen] = useState(false);
     const [isNotificationDetailOpen, setIsNotificationDetailOpen] = useState(false);
     const [isOrderSelectorOpen, setIsOrderSelectorOpen] = useState(false);
+    const [isGoogleSheetModalOpen, setIsGoogleSheetModalOpen] = useState(false);
     const [selectedNotificationId, setSelectedNotificationId] = useState<string | null>(null);
 
 
@@ -179,7 +182,6 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const handleTabClick = (tab: Tab) => {
         setActiveTabRaw(tab);
         setDayFilter(null);
-        setSelectedAccountId('all');
     };
 
     const handleViewDayDetails = (date: string) => {
@@ -253,6 +255,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
             isTabSettingsOpen, setIsTabSettingsOpen,
             isNotificationDetailOpen, setIsNotificationDetailOpen,
             isOrderSelectorOpen, setIsOrderSelectorOpen,
+            isGoogleSheetModalOpen, setIsGoogleSheetModalOpen,
             selectedNotificationId, setSelectedNotificationId,
             activeTab, setActiveTab,
             tabOrder, setTabOrder: setLocalTabOrder,

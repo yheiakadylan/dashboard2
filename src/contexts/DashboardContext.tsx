@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, createContext } from 'react';
-import { Record, Account, ProcessedData, ManualCost, UserProfile, Category, ProductMapping } from '../types';
+import { Record, Account, ProcessedData, ManualCost, UserProfile, Category } from '../types';
 import {
   saveAccountsToFirebase,
   deleteRecordsForAccounts,
@@ -72,6 +72,7 @@ interface DashboardContextType {
   handleExportWithOptions: (includeImages: boolean) => void;
   performGlobalSearch: (term: string) => Promise<void>;
   clearGlobalSearch: () => void;
+  handleBulkFetchSKU: () => Promise<void>;
 
 
 
@@ -85,14 +86,9 @@ interface DashboardContextType {
 
   // Category & Mapping
   categories: Category[];
-  productMappings: ProductMapping[];
   refreshCategories: () => Promise<void>;
-  refreshMappings: () => Promise<void>;
-  updateMapping: (mapping: ProductMapping) => Promise<void>;
   createCategory: (category: { code: string, name: string }) => Promise<void>;
   bulkSaveCategories: (categories: { code: string, name: string, oldCode?: string }[]) => Promise<void>;
-  bulkUpdateMappings: (mappings: ProductMapping[]) => Promise<void>;
-  listingsMapping: { imageMap: { [key: string]: string }, nameMap: { [key: string]: string } } | null;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -218,7 +214,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   // --- Category & Mapping Logic ---
   const [categories, setCategories] = useState<Category[]>([]);
-  const [productMappings, setProductMappings] = useState<ProductMapping[]>([]);
 
   const refreshCategories = React.useCallback(async () => {
     if (teamId) {
@@ -228,59 +223,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }
   }, [teamId]);
 
-  const refreshMappings = React.useCallback(async () => {
-    if (teamId) {
-      const { getProductMappings } = await import('../services/firebaseService');
-      const fetched = await getProductMappings(teamId);
-      setProductMappings(fetched);
-    }
-  }, [teamId]);
-
-  // --- Listing Mapping Logic ---
-  const [listingsMapping, setListingsMapping] = useState<{ imageMap: { [key: string]: string }, nameMap: { [key: string]: string } } | null>(null);
-  // Tracks whether the listing mapping has been fetched at least once.
-  // until this is true, the worker should wait to avoid a double-process (null → data).
-  const [isListingsMappingReady, setIsListingsMappingReady] = useState(false);
-
-  const refreshListingsMapping = React.useCallback(async () => {
-    if (teamId && allAccounts.length > 0) {
-      const { getListingMappingMaps } = await import('../services/listingService');
-      const etsyAccountIds = allAccounts.filter(a => a.platforms?.includes('etsy')).map(a => a.id);
-      if (etsyAccountIds.length > 0) {
-        const mapping = await getListingMappingMaps(teamId, etsyAccountIds);
-        if (import.meta.env.DEV) {
-          console.log('[DashboardContext] Listing Mapping fetched:', 
-            Object.keys(mapping.imageMap).length, 'images,', 
-            Object.keys(mapping.nameMap).length, 'names');
-        }
-        setListingsMapping(mapping);
-      } else {
-        // No Etsy accounts — mapping is not applicable, mark as ready immediately
-        setIsListingsMappingReady(true);
-      }
-      // Always mark ready after the fetch attempt completes
-      setIsListingsMappingReady(true);
-    } else if (!teamId || allAccounts.length === 0) {
-      // No accounts yet — mark ready so worker isn't blocked forever
-      setIsListingsMappingReady(true);
-    }
-  }, [teamId, allAccounts.length]); // Re-fetch only if account count changes or team changes
-
-  useEffect(() => {
-    refreshListingsMapping();
-  }, [refreshListingsMapping]);
-
   useEffect(() => {
     refreshCategories();
-    refreshMappings();
-  }, [refreshCategories, refreshMappings]);
-
-  const updateMapping = async (mapping: ProductMapping) => {
-    if (!teamId) return;
-    const { saveProductMapping } = await import('../services/firebaseService');
-    await saveProductMapping(teamId, mapping);
-    await refreshMappings();
-  };
+  }, [refreshCategories]);
 
   const createCategory = async (category: { code: string, name: string }) => {
     if (!teamId) return;
@@ -291,44 +236,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   const bulkSaveCategories = async (categoriesToSave: { code: string, name: string, oldCode?: string }[]) => {
     if (!teamId) return;
-    const { saveCategoriesBulk, saveProductMappingsBulk } = await import('../services/firebaseService');
+    const { saveCategoriesBulk } = await import('../services/firebaseService');
     
-    // Detect renames (where code changed)
-    const renames = categoriesToSave.filter(c => c.oldCode && c.oldCode !== c.code);
-    
-    if (renames.length > 0) {
-      setSyncState('Updating product mappings...');
-      const mappingsToUpdate: ProductMapping[] = [];
-      
-      renames.forEach(rename => {
-        // Find all mappings that used the old code
-        productMappings.forEach(mapping => {
-          if (mapping.category_code === rename.oldCode) {
-            mappingsToUpdate.push({
-              ...mapping,
-              category_code: rename.code
-            });
-          }
-        });
-      });
-      
-      if (mappingsToUpdate.length > 0) {
-        await saveProductMappingsBulk(teamId, mappingsToUpdate);
-        await refreshMappings();
-      }
-    }
-
     setSyncState('Saving categories...');
     await saveCategoriesBulk(teamId, categoriesToSave);
     await refreshCategories();
     setSyncState(null);
-  };
-
-  const bulkUpdateMappings = async (mappings: ProductMapping[]) => {
-    if (!teamId) return;
-    const { saveProductMappingsBulk } = await import('../services/firebaseService');
-    await saveProductMappingsBulk(teamId, mappings);
-    await refreshMappings();
   };
 
   // Computed Visible Accounts (for data display)
@@ -385,7 +298,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       topProductsByCategory: {},
       topProductsBySize: {},
       categoryComparison: [],
-      unmappedKeywords: []
     },
     products: { headers: [], rows: [] },
     variants: { headers: [], rows: [] }
@@ -465,14 +377,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     return stableManualCostsRef.current;
   }, [manualCosts]);
 
-  const stableMappingsRef = useRef(productMappings);
-  const stableMappings = useMemo(() => {
-    const isDifferent = JSON.stringify(productMappings) !== JSON.stringify(stableMappingsRef.current);
-    if (isDifferent) {
-      stableMappingsRef.current = productMappings;
-    }
-    return stableMappingsRef.current;
-  }, [productMappings]);
+
 
   const stableRatesRef = useRef(exchangeRates);
   const stableRates = useMemo(() => {
@@ -502,9 +407,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     tz: string;
     manual: any;
     rates: any;
-    mappings: any;
     categories: any;
-    listingsMapping: any;
   }>({
     records: null,
     prevRecords: null,
@@ -513,9 +416,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     tz: '',
     manual: null,
     rates: null, // This will store the stableRates reference
-    mappings: null,
-    categories: null,
-    listingsMapping: null
+    categories: null
   });
 
   // Sync ref for safety timeout check
@@ -537,9 +438,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       timeZone === prevTrigger.tz &&
       stableManualCosts === prevTrigger.manual &&
       stableRates === prevTrigger.rates &&
-      stableMappings === prevTrigger.mappings &&
-      categories === prevTrigger.categories &&
-      listingsMapping === prevTrigger.listingsMapping
+      categories === prevTrigger.categories
     ) {
       return;
     }
@@ -550,11 +449,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       return;
     }
 
-    // Wait for listings mapping to be ready to avoid double-processing (null → data flicker).
-    const hasEtsyAccounts = allAccounts.some(a => a.platforms?.includes('etsy'));
-    if (!isListingsMappingReady || (hasEtsyAccounts && !listingsMapping)) {
-      return;
-    }
 
     // Debounce worker trigger: wait for inactivity before processing.
     // Set processing state IMMEDIATELY to prevent the 0-record UI flicker before skeleton
@@ -569,9 +463,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
             tz: timeZone,
             manual: stableManualCosts,
             rates: stableRates,
-            mappings: stableMappings,
-            categories: categories,
-            listingsMapping: listingsMapping
+            categories: categories
         };
 
         // Safety timeout: If worker doesn't respond in 15s, force unlock UI
@@ -598,9 +490,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
             permissions,
             manualCosts: stableManualCosts,
             exchangeRates: stableRates,
-            productMappings: stableMappings,
-            categories: categories,
-            listingsMapping: listingsMapping
+            categories: categories
         });
 
         // Store safety timeout in ref to allow cleanup if needed (though requestId check handles it)
@@ -608,7 +498,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }, 300); // reduced to 300ms to allow smooth UI transition without long skeleton flashes
 
     return () => clearTimeout(debounceTimer);
-  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, stableMappings, categories, listingsMapping, isFetchingNewRange, isListingsMappingReady]);
+  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, categories, isFetchingNewRange]);
 
 
 
@@ -895,6 +785,33 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     fetchData();
   };
 
+  const handleBulkFetchSKU = async () => {
+    if (!teamId) return;
+    try {
+      const { bulkPushSkuJobs } = await import('../services/firebaseService');
+      
+      const currentOrders = processedData.orders.rows;
+      if (currentOrders.length === 0) {
+        addNotification('No orders to fetch SKU for.', 'info');
+        return;
+      }
+
+      setSyncState('Pushing SKU Jobs...');
+      const pushedCount = await bulkPushSkuJobs(teamId, filteredRecords);
+      
+      if (pushedCount > 0) {
+        addNotification(`Successfully queued ${pushedCount} orders for SKU fetching.`, 'success');
+      } else {
+        addNotification('No eligible Etsy orders found in the current view.', 'info');
+      }
+    } catch (e: any) {
+      console.error(e);
+      addNotification(`Failed to push SKU jobs: ${e.message}`, 'error');
+    } finally {
+      setSyncState(null);
+    }
+  };
+
 
   return (
     <DashboardContext.Provider value={{
@@ -917,6 +834,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       handleExportWithOptions,
       performGlobalSearch,
       clearGlobalSearch,
+      handleBulkFetchSKU,
       processedData,
       exchangeRates,
       updateRate,
@@ -930,14 +848,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       refreshBoards,
 
       categories,
-      productMappings,
       refreshCategories,
-      refreshMappings,
-      updateMapping,
       createCategory,
-      bulkSaveCategories,
-      bulkUpdateMappings,
-      listingsMapping
+      bulkSaveCategories
     }}>
       {children}
     </DashboardContext.Provider>

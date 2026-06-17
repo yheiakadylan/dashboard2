@@ -57,30 +57,7 @@ const CustomTooltip = ({ active, payload, isCategoryChart, isVariantChart }: any
       <div className="bg-white dark:bg-gray-800 p-3 border border-gray-200 dark:border-gray-700 shadow-xl rounded-lg z-50 min-w-[200px]">
         <p className="font-bold text-gray-900 dark:text-white mb-1 border-b pb-1 border-gray-100 dark:border-gray-700">{data.name}</p>
         
-        {!isCategoryChart && !isVariantChart && data.listing_id && (
-           <div className="mb-2">
-            <span className="text-[10px] uppercase font-bold text-gray-400 dark:text-gray-500 block">Listing ID</span>
-            {typeof data.listing_id === 'object' ? (
-              data.listing_id.type === 'loading_mapping' ? (
-                <span className="text-xs italic text-blue-400 animate-pulse">Mapping...</span>
-              ) : (
-                <a 
-                  href={`https://www.etsy.com/listing/${data.listing_id.id}`}
-                  className="text-xs font-mono font-semibold text-blue-600 dark:text-blue-400 hover:underline"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    window.open(`https://www.etsy.com/listing/${(data.listing_id as any).id}`, 'etsy_listing', 'width=1000,height=800,scrollbars=yes');
-                  }}
-                >
-                  {data.listing_id.id}
-                </a>
-              )
-            ) : (
-              <span className="text-xs font-mono font-semibold text-blue-600 dark:text-blue-400">{data.listing_id}</span>
-            )}
-          </div>
-        )}
+
 
         <div className="space-y-1">
           <div className="flex justify-between items-center gap-4">

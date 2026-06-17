@@ -3,7 +3,6 @@ import { Record } from '../../types';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useUI } from '../../contexts/UIContext';
 import ImagePreviewModal from './ImagePreviewModal';
-import { resolveListingId } from '../../utils/dataProcessing';
 import { addSkuJob, listenToSkuJob } from '../../services/skuQueueService';
 import { useNotification } from '../../contexts/NotificationContext';
 
@@ -15,7 +14,7 @@ interface OrderDetailModalProps {
 }
 
 const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, onResync, allRecords = [] }) => {
-  const { accounts, exchangeRates, listingsMapping, teamId } = useDashboard();
+  const { accounts, exchangeRates, teamId } = useDashboard();
   const { timeZone, globalUsdMode } = useUI();
   const { addNotification } = useNotification();
 
@@ -25,6 +24,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
   const [skuJobStatus, setSkuJobStatus] = useState<any>(null);
   const [isFetchingSku, setIsFetchingSku] = useState(false);
   const [localFetchedSku, setLocalFetchedSku] = useState<string | null>(null);
+  const [localFetchedCustomerFiles, setLocalFetchedCustomerFiles] = useState<string[] | null>(null);
 
   const previousSkuStatus = React.useRef<string | null>(null);
   const fetchTimeoutRef = React.useRef<any>(null);
@@ -56,6 +56,9 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                 setLocalFetchedSku(job.sku);
               } else {
                 addNotification(`Warning: SKU not found for this order`, 'warning');
+              }
+              if (job.customerFiles && job.customerFiles.length > 0) {
+                setLocalFetchedCustomerFiles(job.customerFiles);
               }
             } else {
               addNotification(`Error: Failed to fetch SKU ( ${job.error || 'Unknown'} )`, 'error');
@@ -158,6 +161,10 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
     if (!localFetchedSku) return items;
     return items.map(item => ({ ...item, sku: localFetchedSku }));
   }, [items, localFetchedSku]);
+
+  const displayCustomerFiles = React.useMemo(() => {
+    return localFetchedCustomerFiles || details.customerFiles || [];
+  }, [details.customerFiles, localFetchedCustomerFiles]);
 
   // Helper to format prices with USD conversion
   const formatPrice = (amount: number | undefined | null, currency: string = 'USD') => {
@@ -363,21 +370,42 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                       )}
 
                       {item.transactionId && <p className="text-xs text-gray-400 mt-1">ID: {item.transactionId}</p>}
-                      {(() => {
-                        const lId = resolveListingId(item, listingsMapping);
-                        if (!lId || lId === 'None') return null;
-                        return (
-                          <p
-                            className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 mt-1 cursor-pointer hover:underline inline-flex items-center gap-1"
-                            onClick={() => window.open(`https://www.etsy.com/listing/${lId}`, '_blank')}
-                          >
-                            Listing: {lId}
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                            </svg>
-                          </p>
-                        );
-                      })()}
+
+                          {/* Customer Files inside Item (Mobile) */}
+                          {item.customerFiles && item.customerFiles.length > 0 && (
+                            <div className="mt-3 space-y-2">
+                              {item.customerFiles.map((url: string, fIdx: number) => {
+                                const filename = url.split('/').pop()?.split('?')[0] || `file-${fIdx+1}.jpg`;
+                                return (
+                                  <div key={fIdx} className="flex items-center justify-between border border-gray-200 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-800">
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                      <img 
+                                        src={url} 
+                                        alt={filename} 
+                                        className="w-10 h-10 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0 border border-gray-200 dark:border-gray-600"
+                                        onClick={() => setPreviewImage(url)}
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs text-gray-900 dark:text-gray-100 font-medium truncate" title={filename}>{filename}</p>
+                                      </div>
+                                    </div>
+                                    <a 
+                                      href={url} 
+                                      target="_blank" 
+                                      rel="noreferrer"
+                                      className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0"
+                                      title="Download file"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                                      </svg>
+                                    </a>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
                     </div>
                   </div>
 
@@ -444,21 +472,42 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                             )}
 
                             {item.transactionId && <p className="text-xs text-gray-400 mt-1">ID: {item.transactionId}</p>}
-                            {(() => {
-                              const lId = resolveListingId(item, listingsMapping);
-                              if (!lId || lId === 'None') return null;
-                              return (
-                                <p
-                                  className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 mt-1 cursor-pointer hover:underline inline-flex items-center gap-1"
-                                  onClick={() => window.open(`https://www.etsy.com/listing/${lId}`, '_blank')}
-                                >
-                                  Listing: {lId}
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                  </svg>
-                                </p>
-                              );
-                            })()}
+
+                          {/* Customer Files inside Item */}
+                          {item.customerFiles && item.customerFiles.length > 0 && (
+                            <div className="mt-3 space-y-2">
+                              {item.customerFiles.map((url: string, fIdx: number) => {
+                                const filename = url.split('/').pop()?.split('?')[0] || `file-${fIdx+1}.jpg`;
+                                return (
+                                  <div key={fIdx} className="flex items-center justify-between border border-gray-200 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-800">
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                      <img 
+                                        src={url} 
+                                        alt={filename} 
+                                        className="w-10 h-10 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0 border border-gray-200 dark:border-gray-600"
+                                        onClick={() => setPreviewImage(url)}
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs text-gray-900 dark:text-gray-100 font-medium truncate" title={filename}>{filename}</p>
+                                      </div>
+                                    </div>
+                                    <a 
+                                      href={url} 
+                                      target="_blank" 
+                                      rel="noreferrer"
+                                      className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0"
+                                      title="Download file"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                                      </svg>
+                                    </a>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
                           </div>
                         </div>
                       </td>
@@ -477,6 +526,8 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
               </table>
             </div>
           </div>
+
+          {/* Customer Files Section Removed - Now inside Item List */}
 
           {/* Grid Layout: Refund Information & Order Total Side by Side */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

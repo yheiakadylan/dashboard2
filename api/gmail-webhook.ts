@@ -91,7 +91,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     for (const item of historyData.history as any[]) {
       if (item.messagesAdded) {
         for (const msgHeader of item.messagesAdded) {
-          if (!msgHeader.message.labelIds?.includes('INBOX')) continue;
+
 
           const msgId = msgHeader.message.id as string;
           const msgUrl = `https://www.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`;

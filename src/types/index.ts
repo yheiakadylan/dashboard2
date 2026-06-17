@@ -13,19 +13,6 @@ export interface Account {
   scan_start_date?: string; // Ngày bắt đầu của lịch sử email, được tìm thấy bởi giai đoạn dò tìm
   lastKnownHistoryId?: string; // ID cuối cùng mà webhook đã xử lý
   platforms?: string[]; // 'etsy', 'ebay'
-
-  // Listing Tracker fields
-  listing_tracking_enabled?: boolean; // Enable/disable crawling for this shop
-  total_listings?: number; // Current total active listings
-  last_listing_crawl?: Date; // Last crawl timestamp
-  last_crawl_stats?: {
-    added: number;
-    removed: number;
-    total: number;
-    timestamp: string;
-  };
-  last_crawl_error?: string; // ✅ Error message if last crawl failed
-  last_crawl_error_at?: Date; // ✅ Timestamp of last error
   worker_status?: {
     status: 'idle' | 'processing' | 'error';
     last_heartbeat: string;
@@ -45,10 +32,10 @@ export interface OrderItem {
   image?: string;
   transactionId?: string;
   sku?: string;
-  listing_id?: string;
 }
 
 export interface OrderDetails {
+  customerFiles?: string[];
   customerName: string;
   customerEmail: string;
   shippingAddress: {
@@ -91,7 +78,6 @@ export interface Record {
   details?: OrderDetails;
   status?: 'New' | 'Refunded';
   refund_details?: RefundDetails;
-  listing_id?: string; // Mapped from listing tracker based on image
 }
 
 export interface RefundDetails {
@@ -112,7 +98,7 @@ export interface CostData {
   product_name?: string;
 }
 
-export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill' | 'Listing';
+export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill';
 export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%
@@ -165,7 +151,6 @@ export interface TopProduct {
   code?: string; // Added code field for categories
   classification?: string; // Original variant string
   size?: string; // Extracted size
-  listing_id?: string;
 }
 
 export interface ProcessedData {
@@ -194,8 +179,7 @@ export interface ProcessedData {
     topProductsByShop: { [shopName: string]: TopProduct[] };
     topProductsByCategory: { [categoryName: string]: TopProduct[] };
     topProductsBySize: { [size: string]: TopProduct[] };
-    categoryComparison: any[];
-    unmappedKeywords: { keyword: string; count: number }[];
+    categoryComparison: TopProduct[];
   };
   products: TableData;
   variants: TableData; // New field for detailed variants table
@@ -224,20 +208,3 @@ export interface UserProfile {
   [key: string]: any;
 }
 
-export interface DailyStats {
-  date: string;
-  new_listings: number;
-  removed_listings: number;
-  total_listings?: number;
-  shops?: {
-    [key: string]: {
-      new: number;
-      removed: number;
-      total: number;
-    }
-  };
-  shops_crawled?: number;
-  crawl_errors?: number;
-  createdAt?: string;
-  source?: string;
-}

@@ -394,9 +394,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         items: bestRecord.details.items || []
       });
 
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('[API get-order-detail] Error:', err);
-      return res.status(500).json({ message: err.message });
+      return res.status(500).json({ message: errorMessage });
     }
   }
 
@@ -461,9 +462,278 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         account
       });
 
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('[API trigger-sku-fetch] Error:', err);
-      return res.status(500).json({ message: err.message });
+      return res.status(500).json({ message: errorMessage });
+    }
+  }
+
+
+  // =====================================================================
+  // 🟢 HIJACK 2B: BULK TRIGGER SKU FETCH VIA EXTENSION
+  // POST /api/lark-events with body: { action: 'bulk-trigger-sku-fetch', secret: <CRON_SECRET2>, orders: [...] }
+  // =====================================================================
+  if (action === 'bulk-trigger-sku-fetch') {
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method Not Allowed. Use POST.' });
+    }
+
+    const CRON_SECRET2 = process.env.CRON_SECRET2;
+    if (!CRON_SECRET2) {
+      console.error('[lark-events] CRON_SECRET2 not configured');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    if (!secret || secret !== CRON_SECRET2) {
+      console.warn('[lark-events] Unauthorized bulk-trigger-sku-fetch attempt');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const orders = req.body?.orders as { orderId: string; account: string; }[];
+    if (!orders || !Array.isArray(orders)) {
+      return res.status(400).json({ message: 'Missing orders array' });
+    }
+
+    try {
+      const db = getDb();
+      const teamId = SHARED_USER_ID;
+      const jobsRef = db.collection('user').doc(teamId).collection('sku_jobs');
+      const batch = db.batch();
+      let count = 0;
+
+      for (const order of orders) {
+        const { orderId, account } = order;
+        if (!orderId || !account) continue;
+
+        const jobDocRef = jobsRef.doc(orderId);
+        batch.set(jobDocRef, {
+          order_id: orderId,
+          account: account,
+          status: 'pending',
+          priority: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }, { merge: true });
+
+        count++;
+      }
+
+      if (count > 0) {
+        await batch.commit();
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `Successfully triggered SKU fetch for ${count} orders.`
+      });
+
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error('[API bulk-trigger-sku-fetch] Error:', err);
+      return res.status(500).json({ message: errorMessage });
+    }
+  }
+
+
+  // =====================================================================
+  // 🟢 HIJACK 2C: BULK SYNC SKU TO TASKS VIA EXTENSION
+  // POST /api/lark-events with body: { action: 'bulk-sync-sku-to-tasks', secret: <CRON_SECRET2>, orders: [...] }
+  // =====================================================================
+  if (action === 'bulk-sync-sku-to-tasks') {
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method Not Allowed. Use POST.' });
+    }
+
+    const CRON_SECRET2 = process.env.CRON_SECRET2;
+    if (!CRON_SECRET2) {
+      console.error('[lark-events] CRON_SECRET2 not configured');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    if (!secret || secret !== CRON_SECRET2) {
+      console.warn('[lark-events] Unauthorized bulk-sync-sku-to-tasks attempt');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const orders = req.body?.orders as {
+      orderId: string;
+      skuString: string;
+      items: {
+        title: string;
+        sku: string;
+        variations?: string[];
+        quantity?: number;
+      }[];
+    }[];
+
+    if (!orders || !Array.isArray(orders)) {
+      return res.status(400).json({ message: 'Missing orders array' });
+    }
+
+    try {
+      const db = getDb();
+      const teamId = SHARED_USER_ID;
+      const batch = db.batch();
+
+      const accountsRef = db.collection('user').doc(teamId).collection('accounts');
+      const accSnap = await accountsRef.get();
+      const accountsMap = new Map<string, string>();
+      accSnap.docs.forEach(d => {
+        const data = d.data();
+        if (data.email && data.label) {
+          accountsMap.set(data.email, data.label);
+        }
+      });
+
+      const uniqueOrderIds = Array.from(new Set(orders.map(o => o.orderId).filter(Boolean)));
+      const recordsMap = new Map<string, { ref: any; data: any }>();
+      if (uniqueOrderIds.length > 0) {
+        const recordsCol = db.collection('user').doc(teamId).collection('records');
+        const IN_QUERY_LIMIT = 30;
+        for (let i = 0; i < uniqueOrderIds.length; i += IN_QUERY_LIMIT) {
+          const chunk = uniqueOrderIds.slice(i, i + IN_QUERY_LIMIT);
+          const snap = await recordsCol.where('order_id', 'in', chunk).get();
+          snap.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.order_id) {
+              recordsMap.set(data.order_id, { ref: doc.ref, data });
+            }
+          });
+        }
+      }
+
+      const taskIds: string[] = [];
+      orders.forEach(order => {
+        const itemsCount = order.items ? order.items.length : 0;
+        (order.items || []).forEach((_, index) => {
+          const taskId = itemsCount > 1 ? `${order.orderId}-${index + 1}` : order.orderId;
+          taskIds.push(taskId);
+        });
+      });
+
+      const existingTaskIds = new Set<string>();
+      if (taskIds.length > 0) {
+        const tasksCol = db.collection('tasks');
+        const IN_QUERY_LIMIT = 30;
+        for (let i = 0; i < taskIds.length; i += IN_QUERY_LIMIT) {
+          const chunk = taskIds.slice(i, i + IN_QUERY_LIMIT);
+          const snap = await tasksCol.where('id', 'in', chunk).get();
+          snap.docs.forEach(doc => {
+            existingTaskIds.add(doc.id);
+          });
+        }
+      }
+
+      let taskUpdatesCount = 0;
+      for (const order of orders) {
+        const { orderId, items } = order;
+        if (!orderId || !items || !Array.isArray(items)) continue;
+
+        const recordInfo = recordsMap.get(orderId);
+        const recordData = recordInfo?.data;
+        const recordRef = recordInfo?.ref;
+
+        if (recordRef && recordData) {
+          const existingDetails = recordData.details || {};
+          const existingItems = existingDetails.items || [];
+          const updatedItems = items.map((payloadItem, index) => {
+            const existingItem = existingItems[index] || {};
+            return {
+              ...existingItem,
+              name: payloadItem.title || existingItem.name || "",
+              sku: payloadItem.sku || existingItem.sku || "",
+              variant: payloadItem.variations?.[0] || existingItem.variant || "",
+              variant2: payloadItem.variations?.[1] || existingItem.variant2 || "",
+              quantity: existingItem.quantity || payloadItem.quantity || 1,
+              price: existingItem.price || 0
+            };
+          });
+          batch.update(recordRef, {
+            "details.items": updatedItems
+          });
+        }
+
+        const itemsCount = items.length;
+        items.forEach((item, index) => {
+          const taskId = itemsCount > 1 ? `${orderId}-${index + 1}` : orderId;
+
+          const cleanSku = String(item.sku || '').trim().toUpperCase();
+          const SKU_REGEX = /^([^-]+)-([^-]+)-(.*)$/;
+          let productType = '';
+          let ideaEmpId = '';
+          let originalSku = '';
+
+          if (SKU_REGEX.test(cleanSku)) {
+            const parts = cleanSku.split('-');
+            productType = parts[0].trim();
+            ideaEmpId = parts[1].trim();
+            originalSku = parts.slice(2).join('-').trim();
+          }
+
+          const taskDocRef = db.collection('tasks').doc(taskId);
+          const taskExists = existingTaskIds.has(taskId);
+
+          const taskUpdate: Record<string, unknown> = {
+            sku: cleanSku,
+            productType,
+            idea_emp_id: ideaEmpId,
+            originalSku,
+            variant1: item.variations?.[0] || '',
+            variant2: item.variations?.[1] || '',
+            updatedAt: new Date().toISOString(),
+          };
+
+          if (recordData) {
+            const emailAccount = recordData.account || '';
+            taskUpdate.account = emailAccount;
+            taskUpdate.shopLabel = accountsMap.get(emailAccount) || emailAccount;
+            if (!taskExists) {
+              taskUpdate.title = recordData.product_name || item.title || 'New Etsy Order';
+              if (recordData.details?.items?.[index]?.image) {
+                taskUpdate.mockupUrl = recordData.details.items[index].image;
+              }
+            }
+          } else if (!taskExists) {
+            taskUpdate.title = item.title || 'New Etsy Order';
+          }
+
+          if (!taskExists) {
+            taskUpdate.id = taskId;
+            taskUpdate.readableId = taskId;
+            taskUpdate.orderId = orderId;
+            taskUpdate.quantity = item.quantity || 1;
+            taskUpdate.status = 'draft';
+            taskUpdate.isUrgent = false;
+            taskUpdate.createdBy = 'tampermonkey_sync';
+            taskUpdate.created_at = new Date().toISOString();
+            taskUpdate.collectionName = 'tasks';
+          }
+
+          batch.set(taskDocRef, taskUpdate, { merge: true });
+          taskUpdatesCount++;
+        });
+
+        const jobDocRef = db.collection('user').doc(teamId).collection('sku_jobs').doc(orderId);
+        batch.set(jobDocRef, {
+          status: 'completed',
+          updated_at: new Date().toISOString()
+        }, { merge: true });
+      }
+
+      if (taskUpdatesCount > 0) {
+        await batch.commit();
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `Successfully synced ${taskUpdatesCount} tasks.`
+      });
+
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error('[API bulk-sync-sku-to-tasks] Error:', err);
+      return res.status(500).json({ message: errorMessage });
     }
   }
 
@@ -640,9 +910,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         target: targetTeam,
         notificationData: notificationData
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('[Lark-API] Test push failed:', err);
-      return res.status(500).json({ success: false, error: err.message });
+      return res.status(500).json({ success: false, error: errorMessage });
     }
   }
 

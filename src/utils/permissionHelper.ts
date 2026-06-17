@@ -12,7 +12,6 @@ export interface UserPermissions {
     viewProductsTab?: boolean;      // Tab: Products
     viewSupportTab?: boolean;       // Tab: Support (Messages/Cases)
     viewFulfillTab?: boolean;       // Tab: Fulfill
-    viewListingTab?: boolean;       // Tab: Listing (Listing Tracker)
 
     // === KPI PERMISSIONS ===
     viewKpiOrders?: boolean;        // KPI Card: Total Orders
@@ -37,7 +36,6 @@ export interface UserPermissions {
     canManageMappings?: boolean;    // Admin: Category/Product mappings
     canResyncOrder?: boolean;       // Action: Resync single order
     canSyncData?: boolean;          // Action: Manual sync from email/API
-    canManageListingTracking?: boolean; // Action: Toggle listing tracking for shops
 
     // Allow any other custom permissions
     [key: string]: boolean | undefined;

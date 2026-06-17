@@ -188,12 +188,7 @@ const cleanCellData = (cell: any, useUsdMode: boolean = false, exchangeRates: { 
             const subStr = totalSub ? (typeof totalSub === 'number' ? `(Refund: $${totalSub.toFixed(2)})` : `(Refund: ${totalSub})`) : '';
             return subStr ? `${mainStr} ${subStr}` : mainStr;
         }
-        if (cell.type === 'listing_link') {
-            return cell.id || '';
-        }
-        if (cell.type === 'loading_mapping') {
-            return 'Processing...';
-        }
+
         // Fallback for other objects
         return JSON.stringify(cell);
     }
@@ -724,7 +719,7 @@ export const exportTopProductsToExcel = async (
     
     // Add Summary Sheet
     const summarySheet = workbook.addWorksheet(summaryTitle);
-    const headers = ['Product Name', 'Quantity Sold', 'Revenue', 'Currency', 'Listing ID', 'Shop'];
+    const headers = ['Product Name', 'Quantity Sold', 'Revenue', 'Currency', 'Shop'];
     
     const headerRow = summarySheet.addRow(headers);
     styleHeaderRow(headerRow);
@@ -735,7 +730,6 @@ export const exportTopProductsToExcel = async (
             p.quantity,
             p.revenue,
             p.currency || 'USD',
-            p.listing_id || '',
             p.shop || ''
         ]);
     });
@@ -757,7 +751,6 @@ export const exportTopProductsToExcel = async (
                 p.quantity,
                 p.revenue,
                 p.currency || 'USD',
-                p.listing_id || '',
                 p.shop || ''
             ]);
         });

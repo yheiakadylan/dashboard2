@@ -31,8 +31,6 @@ export interface DataTableProps {
     { type: 'action_group', actions: any[] } |
     { type: 'value_with_unit', value: number, display: string, unit?: string } |
     { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string } |
-    { type: 'mapping_select', value: string, name: string, variant: string, categories: any[], onCategoryChange: (name: string, variant: string, code: string) => void } |
-    { type: 'mapping_action', name: string, variant: string, currentCategory: string, onCategoryChange: (name: string, variant: string, code: string) => void } |
     { type: 'checkbox', idKey?: string, checked?: boolean, onChange?: (checked: boolean) => void }
     )[][];
     onViewDayDetails?: (date: string) => void;
