@@ -7,6 +7,7 @@ import { ArrowDownTrayIcon, TrophyIcon, FireIcon, ArrowTrendingUpIcon, StarIcon,
 import Spinner from './Spinner';
 import { useUI } from '../contexts/UIContext';
 import { useDashboard } from '../contexts/DashboardContext';
+import { formatDateEfficiently } from '../utils/dateFormatter';
 
 interface KpiLeaderboardProps {
     teamId: string;
@@ -263,11 +264,16 @@ const KpiLeaderboard: React.FC<KpiLeaderboardProps> = ({ teamId, exportTrigger }
                 for (const r of allRecords) {
                     if (r.kind !== 'order') continue;
                     if (accountFilter && !accountFilter.has(r.account)) continue;
-                    const dateStr = r.dt_local.split('T')[0];
+                    let refAmt = 0;
+                    if (r.source === 'Etsy_Refunded' || r.status === 'Refunded') {
+                        refAmt = r.refund_details?.total_refund_amount || r.refund_details?.refundAmount || 0;
+                    }
+                    
+                    const dateStr = formatDateEfficiently(r.dt_local, timeZone);
                     if (dateStr >= currentRange.start && dateStr <= currentRange.end) {
-                        currentRev += r.amount || 0;
+                        currentRev += (r.amount || 0) - refAmt;
                     } else if (dateStr >= prevRange.start && dateStr <= prevRange.end) {
-                        prevRev += r.amount || 0;
+                        prevRev += (r.amount || 0) - refAmt;
                     }
                 }
             } else {

@@ -194,5 +194,6 @@ export interface KpiReport {
   baseCost: number;
   grossProfit: number;
   profitMargin: number;
+  refund?: number;
   note?: string;
 }

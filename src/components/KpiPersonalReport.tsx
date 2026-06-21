@@ -6,6 +6,7 @@ import { ArrowDownTrayIcon, ChevronDownIcon, PencilIcon } from '@heroicons/react
 import Spinner from './Spinner';
 import { useUI } from '../contexts/UIContext';
 import { useDashboard } from '../contexts/DashboardContext';
+import { formatDateEfficiently } from '../utils/dateFormatter';
 
 interface KpiPersonalReportProps {
     teamId: string;
@@ -370,8 +371,8 @@ interface ReportRow {
 
 // ---- Main Component ----
 const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTrigger }) => {
-    const { filterDateRange } = useUI();
-    const { records, allowedAccounts, display_name, user, role, can_view_leaderboard } = useDashboard();
+    const { filterDateRange, timeZone } = useUI();
+    const { records, allowedAccounts, display_name, user, role, can_view_leaderboard, allAccounts } = useDashboard();
 
     const [reports, setReports] = useState<KpiReport[]>([]);
     const [weekReports, setWeekReports] = useState<KpiReport[]>([]);
@@ -563,18 +564,29 @@ const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTri
             }
         }
 
-        const result: Record<string, { revenue: number; baseCost: number }> = {};
+        const result: Record<string, { revenue: number; baseCost: number; refund: number }> = {};
         for (const r of records) {
             if (r.kind !== 'order') continue;
-            const dateStr = r.dt_local.split('T')[0];
+            const dateStr = formatDateEfficiently(r.dt_local, timeZone);
 
             for (const [normName, accountFilter] of userAccountMap) {
                 if (accountFilter === 'NONE') continue;
                 if (accountFilter && !accountFilter.has(r.account)) continue;
                 const key = `${dateStr}_${normName}`;
-                if (!result[key]) result[key] = { revenue: 0, baseCost: 0 };
+                if (!result[key]) result[key] = { revenue: 0, baseCost: 0, refund: 0 };
+                
+                let isRefund = false;
+                let refAmt = 0;
+                if (r.source === 'Etsy_Refunded' || r.status === 'Refunded') {
+                    isRefund = true;
+                    refAmt = r.refund_details?.total_refund_amount || r.refund_details?.refundAmount || 0;
+                }
+                
                 result[key].revenue += r.amount || 0;
                 result[key].baseCost += r.cost_total || 0;
+                if (isRefund && refAmt > 0) {
+                    result[key].refund += refAmt;
+                }
             }
         }
         return result;
@@ -588,16 +600,19 @@ const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTri
         
         let finalRevenue = row.report.revenue || 0;
         let finalBaseCost = row.report.baseCost || 0;
+        let finalRefund = row.report.refund || 0;
         
         if (hasShops) {
-            const live = revenueByUserDate[liveKey] || { revenue: 0, baseCost: 0 };
+            const live = revenueByUserDate[liveKey] || { revenue: 0, baseCost: 0, refund: 0 };
             finalRevenue = live.revenue;
             finalBaseCost = live.baseCost;
+            finalRefund = live.refund;
         }
 
-        const grossProfit = finalRevenue - finalBaseCost;
-        const profitMargin = finalRevenue > 0 ? (grossProfit / finalRevenue) * 100 : 0;
-        return { ...row, report: { ...row.report, revenue: finalRevenue, baseCost: finalBaseCost, grossProfit, profitMargin }, hasShops };
+        const netRevenue = finalRevenue - finalRefund;
+        const grossProfit = netRevenue - finalBaseCost;
+        const profitMargin = netRevenue > 0 ? (grossProfit / netRevenue) * 100 : 0;
+        return { ...row, report: { ...row.report, revenue: netRevenue, baseCost: finalBaseCost, refund: finalRefund, grossProfit, profitMargin }, hasShops };
     }), [rows, revenueByUserDate]);
 
     // Summary By Team
@@ -618,6 +633,7 @@ const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTri
             teamsData[teamName].revenue += r.revenue;
             teamsData[teamName].baseCost += r.baseCost;
             teamsData[teamName].grossProfit += r.grossProfit;
+            // Accumulate refund for team level if we want, but it's not displayed there currently.
         }
         return teamsData;
     }, [enrichedRows]);
@@ -855,7 +871,7 @@ const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTri
                                                         {/* Expanded Ideas detail */}
                                                         {expandedRows[rowKey] && totalIdeas > 0 && (
                                                             <tr className="bg-blue-50/40 dark:bg-blue-900/10">
-                                                                <td colSpan={canViewAll ? 10 : 9} className="px-8 py-3 border-t border-gray-100 dark:border-gray-800">
+                                                                <td colSpan={canViewAll ? 11 : 10} className="px-8 py-3 border-t border-gray-100 dark:border-gray-800">
                                                                     <div className="flex items-center justify-between mb-1.5">
                                                                         <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Ideas{canViewAll ? ` — ${displayName}` : ''}</span>
                                                                         {isRowEditable && (
