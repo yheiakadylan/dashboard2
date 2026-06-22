@@ -516,7 +516,7 @@ export const saveRecordsToFirebase = async (
               // Logic: Có nội dung personalization thực sự -> 'draft', ngược lại -> 'new'
               status: 'draft', // Ném thẳng vào Draft, Extension sẽ bổ sung SKU sau
               isUrgent: false,
-              createdBy: 'system_sync',
+              createdBy: 'auto_sync',
               mockupUrl: item.image || '', // Ảnh thumbnail từ email
               created_at: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
