@@ -1,0 +1,20 @@
+{
+  "name": "etsy-sku-worker",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build && copy manifest.json dist\\manifest.json && copy popup.html dist\\popup.html && copy offscreen.html dist\\offscreen.html"
+  },
+  "dependencies": {
+    "firebase": "^10.8.0"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.23",
+    "@types/chrome": "^0.1.38",
+    "javascript-obfuscator": "^5.4.3",
+    "rollup-plugin-javascript-obfuscator": "^1.0.4",
+    "typescript": "^6.0.2",
+    "vite": "^5.1.4"
+  }
+}

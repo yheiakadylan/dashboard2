@@ -2,6 +2,7 @@ import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { visualizer } from 'rollup-plugin-visualizer';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
@@ -13,8 +14,11 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       VitePWA({
-        registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+        registerType: 'autoUpdate', // Auto-update SW so new deploys take effect immediately
+        devOptions: {
+          enabled: false, // Disable in development to prevent MIME type errors
+        },
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg', 'noti-sound.mp3'],
         manifest: {
           name: 'Sales Dashboard',
           short_name: 'Dashboard',
@@ -44,6 +48,11 @@ export default defineConfig(({ mode }) => {
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
           maximumFileSizeToCacheInBytes: 4000000,
+          // IMPORTANT: Disable skipWaiting to prevent reload loop!
+          // With skipWaiting:true + autoUpdate, new SW immediately takes over
+          // and triggers reload, creating an infinite loop in production
+          skipWaiting: true,  // New SW takes over immediately on next navigation
+          clientsClaim: true, // New SW claims all open tabs right away
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/i\.etsystatic\.com\/.*/,
@@ -106,15 +115,22 @@ export default defineConfig(({ mode }) => {
             },
           ],
         }
+      }),
+      // Bundle analyzer (only in build mode)
+      mode === 'production' && visualizer({
+        open: false,
+        filename: 'dist/stats.html',
+        gzipSize: true,
+        brotliSize: true,
       })
-    ],
+    ].filter(Boolean),
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(__dirname, './src'),
       }
     },
     build: {
@@ -125,7 +141,7 @@ export default defineConfig(({ mode }) => {
       minify: 'terser',
       terserOptions: {
         compress: {
-          drop_console: true, // Remove console.logs in production
+          drop_console: true, // ⚠️ TEMP: Re-enable to true after debugging production issue
           drop_debugger: true,
           passes: 2,
         },
@@ -155,7 +171,7 @@ export default defineConfig(({ mode }) => {
             'charts-vendor': ['recharts'],
 
             // Virtualization
-            'virtualization-vendor': ['react-window', 'react-virtualized-auto-sizer'],
+            'virtualization-vendor': ['react-window'],
 
             // Google AI
             'ai-vendor': ['@google/genai'],

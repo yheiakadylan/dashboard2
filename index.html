@@ -3,63 +3,269 @@
 
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="description" content="Advanced Sales Dashboard for real-time analytics and reporting." />
+
+  <!-- Prevent caching of index.html -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+
   <link rel="icon" type="image/svg+xml"
     href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z" fill="%234299e1"/><path d="M4 15L9 9L14 13L20 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-
-  <!-- iOS PWA Support -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Dashboard" />
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)">
 
   <title>Sales Dashboard</title>
-
-  <!-- Resource Hints for Performance -->
-  <link rel="preconnect" href="https://accounts.google.com" />
-  <link rel="preconnect" href="https://www.gstatic.com" />
-  <link rel="preconnect" href="https://firebasestorage.googleapis.com" />
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://aistudiocdn.com/react@^19.2.0",
+        "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
+        "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+        "react/": "https://aistudiocdn.com/react@^19.2.0/",
+        "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
+        "firebase/app": "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js",
+        "recharts": "https://aistudiocdn.com/recharts@^2.12.7",
+        "react-window": "https://esm.sh/react-window@1.8.10?external=react,react-dom",
+        "react-virtualized-auto-sizer": "https://esm.sh/react-virtualized-auto-sizer@1.0.24?external=react,react-dom",
+        "node-fetch": "https://aistudiocdn.com/node-fetch@^3.3.2",
+        "buffer": "https://aistudiocdn.com/buffer@^6.0.3"
+      }
+    }
+  </script>
   <link rel="preconnect" href="https://aistudiocdn.com" crossorigin />
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
   <link rel="dns-prefetch" href="https://esm.sh" />
 
-  <!-- Preload critical modules to prevent race conditions -->
-  <link rel="modulepreload" href="https://aistudiocdn.com/recharts@^2.12.7" />
+  <link rel="modulepreload" href="https://aistudiocdn.com/react@^19.2.0" />
+  <link rel="modulepreload" href="https://aistudiocdn.com/react-dom@^19.2.0" />
+
+
+
+  <style>
+    :root {
+      --bg: #ffffff;
+      --primary: #3b82f6;
+      --text: #111827;
+      --text-light: #6b7280;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111827;
+        --primary: #60a5fa;
+        --text: #f9fafb;
+        --text-light: #9ca3af;
+      }
+    }
+
+    body {
+      margin: 0;
+      background-color: var(--bg);
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    #initial-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      width: 100vw;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 9999;
+      background: var(--bg);
+    }
+
+    /* Logo Animation */
+    .dashboard-logo {
+      width: 96px;
+      height: 96px;
+      margin-bottom: 24px;
+      animation: fadeInScale 0.8s ease-out;
+    }
+
+    .dashboard-logo svg {
+      width: 100%;
+      height: 100%;
+      filter: drop-shadow(0 8px 24px rgba(59, 130, 246, 0.25));
+    }
+
+    /* Brand Title */
+    .brand-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+      animation: fadeInUp 0.8s ease-out 0.2s both;
+    }
+
+    /* Tagline */
+    .brand-tagline {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-light);
+      margin-bottom: 32px;
+      letter-spacing: 0.02em;
+      animation: fadeInUp 0.8s ease-out 0.3s both;
+    }
+
+    /* Progress Container */
+    .progress-container {
+      width: 320px;
+      height: 5px;
+      background: rgba(59, 130, 246, 0.12);
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+      animation: fadeInUp 0.8s ease-out 0.4s both;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .progress-container {
+        background: rgba(96, 165, 250, 0.12);
+      }
+    }
+
+    /* Animated Progress Bar */
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary) 0%, #8b5cf6 50%, var(--primary) 100%);
+      background-size: 200% 100%;
+      border-radius: 999px;
+      width: 0%;
+      animation: loadProgress 2.5s ease-in-out infinite, shimmer 2s linear infinite;
+      box-shadow: 0 0 16px rgba(59, 130, 246, 0.5);
+    }
+
+    /* Loading Text */
+    .loading-text {
+      margin-top: 20px;
+      color: var(--text-light);
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      font-weight: 500;
+      text-transform: uppercase;
+      animation: pulse 2s ease-in-out infinite, fadeInUp 0.8s ease-out 0.5s both;
+    }
+
+    /* Animations */
+    @keyframes fadeInScale {
+      from {
+        opacity: 0;
+        transform: scale(0.7);
+      }
+
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes loadProgress {
+      0% {
+        width: 0%;
+      }
+
+      50% {
+        width: 75%;
+      }
+
+      100% {
+        width: 100%;
+        opacity: 0.9;
+      }
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: 200% 0;
+      }
+
+      100% {
+        background-position: -200% 0;
+      }
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 0.5;
+      }
+
+      50% {
+        opacity: 1;
+      }
+    }
+  </style>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.5.0/",
-    "firebase/app": "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js",
-    "firebase/auth": "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js",
-    "@babel/core/": "https://aistudiocdn.com/@babel/core@^7.28.5/",
-    "@vercel/node": "https://aistudiocdn.com/@vercel/node@^5.5.3",
-    "firebase-admin/": "https://aistudiocdn.com/firebase-admin@^13.5.0/",
-    "recharts": "https://aistudiocdn.com/recharts@^2.12.7",
-    "buffer": "https://aistudiocdn.com/buffer@^6.0.3",
-    "crypto": "https://aistudiocdn.com/crypto@^1.0.1",
-    "node-fetch": "https://aistudiocdn.com/node-fetch@^3.3.2",
-    "react-window": "https://esm.sh/react-window@1.8.10?external=react,react-dom",
-    "react-virtualized-auto-sizer": "https://esm.sh/react-virtualized-auto-sizer@1.0.24?external=react,react-dom",
-    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
-    "path": "https://aistudiocdn.com/path@^0.12.7",
-    "vite": "https://aistudiocdn.com/vite@^7.2.6",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
-    "vite-plugin-pwa": "https://aistudiocdn.com/vite-plugin-pwa@^1.2.0"
-  }
-}
-</script>
 </head>
 
 <body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
-  <div id="root"></div>
-  <script type="module" src="./index.tsx"></script>
+
+  <div id="root">
+    <div id="initial-loading">
+      <!-- Dashboard Logo -->
+      <div class="dashboard-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <!-- Bar Chart Background -->
+          <path d="M4 4V20H8V4H4ZM10 10V20H14V10H10ZM16 16V20H20V16H16Z" fill="#3b82f6" opacity="0.2" />
+          <!-- Growth Line -->
+          <path d="M4 15L9 9L14 13L20 8" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round" />
+          <!-- Growth Arrow -->
+          <path d="M16 8H20V12" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </div>
+
+      <!-- Brand Title -->
+      <div class="brand-title">Sales Dashboard</div>
+
+      <!-- Tagline -->
+      <div class="brand-tagline">Real-time Analytics & Insights</div>
+
+      <!-- Progress Bar -->
+      <div class="progress-container">
+        <div class="progress-bar"></div>
+      </div>
+
+      <!-- Loading Text -->
+      <div class="loading-text">Loading</div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/index.tsx"></script>
+
+  <script>
+    if (navigator.userAgent.includes("Lighthouse")) {
+      window.__LIGHTHOUSE_AUDIT__ = true;
+    }
+  </script>
 </body>
 
 </html>

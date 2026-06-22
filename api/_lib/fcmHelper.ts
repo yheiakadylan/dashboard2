@@ -95,7 +95,7 @@ async function sendMulticastWithCleanup(
  */
 export const sendPushNotificationToUsers = async (
   userIdsOrTeamId: string | string[],
-  notificationType: 'order' | 'funds' | 'summary' | 'login',
+  notificationType: 'order' | 'funds' | 'summary' | 'login' | 'case' | 'help',
   payload: { title: string; body: string; url?: string }
 ) => {
   const userRolesRef = db.collection('user_roles');
@@ -120,8 +120,14 @@ export const sendPushNotificationToUsers = async (
     const settings = data.notificationSettings || {};
     const tokens: string[] = data.fcmTokens || [];
 
-    // Check preference
-    if (settings[notificationType] !== true) return;
+    // Map notification types to setting keys
+    let settingKey = notificationType as string;
+    if (notificationType === 'case' || notificationType === 'help') {
+      settingKey = 'support';
+    }
+
+    // Check preference (Default: ON. Only skip if explicitly false)
+    if (settings[settingKey] === false) return;
     if (!Array.isArray(tokens) || tokens.length === 0) return;
 
     // Giới hạn số token / user (giữ 3 token cuối cùng)

@@ -3,7 +3,10 @@
     {
       "path": "/api/sync-outlook",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/daily-summary",
+      "schedule": "30 7 * * *"
     }
   ]
-
 }

@@ -2,10 +2,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getDb } from './_lib/firebaseAdminHelper.js';
 import { MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET } from './_lib/microsoftConfig.js';
-import { SHARED_USER_ID } from '../constants.js';
-import { RULES, parseMessage } from '../services/rules.js';
+import { SHARED_USER_ID } from '../src/constants.js';
+import { RULES, parseMessage } from '../src/services/rules.js';
 import type { Account, Record } from './_lib/types.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
+import { processTeamSync } from './_lib/syncService.js';
+import { applyCategoryMappings } from './_lib/mappingHelper.js';
+import { processNewOrder } from './_lib/orderService.js';
 
 // --- Helpers ---
 /*
@@ -134,11 +137,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (snapshot.empty) {
       return res.status(200).json({ message: 'No Outlook accounts configured.' });
     }
-    
+
     // Map account để lấy thông tin (Label/Tên Shop)
     const outlookAccounts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Account));
-    // Tạo Map: Email -> Tên Shop (Label)
-    const accountLabelMap = new Map(outlookAccounts.map(acc => [acc.email, acc.label || acc.email]));
+    // Tạo Map: Email -> {id, label}
+    const accountInfoMap = new Map(outlookAccounts.map(acc => [acc.email, { id: acc.id, label: acc.label || acc.email }]));
 
     console.log(`[sync-outlook] Found ${outlookAccounts.length} Outlook account(s) to sync.`);
 
@@ -190,13 +193,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // 5. Lưu record mới và cập nhật timestamp
       if (totalNewRecords > 0) {
+        // 🟢 APPLY CATEGORY MAPPING
+        const mappedRecords = await applyCategoryMappings(SHARED_USER_ID, recordsToAdd);
+
         const batch = db.batch();
         const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
-        
-        // --- CHUẨN BỊ THÔNG BÁO ---
-        const notificationEvents: { type: 'order' | 'funds', text: string }[] = [];
 
-        recordsToAdd.forEach(record => {
+        // --- CHUẨN BỊ THÔNG BÁO ---
+        const notificationEvents: { type: 'order' | 'refund' | 'funds', text: string }[] = [];
+
+        for (const record of mappedRecords) {
           const docRef = record.email_id
             ? recordsRef.doc(record.email_id)
             : recordsRef.doc();
@@ -204,22 +210,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const { id, ...recordData } = record as any;
           batch.set(docRef, recordData);
 
+          // --- TRIGGER SKU JOB & TASK CREATION ---
+          await processNewOrder(db, batch, SHARED_USER_ID, record as any, accountInfoMap);
+
           // --- TẠO NỘI DUNG THÔNG BÁO ---
           // Lấy tên Shop từ Map
-          const shopName = accountLabelMap.get(record.account) || record.account;
+          const shopName = accountInfoMap.get(record.account)?.label || record.account;
 
           if (record.kind === 'order') {
-            notificationEvents.push({
-              type: 'order',
-              text: `New Order: ${record.order_id || 'Unknown'} - $${record.amount} (${shopName})`
-            });
+            const isRefund = record.source === 'Etsy_Refunded';
+            if (isRefund) {
+              notificationEvents.push({
+                type: 'refund',
+                text: `Refund: #${record.order_id || 'Unknown'} - $${Math.abs(record.refund_details.refundAmount)} ${record.refund_details.refundCurrency} (${shopName})`
+              });
+            } else {
+              notificationEvents.push({
+                type: 'order',
+                text: `New Order: #${record.order_id || 'Unknown'} - $${record.amount} ${record.currency} (${shopName})`
+              });
+            }
           } else if (record.kind === 'Funds') {
             notificationEvents.push({
               type: 'funds',
               text: `Funds Received: $${record.amount} ${record.currency} (${shopName})`
             });
           }
-        });
+        }
 
         // Cập nhật last_synced_at cho các tài khoản đã sync
         outlookAccounts.forEach(account => {
@@ -229,41 +246,67 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         await batch.commit();
 
-        // --- GỬI THÔNG BÁO PUSH (SAU KHI LƯU DB THÀNH CÔNG) ---
+        // 🟢 TRIGGER SHEET SYNC IMMEDIATELY
+        processTeamSync(SHARED_USER_ID).catch(err => console.error('[Outlook] Sheet sync failed:', err));
+
+        // --- GỮI THÔNG BÁO PUSH (SAU KHI LƯU DB THÀNH CÔNG) ---
         if (notificationEvents.length > 0) {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
           const orders = notificationEvents.filter(e => e.type === 'order');
+          const refunds = notificationEvents.filter(e => e.type === 'refund');
           const funds = notificationEvents.filter(e => e.type === 'funds');
 
           // Gửi thông báo Order
           if (orders.length > 0) {
-             if (orders.length === 1) {
-                // Nếu chỉ có 1 đơn, hiện chi tiết
-                await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
-                    title: 'New Order',
-                    body: orders[0].text
-                });
-             } else {
-                // Nếu có nhiều đơn, hiện tổng quan
-                await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
-                    title: 'New Orders',
-                    body: `You have ${orders.length} new orders from Outlook sync.`
-                });
-             }
+            if (orders.length === 1) {
+              // Nếu chỉ có 1 đơn, hiện chi tiết
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                title: 'New Order',
+                body: orders[0].text,
+                url: `${appUrl}/?tab=Order+List`
+              });
+            } else {
+              // Nếu có nhiều đơn, hiện tổng quan
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                title: 'New Orders',
+                body: `You have ${orders.length} new orders.`,
+                url: `${appUrl}/?tab=Order+List`
+              });
+            }
           }
-          
+
+          // Gửi thông báo Refund
+          if (refunds.length > 0) {
+            if (refunds.length === 1) {
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                title: 'Refund Processed',
+                body: refunds[0].text,
+                url: `${appUrl}/?tab=Order+List`
+              });
+            } else {
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                title: 'Refunds Processed',
+                body: `You have ${refunds.length} successful refunds.`,
+                url: `${appUrl}/?tab=Order+List`
+              });
+            }
+          }
+
           // Gửi thông báo Funds
           if (funds.length > 0) {
-             if (funds.length === 1) {
-                await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
-                    title: 'Funds Received',
-                    body: funds[0].text
-                });
-             } else {
-                await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
-                    title: 'New Funds',
-                    body: `You have ${funds.length} new payout updates.`
-                });
-             }
+            if (funds.length === 1) {
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
+                title: 'Funds Received',
+                body: funds[0].text,
+                url: `${appUrl}/?tab=Overview`
+              });
+            } else {
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'funds', {
+                title: 'New Funds',
+                body: `You have ${funds.length} new payout updates.`,
+                url: `${appUrl}/?tab=Overview`
+              });
+            }
           }
         }
       }

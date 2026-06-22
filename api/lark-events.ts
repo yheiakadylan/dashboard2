@@ -4,15 +4,14 @@ import {
   getSavedReportForDate,
   sendLarkTextReply,
   sendLarkInteractiveReply,
-  sendReportBuilderCardToChat,
   ianaToUtcOffsetString,
 } from './_lib/larkHelper.js';
 import { getDb } from './_lib/firebaseAdminHelper.js';
-import { SHARED_USER_ID } from '../constants.js';
+import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 import { Record as MailRecord } from './_lib/types.js';
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 
 /** Dedupe theo id; với card-action ưu tiên dùng uuid nếu có */
 async function markOnceOrSkip(id: string): Promise<boolean> {
@@ -153,7 +152,7 @@ function verifyToken(kind: Parsed['kind'], incoming?: string): boolean {
 }
 
 /** Handlers */
-async function onText(messageId: string, chatId: string | undefined, command: string) {
+async function onText(messageId: string, command: string) {
   const lowerCommand = command.toLowerCase();
 
   // --- /menu command ---
@@ -315,11 +314,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // =====================================================================
-  // 🟢 HIJACK 1: LẤY CHI TIẾT ĐƠN HÀNG CHO TAMPERMONKEY
-  // Gọi bằng: /api/lark-events?action=get-order-detail&secret=test1234&orderId=...
+  // 🟢 HIJACK 1: LẤY CHI TIẾT ĐƠN HÀNG 
+  // Gọi bằng: /api/lark-events?action=get-order-detail&secret=<CRON_SECRET2>&orderId=...
   // =====================================================================
   if (action === 'get-order-detail') {
-    if (secret !== 'test1234') {
+    const CRON_SECRET2 = process.env.CRON_SECRET2;
+    if (!CRON_SECRET2) {
+      console.error('[lark-events] CRON_SECRET2 not configured');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    if (!secret || secret !== CRON_SECRET2) {
+      console.warn('[lark-events] Unauthorized get-order-detail attempt');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -357,7 +363,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const lastName = nameParts.pop() || '';
       const firstName = nameParts.join(' ') || '';
 
+      let accountLabel = bestRecord.account;
+      if (accountLabel && accountLabel !== "all") {
+         try {
+            const accountsRef = db.collection('user').doc(SHARED_USER_ID).collection('accounts');
+            const accSnap = await accountsRef.get();
+            const accounts = accSnap.docs.map(d => d.data() as { email: string; label: string; });
+            const foundAccount = accounts.find(acc => acc.email === bestRecord?.account);
+            if (foundAccount && foundAccount.label) {
+              accountLabel = foundAccount.label;
+            }
+         } catch(e) {
+            console.error("[lark-events] Failed to fetch account label", e);
+         }
+      }
+
       return res.status(200).json({
+        order_id: bestRecord.order_id,
+        account: accountLabel,
         firstName,
         lastName,
         email: customerEmail || '',
@@ -367,77 +390,615 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         city: shippingAddress.city,
         state: shippingAddress.state,
         zipCode: shippingAddress.zip,
-        countryCode: shippingAddress.country
+        countryCode: shippingAddress.country,
+        items: bestRecord.details.items || []
       });
 
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('[API get-order-detail] Error:', err);
-      return res.status(500).json({ message: err.message });
+      return res.status(500).json({ message: errorMessage });
     }
   }
 
   // =====================================================================
+  // 🟢 HIJACK 2: TRIGGER SKU FETCH VIA EXTENSION
+  // POST /api/lark-events with body: { action: 'trigger-sku-fetch', secret: <CRON_SECRET2>, orderId: ..., account: ... }
+  // =====================================================================
+  if (action === 'trigger-sku-fetch') {
+    // Reject GET requests, only allow POST
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method Not Allowed. Use POST.' });
+    }
+
+    const CRON_SECRET2 = process.env.CRON_SECRET2;
+    if (!CRON_SECRET2) {
+      console.error('[lark-events] CRON_SECRET2 not configured');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    if (!secret || secret !== CRON_SECRET2) {
+      console.warn('[lark-events] Unauthorized trigger-sku-fetch attempt with secret:', secret);
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const orderId = (req.query.orderId || req.body?.orderId) as string;
+    const account = (req.query.account || req.body?.account) as string;
+
+    if (!orderId || !account) {
+      return res.status(400).json({ message: 'Missing orderId or account' });
+    }
+
+    try {
+      const db = getDb();
+      const teamId = SHARED_USER_ID;
+
+      // Check if job already exists
+      const jobsRef = db.collection('user').doc(teamId).collection('sku_jobs');
+      const q = jobsRef.where('order_id', '==', orderId).where('status', '==', 'pending');
+      const snapshot = await q.get();
+
+      if (!snapshot.empty) {
+        return res.status(200).json({ message: 'SKU fetch already in progress', jobId: snapshot.docs[0].id });
+      }
+
+      // Create new SKU job
+      const jobDocRef = jobsRef.doc(orderId);
+      await jobDocRef.set({
+        order_id: orderId,
+        account: account,
+        status: 'pending',
+        priority: true, // High priority for manual triggers
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+      console.log(`[trigger-sku-fetch] Created SKU job for order ${orderId}, account ${account}`);
+
+      return res.status(200).json({
+        message: 'SKU fetch triggered successfully',
+        jobId: jobDocRef.id,
+        orderId,
+        account
+      });
+
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error('[API trigger-sku-fetch] Error:', err);
+      return res.status(500).json({ message: errorMessage });
+    }
+  }
+
+
+  // =====================================================================
+  // 🟢 HIJACK 2B: BULK TRIGGER SKU FETCH VIA EXTENSION
+  // POST /api/lark-events with body: { action: 'bulk-trigger-sku-fetch', secret: <CRON_SECRET2>, orders: [...] }
+  // =====================================================================
+  if (action === 'bulk-trigger-sku-fetch') {
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method Not Allowed. Use POST.' });
+    }
+
+    const CRON_SECRET2 = process.env.CRON_SECRET2;
+    if (!CRON_SECRET2) {
+      console.error('[lark-events] CRON_SECRET2 not configured');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    if (!secret || secret !== CRON_SECRET2) {
+      console.warn('[lark-events] Unauthorized bulk-trigger-sku-fetch attempt');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const orders = req.body?.orders as { orderId: string; account: string; }[];
+    if (!orders || !Array.isArray(orders)) {
+      return res.status(400).json({ message: 'Missing orders array' });
+    }
+
+    try {
+      const db = getDb();
+      const teamId = SHARED_USER_ID;
+      const jobsRef = db.collection('user').doc(teamId).collection('sku_jobs');
+      const batch = db.batch();
+      let count = 0;
+
+      for (const order of orders) {
+        const { orderId, account } = order;
+        if (!orderId || !account) continue;
+
+        const jobDocRef = jobsRef.doc(orderId);
+        batch.set(jobDocRef, {
+          order_id: orderId,
+          account: account,
+          status: 'pending',
+          priority: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }, { merge: true });
+
+        count++;
+      }
+
+      if (count > 0) {
+        await batch.commit();
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `Successfully triggered SKU fetch for ${count} orders.`
+      });
+
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error('[API bulk-trigger-sku-fetch] Error:', err);
+      return res.status(500).json({ message: errorMessage });
+    }
+  }
+
+
+  // =====================================================================
+  // 🟢 HIJACK 2C: BULK SYNC SKU TO TASKS VIA EXTENSION
+  // POST /api/lark-events with body: { action: 'bulk-sync-sku-to-tasks', secret: <CRON_SECRET2>, orders: [...] }
+  // =====================================================================
+  if (action === 'bulk-sync-sku-to-tasks') {
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method Not Allowed. Use POST.' });
+    }
+
+    const CRON_SECRET2 = process.env.CRON_SECRET2;
+    if (!CRON_SECRET2) {
+      console.error('[lark-events] CRON_SECRET2 not configured');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    if (!secret || secret !== CRON_SECRET2) {
+      console.warn('[lark-events] Unauthorized bulk-sync-sku-to-tasks attempt');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const orders = req.body?.orders as {
+      orderId: string;
+      skuString: string;
+      items: {
+        title: string;
+        sku: string;
+        listingId?: string;
+        variations?: string[];
+        quantity?: number;
+      }[];
+    }[];
+
+    if (!orders || !Array.isArray(orders)) {
+      return res.status(400).json({ message: 'Missing orders array' });
+    }
+
+    try {
+      const db = getDb();
+      const teamId = SHARED_USER_ID;
+      const batch = db.batch();
+
+      const accountsRef = db.collection('user').doc(teamId).collection('accounts');
+      const accSnap = await accountsRef.get();
+      const accountsMap = new Map<string, string>();
+      accSnap.docs.forEach(d => {
+        const data = d.data();
+        if (data.email && data.label) {
+          accountsMap.set(data.email, data.label);
+        }
+      });
+
+      const uniqueOrderIds = Array.from(new Set(orders.map(o => o.orderId).filter(Boolean)));
+      const recordsMap = new Map<string, { ref: any; data: any }>();
+      if (uniqueOrderIds.length > 0) {
+        const recordsCol = db.collection('user').doc(teamId).collection('records');
+        const IN_QUERY_LIMIT = 30;
+        for (let i = 0; i < uniqueOrderIds.length; i += IN_QUERY_LIMIT) {
+          const chunk = uniqueOrderIds.slice(i, i + IN_QUERY_LIMIT);
+          const snap = await recordsCol.where('order_id', 'in', chunk).get();
+          snap.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.order_id) {
+              recordsMap.set(data.order_id, { ref: doc.ref, data });
+            }
+          });
+        }
+      }
+
+      const taskIds: string[] = [];
+      orders.forEach(order => {
+        const itemsCount = order.items ? order.items.length : 0;
+        (order.items || []).forEach((_, index) => {
+          const taskId = itemsCount > 1 ? `${order.orderId}-${index + 1}` : order.orderId;
+          taskIds.push(taskId);
+        });
+      });
+
+      const existingTaskIds = new Set<string>();
+      if (taskIds.length > 0) {
+        const tasksCol = db.collection('tasks');
+        const IN_QUERY_LIMIT = 30;
+        for (let i = 0; i < taskIds.length; i += IN_QUERY_LIMIT) {
+          const chunk = taskIds.slice(i, i + IN_QUERY_LIMIT);
+          const snap = await tasksCol.where('id', 'in', chunk).get();
+          snap.docs.forEach(doc => {
+            existingTaskIds.add(doc.id);
+          });
+        }
+      }
+
+      let taskUpdatesCount = 0;
+      for (const order of orders) {
+        const { orderId, items } = order;
+        if (!orderId || !items || !Array.isArray(items)) continue;
+
+        const recordInfo = recordsMap.get(orderId);
+        const recordData = recordInfo?.data;
+        const recordRef = recordInfo?.ref;
+
+        if (recordRef && recordData) {
+          const existingDetails = recordData.details || {};
+          const existingItems = existingDetails.items || [];
+          const updatedItems = items.map((payloadItem, index) => {
+            const existingItem = existingItems[index] || {};
+            return {
+              ...existingItem,
+              name: payloadItem.title || existingItem.name || "",
+              sku: payloadItem.sku || existingItem.sku || "",
+              variant: payloadItem.variations?.[0] || existingItem.variant || "",
+              variant2: payloadItem.variations?.[1] || existingItem.variant2 || "",
+              quantity: existingItem.quantity || payloadItem.quantity || 1,
+              price: existingItem.price || 0,
+              ...(payloadItem.listingId ? { listingId: payloadItem.listingId } : {})
+            };
+          });
+          batch.update(recordRef, {
+            "details.items": updatedItems
+          });
+        }
+
+        const itemsCount = items.length;
+        items.forEach((item, index) => {
+          const taskId = itemsCount > 1 ? `${orderId}-${index + 1}` : orderId;
+
+          const cleanSku = String(item.sku || '').trim().toUpperCase();
+          const SKU_REGEX = /^([^-]+)-([^-]+)-(.*)$/;
+          let productType = '';
+          let ideaEmpId = '';
+          let originalSku = '';
+
+          if (SKU_REGEX.test(cleanSku)) {
+            const parts = cleanSku.split('-');
+            productType = parts[0].trim();
+            ideaEmpId = parts[1].trim();
+            originalSku = parts.slice(2).join('-').trim();
+          }
+
+          const taskDocRef = db.collection('tasks').doc(taskId);
+          const taskExists = existingTaskIds.has(taskId);
+
+          const taskUpdate: Record<string, unknown> = {
+            sku: cleanSku,
+            productType,
+            idea_emp_id: ideaEmpId,
+            originalSku,
+            variant1: item.variations?.[0] || '',
+            variant2: item.variations?.[1] || '',
+            updatedAt: new Date().toISOString(),
+            // Always sync listingId regardless of task status
+            ...(item.listingId ? { listingId: item.listingId } : {}),
+          };
+
+          if (recordData) {
+            const emailAccount = recordData.account || '';
+            taskUpdate.account = emailAccount;
+            taskUpdate.shopLabel = accountsMap.get(emailAccount) || emailAccount;
+            if (!taskExists) {
+              taskUpdate.title = recordData.product_name || item.title || 'New Etsy Order';
+              if (recordData.details?.items?.[index]?.image) {
+                taskUpdate.mockupUrl = recordData.details.items[index].image;
+              }
+            }
+          } else if (!taskExists) {
+            taskUpdate.title = item.title || 'New Etsy Order';
+          }
+
+          if (!taskExists) {
+            taskUpdate.id = taskId;
+            taskUpdate.readableId = taskId;
+            taskUpdate.orderId = orderId;
+            taskUpdate.quantity = item.quantity || 1;
+            taskUpdate.status = 'draft';
+            taskUpdate.isUrgent = false;
+            taskUpdate.createdBy = 'tampermonkey_sync';
+            taskUpdate.created_at = new Date().toISOString();
+            taskUpdate.collectionName = 'tasks';
+          }
+
+          batch.set(taskDocRef, taskUpdate, { merge: true });
+          taskUpdatesCount++;
+        });
+
+        const jobDocRef = db.collection('user').doc(teamId).collection('sku_jobs').doc(orderId);
+        batch.delete(jobDocRef); // Xóa hẳn sau khi sync xong
+      }
+
+      if (taskUpdatesCount > 0) {
+        await batch.commit();
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `Successfully synced ${taskUpdatesCount} tasks.`
+      });
+
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error('[API bulk-sync-sku-to-tasks] Error:', err);
+      return res.status(500).json({ message: errorMessage });
+    }
+  }
+
+
+  // =====================================================================
   // 🟢 HIJACK 2: TEST NOTIFICATION HANDLER
-  // Gọi bằng: /api/lark-events?action=test-push&secret=test1234&type=order|funds|summary|login
+  // Gọi bằng: /api/lark-events?action=test-push&secret=<CRON_SECRET2>&type=order|funds|summary|login
   // =====================================================================
   if (action === 'test-push') {
-    if (secret !== 'test1234') {
+    const CRON_SECRET2 = process.env.CRON_SECRET2;
+    if (!CRON_SECRET2) {
+      console.error('[lark-events] CRON_SECRET2 not configured');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    if (!secret || secret !== CRON_SECRET2) {
+      console.warn('[lark-events] Unauthorized test-push attempt');
       return res.status(401).json({ error: 'Unauthorized Test' });
     }
 
     try {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app';
+
+      const createTabLink = (tab: string) => {
+        try {
+          const u = new URL(baseUrl);
+          u.searchParams.set('tab', tab);
+          return u.toString();
+        } catch { return baseUrl; }
+      };
+
       const targetTeam = SHARED_USER_ID;
       console.log(`[Lark-API] Manually triggering push notification test (${type})`);
 
       let payload = { title: '', body: '', url: '/' };
+      let notificationData: any = null; // Data for Notification Center
 
       if (type === 'order') {
         payload = {
           title: '🔔 New Order (Test)',
           body: 'New Order: #TEST-123 - $50.00 (Test Shop)',
-          url: '/'
+          url: createTabLink('Order List') // Deep link to Order List
+        };
+        notificationData = {
+          type: 'NEW_ORDER',
+          title: 'New Order Received',
+          content: 'Order #TEST-123 for $50.00 has been successfully parsed.',
+          metadata: {
+            order_id: 'TEST-123',
+            order_total: 50.00,
+            currency: 'USD',
+          }
         };
       } else if (type === 'funds') {
         payload = {
           title: '💰 Funds Received (Test)',
           body: 'Funds Received: $1,000.00 USD (Test Shop)',
-          url: '/'
+          url: createTabLink('Overview') // Deep link to Overview
+        };
+        notificationData = {
+          type: 'FUND',
+          title: 'Funds Received',
+          content: 'Payout of $1,000.00 has been deposited to your account.',
+          metadata: {
+            fund_id: 'FUND-TEST-001',
+            fund_amount: 1000.00,
+          }
         };
       } else if (type === 'summary') {
+        const revMap = { USD: 2500.00, AUD: 150.00, GBP: 50.00 }; // Test Data with multiple currencies
+
         payload = {
           title: '📊 Daily Summary (Test)',
-          body: 'Your daily sales summary is ready!',
-          url: '/'
+          body: `📅 ${new Date().toISOString().split('T')[0]}\nOrders: 25\nTap to view full report.`,
+          url: createTabLink('Overview') // Deep link to Overview
+        };
+        notificationData = {
+          type: 'SUMMARY',
+          title: 'Daily Sales Summary',
+          content: '25 orders processed on ' + new Date().toISOString().split('T')[0] + '. Tap to view full report.',
+          metadata: {
+            summary_data: {
+              date: new Date().toISOString().split('T')[0],
+              totalOrders: 25, /* Consistent with payload */
+              totalRevenue: revMap, /* Use the multi-currency map */
+              shops: [
+                { name: 'Etsy Store A', orders: 15, revenue: { USD: 2500.00 } },
+                { name: 'eBay Store B', orders: 7, revenue: { AUD: 150.00 } },
+                { name: 'Amazon Store C', orders: 3, revenue: { GBP: 50.00 } },
+              ]
+            }
+          }
         };
       } else if (type === 'login') {
         payload = {
           title: '🔔 User Login (Test)',
           body: 'testuser@example.com đã đăng nhập vào dashboard',
-          url: '/'
+          url: baseUrl // Deep link to home
+        };
+        notificationData = {
+          type: 'LOGIN',
+          title: 'Team Member Login',
+          content: 'Test User logged into the dashboard.',
+          metadata: {
+            login_info: {
+              user_name: 'Test User',
+              user_email: 'testuser@example.com',
+              ip_address: '192.168.1.100',
+              device: 'Chrome on Windows',
+              location: 'Ho Chi Minh City, VN',
+              timestamp: new Date().toISOString(),
+            }
+          }
+        };
+      } else if (type === 'case') {
+        payload = {
+          title: '⚖️ Case Alert (Test)',
+          body: 'Case Opened: Order #CASE-999 (Test Shop)',
+          url: createTabLink('Support')
+        };
+        notificationData = {
+          type: 'CASE',
+          title: 'Case Alert',
+          content: 'A new case has been opened for Order #CASE-999.',
+          metadata: {
+            // Include minimal fields to match what notification center expects
+            order_id: 'CASE-999',
+            shopName: 'Test Shop',
+            case_msg: 'Buyer says: Item not received',
+          }
+        };
+      } else if (type === 'help') {
+        payload = {
+          title: '🆘 Help Request (Test)',
+          body: 'Help Request: Order #HELP-888 - Item arrived damaged (Test Shop)',
+          url: createTabLink('Support')
+        };
+        notificationData = {
+          type: 'HELP',
+          title: 'Help Request',
+          content: 'Buyer needs help with Order #HELP-888.',
+          metadata: {
+            order_id: 'HELP-888',
+            shopName: 'Test Shop',
+            help_kind: 'Item arrived damaged',
+          }
         };
       } else {
         payload = {
           title: '🔔 Test Notification',
           body: `Test push sent at ${new Date().toLocaleTimeString()}.`,
-          url: '/'
+          url: baseUrl
         };
       }
 
+      // ✅ Send FCM Push Notification
       await sendPushNotificationToUsers(targetTeam, type as any, payload);
+
+      // ✅ Save to Firestore for Notification Center
+      if (notificationData) {
+        const db = getDb();
+        const notificationsRef = db.collection('user').doc(targetTeam).collection('notifications');
+        await notificationsRef.add({
+          ...notificationData,
+          createdAt: new Date().toISOString(),
+          isRead: false,
+        });
+        console.log('[Lark-API] Notification saved to Firestore for Notification Center');
+      }
 
       return res.status(200).json({
         success: true,
-        message: `Push notification (${type}) command executed.`,
-        target: targetTeam
+        message: `Push notification (${type}) sent and saved to Notification Center.`,
+        target: targetTeam,
+        notificationData: notificationData
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('[Lark-API] Test push failed:', err);
-      return res.status(500).json({ success: false, error: err.message });
+      return res.status(500).json({ success: false, error: errorMessage });
     }
   }
 
   // =====================================================================
-  // 🔴 LARK WEBHOOK LOGIC (Code gốc xử lý Lark)
+  // � HIJACK 3: LOGIN NOTIFICATION (Migrated from api/lark-login-notify.ts)
+  // Gọi bằng: /api/lark-events?action=login-notify
+  // =====================================================================
+  if (action === 'login-notify') {
+    if (req.method !== 'POST') {
+      return res.status(405).json({ message: 'Only POST requests are allowed.' });
+    }
+
+    const { email, role, teamId, displayName } = req.body;
+
+    // 1. Chỉ gửi nếu là 'user'
+    if (role !== 'user') {
+      return res.status(200).json({ message: 'Notification skipped for owner.' });
+    }
+
+    // 2. Lấy URL bí mật từ server environment
+    const LARK_URL = process.env.LARK_LOGIN_WEBHOOK_URL;
+
+    // 3. Chuẩn bị nội dung
+    const userEmail = email || 'Không rõ email';
+    const userName = displayName || email || 'Nhân viên';
+    const content = `🔔 User Login: Tài khoản ${userName} (${userEmail}) vừa đăng nhập vào dashboard.`;
+
+    const payload = {
+      msg_type: "text",
+      content: { text: content },
+    };
+
+    // 4. Gửi Lark notification
+    if (LARK_URL) {
+      try {
+        await fetch(LARK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch (err: any) {
+        console.error('[lark-events/login-notify] Failed to send Lark notification:', err);
+      }
+    }
+
+    // 5. Gửi FCM Push Notification
+    try {
+      if (teamId) {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
+
+        const { createNotificationDocument } = await import('./_lib/notificationHelper.js');
+        const notificationId = await createNotificationDocument({
+          teamId,
+          type: 'LOGIN',
+          title: 'Team Member Login',
+          content: `${userName} (${userEmail}) logged into the dashboard`,
+          metadata: {
+            login_info: {
+              user_name: userName,
+              user_email: userEmail,
+              user_role: role,
+              timestamp: new Date().toISOString(),
+            },
+          },
+        });
+
+        await sendPushNotificationToUsers(teamId, 'login', {
+          title: '🔔 User Login',
+          body: `${userName} đã đăng nhập vào dashboard`,
+          url: `${appUrl}?notification=${notificationId}` // Deep link to notification detail
+        });
+        console.log('[lark-events/login-notify] FCM notification sent successfully');
+      } else {
+        console.warn('[lark-events/login-notify] No teamId provided, skipping FCM notification');
+      }
+    } catch (err: any) {
+      console.error('[lark-events/login-notify] Failed to send FCM notification:', err);
+    }
+
+    return res.status(200).json({ message: 'Notifications sent.' });
+  }
+
+  // =====================================================================
+  // �🔴 LARK WEBHOOK LOGIC (Code gốc xử lý Lark)
   // =====================================================================
 
   console.log('[lark-events] Received body:', JSON.stringify(req.body, null, 2));
@@ -461,7 +1022,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!(await markOnceOrSkip(parsed.dedupeId))) {
         return res.status(200).send('OK (duplicate ignored)');
       }
-      await onText(parsed.messageId, parsed.chatId, parsed.text);
+      await onText(parsed.messageId, parsed.text);
       return res.status(200).send('OK');
     }
 
@@ -494,3 +1055,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).send('OK (Error handled)');
   }
 }
+

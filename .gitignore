@@ -26,3 +26,5 @@ public/firebase-config.js
 *.sln
 *.sw?
 .vercel
+.env*.local
+public/extension.zip

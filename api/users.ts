@@ -10,8 +10,86 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return handleCreateUser(req, res);
         case 'DELETE':
             return handleDeleteUser(req, res);
+        case 'PATCH':
+            return handleUpdateUser(req, res);
         default:
             return res.status(405).json({ message: `Method ${req.method} not allowed.` });
+    }
+}
+
+// ... existing code ...
+
+// ========================================
+// PATCH /api/users - Update User (Password/Role)
+// ========================================
+async function handleUpdateUser(req: VercelRequest, res: VercelResponse) {
+    const { userId, password, role } = req.body;
+    const idToken = req.headers.authorization?.split('Bearer ')[1];
+
+    if (!userId || !idToken) {
+        return res.status(400).json({ message: 'Missing required fields: userId.' });
+    }
+
+    // Must have at least one field to update
+    if (!password && !role) {
+        return res.status(400).json({ message: 'Nothing to update.' });
+    }
+
+    try {
+        const adminApp = initFirebaseAdmin();
+        const adminAuth = getAuth(adminApp);
+        const adminDb = getDb();
+
+        // 1. Authenticate caller
+        let callerUid: string;
+        try {
+            const decodedToken = await adminAuth.verifyIdToken(idToken);
+            callerUid = decodedToken.uid;
+        } catch (authError) {
+            console.warn("Caller auth failed:", authError);
+            return res.status(401).json({ message: 'Unauthorized. Invalid token.' });
+        }
+
+        // 2. Verify caller is Owner
+        const callerRoleDoc = await adminDb.collection('user_roles').doc(callerUid).get();
+        if (!callerRoleDoc.exists || callerRoleDoc.data()?.role !== 'owner') {
+            return res.status(403).json({ message: 'Forbidden. Only owners can update users.' });
+        }
+
+        const callerTeamId = callerRoleDoc.data()?.teamId;
+
+        // 3. Get target user info
+        const targetUserRoleDoc = await adminDb.collection('user_roles').doc(userId).get();
+        if (!targetUserRoleDoc.exists) {
+            return res.status(404).json({ message: 'User not found.' });
+        }
+
+        const targetUserData = targetUserRoleDoc.data();
+
+        // 4. Verify same team
+        if (targetUserData?.teamId !== callerTeamId) {
+            return res.status(403).json({ message: 'Cannot update user from another team.' });
+        }
+
+        // 5. Update Password (if provided)
+        if (password) {
+            if (password.length < 6) {
+                return res.status(400).json({ message: 'Password must be at least 6 characters.' });
+            }
+            await adminAuth.updateUser(userId, { password });
+        }
+
+        // 6. Update Role (if provided)
+        if (role) {
+            // Prevent removing the last owner? Logic similar to Delete can be added here if needed.
+            await adminDb.collection('user_roles').doc(userId).update({ role });
+        }
+
+        return res.status(200).json({ message: 'User updated successfully.' });
+
+    } catch (error: any) {
+        console.error('[API PATCH /users Error]', error);
+        return res.status(500).json({ message: 'Internal Server Error' });
     }
 }
 
@@ -47,14 +125,46 @@ async function handleCreateUser(req: VercelRequest, res: VercelResponse) {
             return res.status(403).json({ message: 'Forbidden. Only owners can create users.' });
         }
 
-        // 3. Create user in Firebase Authentication
-        const newUserRecord = await adminAuth.createUser({
-            email,
-            password,
-            emailVerified: true,
-        });
+        // 3. Create OR Recover user in Firebase Authentication
+        let newUserUid: string;
 
-        const newUserUid = newUserRecord.uid;
+        try {
+            const newUserRecord = await adminAuth.createUser({
+                email,
+                password,
+                emailVerified: true,
+            });
+            newUserUid = newUserRecord.uid;
+        } catch (createError: any) {
+            if (createError.code === 'auth/email-already-exists') {
+                // Handle "Ghost User" case: Exists in Auth but maybe not in DB?
+                try {
+                    const existingUser = await adminAuth.getUserByEmail(email);
+                    newUserUid = existingUser.uid;
+
+                    // Check if they really exist in DB
+                    const existingRoleDoc = await adminDb.collection('user_roles').doc(newUserUid).get();
+                    if (existingRoleDoc.exists) {
+                        // Real duplicate
+                        return res.status(409).json({ message: 'This email is already fully registered.' });
+                    }
+
+                    // Ghost Account detected (Auth yes, DB no). Recover it!
+                    console.log(`[handleCreateUser] Recovering ghost account for ${email} (${newUserUid})`);
+                    await adminAuth.updateUser(newUserUid, {
+                        password,
+                        emailVerified: true
+                    });
+
+                    // Proceed to create DB doc below...
+                } catch (lookupError) {
+                    console.error("Error looking up existing user:", lookupError);
+                    throw createError; // Throw original error
+                }
+            } else {
+                throw createError;
+            }
+        }
 
         // 4. Create user_roles document
         const newUserRoleDoc: any = {
@@ -161,8 +271,12 @@ async function handleDeleteUser(req: VercelRequest, res: VercelResponse) {
         try {
             await adminAuth.deleteUser(userId);
         } catch (authError: any) {
-            console.warn("Auth deletion warning:", authError);
-            // Continue even if auth delete fails (user might not exist in auth)
+            if (authError.code === 'auth/user-not-found') {
+                console.warn("User not found in Auth (already deleted?), proceeding to delete role doc.");
+            } else {
+                console.error("Failed to delete user from Auth:", authError);
+                throw new Error(`Failed to delete Auth capability: ${authError.message}`);
+            }
         }
 
         // 8. Delete user_roles document

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Etsy SKU Worker</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; width: 320px; background-color: #f8fafc; margin: 0; }
+        .container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        h3 { margin-top: 0; color: #1e293b; font-size: 18px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: #475569; }
+        input { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; outline: none; transition: border-color 0.2s; }
+        input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+        button { width: 100%; padding: 10px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background-color 0.2s; font-size: 14px; }
+        button:hover { background: #1d4ed8; }
+        button:disabled { background: #94a3b8; cursor: not-allowed; }
+        .status { margin-top: 16px; font-size: 13px; font-weight: 500; text-align: center; min-height: 20px; border-radius: 6px; }
+        .success { color: #16a34a; background: #dcfce7; padding: 8px; }
+        .error { color: #dc2626; background: #fee2e2; padding: 8px; }
+        .info { color: #2563eb; background: #dbeafe; padding: 8px; }
+    </style>
+
+</head>
+<body>
+    <div class="container">
+        <h3>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+            SKU Worker
+        </h3>
+        <div class="form-group">
+            <label>Team ID:</label>
+            <input type="text" id="teamId" value="jwnm5emo8mdG3gjIlh7CctiVvQO2" placeholder="VD: team_abc123">
+        </div>
+        <div class="form-group" style="margin-bottom: 24px;">
+            <label>Shop Email (Routing):</label>
+            <input type="text" id="account" placeholder="VD: shop01@gmail.com">
+        </div>
+        <div class="form-group">
+            <label>Tài khoản Dashboard:</label>
+            <input type="email" id="dbEmail" value="haitrinh2605204@gmail.com" placeholder="admin@domain.com">
+        </div>
+        <div class="form-group">
+            <label>Mật khẩu Dashboard:</label>
+            <input type="password" id="dbPassword" value="haidz123" placeholder="••••••••">
+        </div>
+        <button id="saveBtn">Save & Connect</button>
+        <div class="status" id="statusMsg"></div>
+    </div>
+
+    <!-- SỬA LỖI MIME TYPE BẰNG CÁCH TRỎ ĐÚNG FILE BUID .JS -->
+    <script type="module" src="popup.js"></script>
+</body>
+</html>
