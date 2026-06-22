@@ -207,6 +207,7 @@ const Header: React.FC = () => {
             return {
                 title: i.name || '',
                 sku: i.sku || 'NULL',
+                listingId: i.listingId || '',
                 variations
             };
         }) || [];

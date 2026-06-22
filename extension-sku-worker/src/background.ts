@@ -1,7 +1,7 @@
 /// <reference types="chrome" />
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, setPersistence, indexedDBLocalPersistence, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, query, where, doc, updateDoc, getDocs } from 'firebase/firestore';
+import { getFirestore, collection, query, where, doc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -37,6 +37,7 @@ interface ExtractedItem {
     variations: { name: string; value: string }[] | string;
     transaction_id?: string;
     customerFiles?: string[];
+    listingId?: string;
 }
 
 interface FetchSKUResult {
@@ -45,22 +46,21 @@ interface FetchSKUResult {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-    console.log("Etsy SKU Worker installed.");
     maintainOffscreen();
 });
 
 chrome.runtime.onStartup.addListener(() => {
     maintainOffscreen();
-    scanPendingJobs(); // FIX Bug#2: vẫt lại job pending sau khi SW thức dậy
+    // Vớt lại job pending sau khi SW thức dậy (localQueue bị xóa khi Chrome terminate)
+    scanPendingJobs();
 });
 
-// Alarm just to re-verify offscreen doc exists if SW wakes up for any reason
+// Alarm every 30s: keep offscreen alive, scan for missed jobs, send heartbeat
 chrome.alarms.create('keepAlive', { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener((alarm: chrome.alarms.Alarm) => {
     if (alarm.name === 'keepAlive') {
         maintainOffscreen();
         scanPendingJobs();
-        // Heartbeat để báo cáo trạng thái lên Dashboard
         reportHeartbeat();
     }
 });
@@ -68,28 +68,21 @@ chrome.alarms.onAlarm.addListener((alarm: chrome.alarms.Alarm) => {
 async function reportHeartbeat() {
     try {
         const { teamId, account } = (await chrome.storage.local.get(['teamId', 'account'])) as { teamId?: string; account?: string };
-        if (!teamId || !account) {
-            console.log("[Heartbeat] Missing teamId or account in storage.");
-            return;
-        }
+        if (!teamId || !account) return;
 
         const isAuthenticated = await ensureAuth();
-        if (!isAuthenticated) {
-            console.log("[Heartbeat] Auth failed.");
-            return;
-        }
+        if (!isAuthenticated) return;
 
         const normalizedEmail = account.trim().toLowerCase();
-        
-        // Tìm accountId tương ứng với account email
+
         const accountsRef = collection(db, 'user', teamId, 'accounts');
         const q = query(accountsRef, where('email', '==', normalizedEmail));
         const snap = await getDocs(q);
-        
+
         if (!snap.empty) {
             const accDoc = snap.docs[0];
             const status = isEtsyLoggedOut ? 'error' : (isProcessing ? 'processing' : 'idle');
-            
+
             await updateDoc(doc(db, 'user', teamId, 'accounts', accDoc.id), {
                 'worker_status': {
                     status,
@@ -99,9 +92,8 @@ async function reportHeartbeat() {
                     version: chrome.runtime.getManifest().version
                 }
             });
-            console.log(`[Heartbeat] Success for ${normalizedEmail} (Status: ${status})`);
         } else {
-            console.warn(`[Heartbeat] No account found in Firestore for email: ${normalizedEmail} in team: ${teamId}`);
+            console.warn(`[Heartbeat] No account found for ${normalizedEmail}`);
         }
     } catch (err) {
         console.error("[Heartbeat] Error:", err);
@@ -125,7 +117,6 @@ async function setupOffscreenDocument(path: string) {
                 reasons: [chrome.offscreen.Reason.DOM_PARSER],
                 justification: 'Keep Firebase websocket open to receive real-time updates'
             });
-            console.log("Offscreen document created successfully.");
         } catch (err) {
             console.error("Failed to create offscreen document", err);
         }
@@ -148,7 +139,7 @@ async function maintainOffscreen() {
         creating = setupOffscreenDocument(path);
         await creating;
         creating = null;
-        
+
         // Pass credentials only once after creation
         chrome.storage.local.get(['teamId', 'account', 'dbEmail', 'dbPassword'], (data) => {
             if (data.teamId && data.account && data.dbEmail && data.dbPassword) {
@@ -194,7 +185,6 @@ async function ensureAuth(): Promise<boolean> {
     const { dbEmail, dbPassword } = (await chrome.storage.local.get(['dbEmail', 'dbPassword'])) as { [key: string]: string };
     if (dbEmail && dbPassword) {
         try {
-            console.log("Background: Session missing, authenticating with password...");
             await signInWithEmailAndPassword(auth, dbEmail, dbPassword);
             return true;
         } catch (err) {
@@ -206,7 +196,7 @@ async function ensureAuth(): Promise<boolean> {
 }
 
 
-// FIX Bug#2: Quét lại toàn bộ job pending từ Firestore khi SW thức dậy
+// Quét lại toàn bộ job pending từ Firestore khi SW thức dậy
 // Giải quyết vấn đề localQueue bị xóa sạch trong RAM khi Service Worker bị Chrome terminate
 async function scanPendingJobs(): Promise<void> {
     chrome.storage.local.get(['teamId', 'account'], async (rawData) => {
@@ -228,7 +218,7 @@ async function scanPendingJobs(): Promise<void> {
             let addedCount = 0;
             snap.docs.forEach(docSnap => {
                 const job = { id: docSnap.id, ...docSnap.data() };
-                // FIX Bug#1: Kiểm tra trùng lặp để không push 2 lần
+                // Kiểm tra trùng lặp để không push 2 lần
                 const isExists = localQueue.some(j => j.id === job.id);
                 if (!isExists) {
                     localQueue.push(job);
@@ -237,11 +227,11 @@ async function scanPendingJobs(): Promise<void> {
             });
 
             if (addedCount > 0) {
-                console.log(`[scanPendingJobs] Found ${addedCount} pending job(s) from Firestore. Resuming queue.`);
+                console.log(`[Worker] Resumed ${addedCount} pending job(s) from Firestore.`);
                 processQueue(data.teamId as string);
             }
         } catch (err) {
-            console.error('[scanPendingJobs] Failed to fetch pending jobs:', err);
+            console.error('[Worker] scanPendingJobs failed:', err);
         }
     });
 }
@@ -249,16 +239,12 @@ async function scanPendingJobs(): Promise<void> {
 // Receive pushing tasks from the offscreen document
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "NEW_SKU_JOB") {
-        console.log("Background received new job from Offscreen:", msg.job);
-        
-        // FIX Bug#1: Kiểm tra trùng lặp dựa trên job.id trước khi push vào queue
+        // Kiểm tra trùng lặp dựa trên job.id trước khi push vào queue
         const isExists = localQueue.some(j => j.id === msg.job.id);
         if (!isExists) {
             localQueue.push(msg.job);
-        } else {
-            console.log(`[Dedup] Job ${msg.job.id} already in queue. Skipping.`);
         }
-        
+
         processQueue(msg.teamId);
         sendResponse({ success: true });
     }
@@ -268,17 +254,15 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function processQueue(teamId: string) {
     if (isProcessing) return;
-    
-    // Check Etsy session logout lock
+
     if (isEtsyLoggedOut) {
-        console.log("Queue paused: Etsy is logged out. Please log in and restart extension.");
+        console.warn("[Worker] Queue paused: Etsy is logged out.");
         return;
     }
 
-    // Check rate limit lock
     if (Date.now() < rateLimitUntil) {
         const remaining = Math.ceil((rateLimitUntil - Date.now()) / 1000 / 60);
-        console.log(`Queue paused due to rate limiting. Resuming in ~${remaining} minutes.`);
+        console.warn(`[Worker] Queue paused: rate limited. Resuming in ~${remaining} min.`);
         return;
     }
 
@@ -286,62 +270,48 @@ async function processQueue(teamId: string) {
 
     isProcessing = true;
 
-    // QUAN TRỌNG: Kiểm tra Auth, nếu false thì tạm dừng queue
     const isAuthenticated = await ensureAuth();
     if (!isAuthenticated) {
-        console.log("Background: Cannot authenticate to Firebase. Pausing queue for 15s.");
+        console.error("[Worker] Cannot authenticate to Firebase. Pausing queue for 15s.");
         isProcessing = false;
-        // Tự động thử lại sau 15 giây
         setTimeout(() => processQueue(teamId), 15_000);
         return;
     }
 
     while (localQueue.length > 0) {
-        // Enforce rate limit Check before each processing run
-        if (Date.now() < rateLimitUntil) {
-            console.log("Hit rate limit. Breaking processing loop.");
-            break;
-        }
+        if (Date.now() < rateLimitUntil) break;
+        if (isEtsyLoggedOut) break;
 
-        if (isEtsyLoggedOut) {
-            console.log("Etsy Auth expired while processing. Breaking loop.");
-            break;
-        }
-
-        // Priority Logic
+        // Priority: process priority=true jobs first
         let jobIndex = localQueue.findIndex(j => j.priority === true);
         if (jobIndex === -1) jobIndex = 0;
-        
+
         const job = localQueue.splice(jobIndex, 1)[0];
-        console.log('Processing job:', job);
+        console.log(`[Worker] Processing job: ${job.order_id}`);
 
         try {
             const jobRef = doc(db, 'user', teamId, 'sku_jobs', job.id);
             await updateDoc(jobRef, { status: 'processing', updated_at: new Date().toISOString() });
 
             const skuResult = await fetchSKU(job.order_id);
-            console.log(`Order ${job.order_id} fetched SKUs:`, skuResult);
 
             if (skuResult === "NULL_AUTH_REQUIRED") {
                 isEtsyLoggedOut = true;
                 await updateDoc(jobRef, { status: 'failed', error: 'Etsy Account Logged Out', sku: 'NULL', updated_at: new Date().toISOString() });
-                reportHeartbeat(); // Update status ngay lập tức
-                continue;
-            }
-
-            if (skuResult === "NULL_RATE_LIMIT") {
-                await updateDoc(jobRef, { status: 'failed', error: '429 Rate Limit (Cloudflare / Etsy)', sku: 'NULL', updated_at: new Date().toISOString() });
-                localQueue.push(job);
                 reportHeartbeat();
                 continue;
             }
 
+            if (skuResult === "NULL_RATE_LIMIT") {
+                await updateDoc(jobRef, { status: 'failed', error: '429 Rate Limit', sku: 'NULL', updated_at: new Date().toISOString() });
+                localQueue.push(job); // Re-queue để thử lại
+                reportHeartbeat();
+                continue;
+            }
 
             // Central API for Enrichment & Auto-Reuse
-            // Note: VIKCOM_API_URL should be configured in extension settings or point to your Vercel deployment
             const enrichmentApiUrl = 'https://vikcomltd.vercel.app/api/tasks/update-with-reuse';
 
-            // Sync successfully fetched SKU 
             if (skuResult !== "NULL") {
                 try {
                     const isObj = typeof skuResult === 'object' && skuResult !== null && !Array.isArray(skuResult);
@@ -350,22 +320,23 @@ async function processQueue(teamId: string) {
                     const globalCustomerFiles: string[] = resultObj ? (resultObj.customerFiles || []) : [];
 
                     const skuString = Array.isArray(extractedItemsArray) ? extractedItemsArray.map(i => i.sku).join(', ') : String(extractedItemsArray);
-                    
-                    // 1. Update internal records for Dashboardvikcom (Marketing/Ads data)
+
+                    // 1. Update internal records (Marketing/Ads data)
                     const recordsRef = collection(db, 'user', teamId, 'records');
                     const qRecords = query(recordsRef, where('order_id', '==', job.order_id), where('source', '==', 'Etsy_Sales'));
                     const snap = await getDocs(qRecords);
-                    
+
                     for (const recordDoc of snap.docs) {
                         const data = recordDoc.data();
                         if (data.details && data.details.items) {
                             const newItems = data.details.items.map((item: any, idx: number) => {
                                 if (Array.isArray(extractedItemsArray) && extractedItemsArray[idx]) {
                                     const extItem = extractedItemsArray[idx];
-                                    return { 
-                                        ...item, 
+                                    return {
+                                        ...item,
                                         sku: extItem.sku,
-                                        ...(extItem.customerFiles && extItem.customerFiles.length > 0 ? { customerFiles: extItem.customerFiles } : {})
+                                        ...(extItem.customerFiles && extItem.customerFiles.length > 0 ? { customerFiles: extItem.customerFiles } : {}),
+                                        ...(extItem.listingId ? { listingId: extItem.listingId } : {})
                                     };
                                 }
                                 return { ...item, sku: skuString, ...(globalCustomerFiles.length > 0 ? { customerFiles: globalCustomerFiles } : {}) };
@@ -376,8 +347,7 @@ async function processQueue(teamId: string) {
                         }
                     }
 
-                    // --- [STAGE 2 SYNC] Enrich tasks in vikcomltd via Central API ---
-                    console.log(`[Stage 2 Sync] Enriching tasks via API for orderId: ${job.order_id}`);
+                    // 2. Enrich tasks via Central API
                     const tasksRef = collection(db, 'tasks');
                     const qTasks = query(tasksRef, where('orderId', '==', job.order_id));
                     const taskSnap = await getDocs(qTasks);
@@ -385,17 +355,19 @@ async function processQueue(teamId: string) {
 
                     if (tasks.length > 0) {
                         const extractedItems = Array.isArray(extractedItemsArray) ? extractedItemsArray : [];
-                        
+
                         for (const task of tasks) {
-                            // Filter: Only enrich 'new' or 'draft' tasks
+                            // Only enrich draft/new tasks
                             if (task.status !== 'draft' && task.status !== 'new') continue;
 
                             let taskSku = skuString;
-                            let taskCustomerFiles: string[] = []; // Default empty array to prevent undefined error
-                            let v1 = task.variant1;
-                            let v2 = task.variant2;
+                            let taskCustomerFiles: string[] = [];
+                            let taskListingId = "";
+                            const v1 = task.variant1;
+                            const v2 = task.variant2;
 
                             if (extractedItems.length > 1) {
+                                // Fuzzy match: score by title prefix + variant overlap
                                 let maxScore = -1;
                                 let bestMatch: ExtractedItem | null = null;
                                 for (const ext of extractedItems) {
@@ -414,9 +386,8 @@ async function processQueue(teamId: string) {
                                 }
                                 if (bestMatch) {
                                     taskSku = bestMatch.sku;
-                                    if (bestMatch.customerFiles && bestMatch.customerFiles.length > 0) {
-                                        taskCustomerFiles = bestMatch.customerFiles;
-                                    }
+                                    if (bestMatch.customerFiles && bestMatch.customerFiles.length > 0) taskCustomerFiles = bestMatch.customerFiles;
+                                    if (bestMatch.listingId) taskListingId = String(bestMatch.listingId);
                                 }
                             } else if (extractedItems.length === 1) {
                                 taskSku = extractedItems[0].sku;
@@ -425,20 +396,23 @@ async function processQueue(teamId: string) {
                                 } else if (globalCustomerFiles && globalCustomerFiles.length > 0) {
                                     taskCustomerFiles = globalCustomerFiles;
                                 }
+                                if (extractedItems[0].listingId) taskListingId = String(extractedItems[0].listingId);
                             }
 
-                            // ALWAYS update customerFiles directly to Firestore tasks first
-                            if (taskCustomerFiles && taskCustomerFiles.length > 0) {
+                            // Write customerFiles & listingId directly to Firestore first
+                            const updateData: any = {};
+                            if (taskCustomerFiles && taskCustomerFiles.length > 0) updateData.customerFiles = taskCustomerFiles;
+                            if (taskListingId) updateData.listingId = taskListingId;
+
+                            if (Object.keys(updateData).length > 0) {
                                 try {
-                                    await updateDoc(doc(db, 'tasks', task.id), {
-                                        customerFiles: taskCustomerFiles
-                                    });
+                                    await updateDoc(doc(db, 'tasks', task.id), updateData);
                                 } catch (e) {
-                                    console.error(`Failed to update customerFiles for task ${task.id}`, e);
+                                    console.error(`[Worker] Failed to update task ${task.id}:`, e);
                                 }
                             }
 
-                            // CALL CENTRAL ENRICHMENT API
+                            // Call Central Enrichment API (handles SKU + auto-reuse)
                             try {
                                 const apiRes = await fetch(enrichmentApiUrl, {
                                     method: 'POST',
@@ -448,62 +422,58 @@ async function processQueue(teamId: string) {
                                         sku: taskSku,
                                         variant1: v1,
                                         variant2: v2,
-                                        customerFiles: taskCustomerFiles
+                                        customerFiles: taskCustomerFiles,
+                                        listingId: taskListingId
                                     })
                                 });
-                                const apiData = await apiRes.json();
-                                console.log(`[API Enrichment] Task ${task.id} result:`, apiData);
+                                if (!apiRes.ok) {
+                                    console.warn(`[Worker] Enrichment API returned ${apiRes.status} for task ${task.id}`);
+                                }
                             } catch (apiErr) {
-                                console.error(`[API Enrichment Error] Failed for task ${task.id}:`, apiErr);
-                                // Fallback to direct Firestore update if API fails (without auto-reuse)
+                                console.error(`[Worker] Enrichment API failed for task ${task.id}:`, apiErr);
+                                // Fallback: direct Firestore update without auto-reuse
                                 await updateDoc(doc(db, 'tasks', task.id), {
                                     sku: taskSku,
+                                    ...(taskListingId ? { listingId: taskListingId } : {}),
                                     updatedAt: new Date().toISOString()
                                 });
                             }
                         }
                     }
-                    
-                    await updateDoc(jobRef, { status: 'completed', sku: skuString, updated_at: new Date().toISOString() });
+
+                    await deleteDoc(jobRef); // Xóa hẳn sau khi xử lý xong
                 } catch (innerErr) {
-                    console.error("Inner processing error:", innerErr);
+                    console.error("[Worker] Inner processing error:", innerErr);
                 }
             } else {
-                await updateDoc(jobRef, { status: 'completed', sku: 'NULL', updated_at: new Date().toISOString() });
+                await deleteDoc(jobRef); // SKU NULL nhưng đã xử lý xong, xóa luôn
             }
 
         } catch (error) {
-            console.error('Job error:', error);
+            console.error('[Worker] Job error:', error);
             try {
                 const jobRef = doc(db, 'user', teamId, 'sku_jobs', job.id);
                 await updateDoc(jobRef, { status: 'failed', error: String(error), sku: 'NULL', updated_at: new Date().toISOString() });
-            } catch (authError) {
-                // If the error was caused by permissions issue, etc
+            } catch (_) {
+                // Permission or network error, nothing we can do
             }
         }
 
         processedCount++;
-        
-        // Anti-bot Smart Delay
-        let randomDelay = Math.floor(Math.random() * 5000) + 3000; // 3s - 8s normally
-        
-        // SURGE PROTECTION: Nếu queue quá dài (>15), tăng delay lên gấp đôi để bớt "gắt"
+
+        // Anti-bot: randomised delay between jobs
+        let randomDelay = Math.floor(Math.random() * 5000) + 3000; // 3–8s normally
+
         if (localQueue.length > 15) {
-            randomDelay = Math.floor(Math.random() * 10000) + 15000; // 15s - 25s
-            console.log(`[Surge Protection] Large queue (${localQueue.length}). Slowing down: ${randomDelay}ms`);
+            // Surge protection: slow down when queue is very large
+            randomDelay = Math.floor(Math.random() * 10000) + 15000; // 15–25s
+        } else if (processedCount > 0 && processedCount % 5 === 0) {
+            // Macro break every 5 jobs
+            randomDelay = Math.floor(Math.random() * 15000) + 15000; // 15–30s
         }
 
-        // Micro-batching pause
-        if (processedCount > 0 && processedCount % 5 === 0) {
-            randomDelay = Math.floor(Math.random() * 15000) + 30000; // 30s - 45s macro break
-            console.log(`[Anti-Bot] Processed 5 jobs. Taking a macro break for ${randomDelay}ms...`);
-        } else {
-            console.log(`Waiting ${randomDelay}ms before next job...`);
-        }
-        
         await sleep(randomDelay);
     }
-
 
     isProcessing = false;
 }
@@ -512,8 +482,8 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
     let extractedItems: ExtractedItem[] | string = "NULL";
     let shopId = "";
     let csrfToken = "";
-    
-    // 1. Fetch search_query hiddenly to get SKU JSON, shop_id, and csrf_token
+
+    // 1. Fetch Etsy sold orders page to get SKU JSON, shop_id, and csrf_token
     try {
         const searchResponse = await fetch(`https://www.etsy.com/your/orders/sold/new?search_query=${orderId}`, {
             headers: {
@@ -527,14 +497,13 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
                 isEtsyLoggedOut = true;
                 return "NULL_AUTH_REQUIRED";
             }
-            
-            // Extract shopId and csrfToken for API v3
+
             const shopIdMatch = searchHtml.match(/"shop_id"\s*:\s*"?(\d+)"?/);
             if (shopIdMatch) shopId = shopIdMatch[1];
-            
+
             const csrfMatch = searchHtml.match(/<meta name="csrf_nonce" content="([^"]+)"/);
             if (csrfMatch) csrfToken = csrfMatch[1];
-            
+
             const contextPrefix = 'Etsy.Context=';
             const startIndex = searchHtml.indexOf(contextPrefix);
             if (startIndex > -1) {
@@ -547,16 +516,14 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
                     const data = JSON.parse(jsonStr);
                     const orders = data?.data?.initial_data?.orders?.orders_search?.orders || [];
                     const items: ExtractedItem[] = [];
-                    
-                    // Fallback for shop_id if regex fails
+
                     if (!shopId && data?.data?.initial_data?.shop_id) {
                         shopId = String(data.data.initial_data.shop_id);
                     }
 
                     if (orders.length > 0) {
                         const currentOrder = orders.find((o: any) => String(o.order_id) === String(orderId)) || orders[0];
-                        
-                        // Another fallback for shop_id
+
                         if (!shopId && currentOrder.shop_id) {
                             shopId = String(currentOrder.shop_id);
                         }
@@ -578,12 +545,13 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
                     if (items.length > 0) extractedItems = items;
                 }
             }
+        } else if (searchResponse.status === 429) {
+            rateLimitUntil = Date.now() + 15 * 60 * 1000; // 15 min cooldown
+            return "NULL_RATE_LIMIT";
         }
     } catch (e) {
-        console.error("SKU Fetch Error", e);
+        console.error("[Worker] fetchSKU HTML fetch error:", e);
     }
-
-    console.log(`%c[Debug API v3] orderId: ${orderId} | shop_id: "${shopId}" | csrf_token: "${csrfToken ? csrfToken.substring(0, 6) + '***' : 'MISSING'}"`, "color: #bada55; font-size: 14px; font-weight: bold;");
 
     // 2. Fetch Personalization Files via API v3
     let customerFiles: string[] = [];
@@ -596,20 +564,18 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
                     'Accept': 'application/json'
                 }
             });
-            
+
             if (apiRes.ok) {
                 const filesData = await apiRes.json();
                 const itemFiles: Record<string, string[]> = {};
                 const globalUrls = new Set<string>();
-                
+
                 if (Array.isArray(filesData)) {
                     filesData.forEach(f => {
                         if (f.url) {
-                            let url = f.url;
-                            // Ensure high res url
-                            url = url.replace(/_\d+x\d+\./, '_fullxfull.');
+                            const url = f.url.replace(/_\d+x\d+\./, '_fullxfull.');
                             globalUrls.add(url);
-                            
+
                             if (f.transaction_id) {
                                 const txId = String(f.transaction_id);
                                 if (!itemFiles[txId]) itemFiles[txId] = [];
@@ -617,9 +583,9 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
                             }
                         }
                     });
-                    
+
                     customerFiles = Array.from(globalUrls);
-                    
+
                     // Map files to specific transaction items
                     if (Array.isArray(extractedItems)) {
                         extractedItems.forEach(item => {
@@ -629,15 +595,59 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
                         });
                     }
                 }
-                console.log(`[API v3] orderId=${orderId} -> found ${customerFiles.length} global files`);
             } else {
-                console.warn(`[API v3] Failed with status ${apiRes.status}`);
+                console.warn(`[Worker] Personalization files API: ${apiRes.status}`);
             }
         } catch (apiErr) {
-            console.error("[API v3] Fetch error:", apiErr);
+            console.error("[Worker] Personalization files fetch error:", apiErr);
+        }
+
+        // 3. Fetch Listing IDs via API v3
+        try {
+            const ordersApiUrl = `https://www.etsy.com/api/v3/ajax/bespoke/shop/${shopId}/mission-control/orders/data?limit=50&offset=0&search_terms=${orderId}`;
+            const ordersRes = await fetch(ordersApiUrl, {
+                headers: {
+                    'x-csrf-token': csrfToken,
+                    'x-requested-with': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                }
+            });
+
+            if (ordersRes.ok) {
+                const ordersData = await ordersRes.json();
+                const listingIdMap: Record<string, string> = {};
+                const ordersList = ordersData?.orders_search?.orders;
+
+                if (Array.isArray(ordersList)) {
+                    ordersList.forEach((o: any) => {
+                        if (Array.isArray(o.transactions)) {
+                            o.transactions.forEach((tx: any) => {
+                                if (tx.transaction_id && tx.listing_id) {
+                                    listingIdMap[String(tx.transaction_id)] = String(tx.listing_id);
+                                }
+                            });
+                        }
+                    });
+                } else {
+                    console.warn('[Worker] ListingID: orders_search.orders missing in API response.');
+                }
+
+                // Map listing IDs to transaction items
+                if (Array.isArray(extractedItems)) {
+                    extractedItems.forEach(item => {
+                        if (item.transaction_id && listingIdMap[item.transaction_id]) {
+                            item.listingId = listingIdMap[item.transaction_id];
+                        }
+                    });
+                }
+            } else {
+                console.warn(`[Worker] ListingID API: ${ordersRes.status}`);
+            }
+        } catch (apiErr) {
+            console.error("[Worker] ListingID fetch error:", apiErr);
         }
     } else {
-        console.warn(`[API v3] Missing shopId (${shopId}) or csrfToken (${csrfToken}), skipping API fetch.`);
+        console.warn(`[Worker] Missing shopId or csrfToken for order ${orderId}, skipping API v3.`);
     }
 
     return {

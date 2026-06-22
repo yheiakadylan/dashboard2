@@ -22,16 +22,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dbPasswordInput = document.getElementById('dbPassword') as HTMLInputElement;
     const statusMsg = document.getElementById('statusMsg') as HTMLDivElement;
 
-    
-    // Load existing
+    // Load existing saved values
     const data = (await chrome.storage.local.get(['teamId', 'account', 'dbEmail', 'dbPassword'])) as { [key: string]: string };
     if (data.teamId) teamIdInput.value = data.teamId;
     if (data.account) accountInput.value = data.account;
     if (data.dbEmail) dbEmailInput.value = data.dbEmail;
     if (data.dbPassword) dbPasswordInput.value = data.dbPassword;
-    
+
     const saveBtn = document.getElementById('saveBtn') as HTMLButtonElement;
-    
+
     // Auto show a soft connected status if data exists
     if (data.teamId && data.account && data.dbEmail && data.dbPassword) {
         statusMsg.textContent = 'Worker is ready for this Shop.';
@@ -43,37 +42,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         const account = accountInput.value.trim().toLowerCase();
         const dbEmail = dbEmailInput.value.trim();
         const dbPassword = dbPasswordInput.value.trim();
-        
-        if(!teamId || !account || !dbEmail || !dbPassword) {
-            statusMsg.textContent = 'Vui lòng điền đầy đủ 4 trường!';
+
+        if (!teamId || !account || !dbEmail || !dbPassword) {
+            statusMsg.textContent = 'Vui lòng điền đầy đủ tất cả các trường!';
             statusMsg.className = 'status error';
             return;
         }
-        
+
         saveBtn.disabled = true;
-        saveBtn.textContent = 'Validating...';
+        saveBtn.textContent = 'Connecting...';
         statusMsg.textContent = 'Đang xác thực thông tin...';
         statusMsg.className = 'status info';
 
         try {
             // 1. Kiểm tra Login
             await signInWithEmailAndPassword(auth, dbEmail, dbPassword);
-            
+
             // 2. Kiểm tra quyền truy cập Team + Tồn tại của Shop
             const accountsRef = collection(db, 'user', teamId, 'accounts');
             const q = query(accountsRef, where('email', '==', account), limit(1));
             const snap = await getDocs(q);
-            
+
             if (snap.empty) {
                 throw new Error(`Shop "${account}" không tồn tại trong Team "${teamId}". Vui lòng kiểm tra lại.`);
             }
 
-            // Thành công
+            // Lưu cấu hình
             await chrome.storage.local.set({ teamId, account, dbEmail, dbPassword });
-            
+
             statusMsg.textContent = 'Xác thực thành công! Đang khởi động worker...';
             statusMsg.className = 'status success';
-            
+
             setTimeout(() => {
                 chrome.runtime.reload();
             }, 1000);
@@ -81,7 +80,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (err: any) {
             console.error("Validation failed:", err);
             let userMsg = "Lỗi xác thực: ";
-            
+
             if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
                 userMsg += "Email hoặc mật khẩu DB không đúng.";
             } else if (err.code === 'permission-denied') {
@@ -97,4 +96,3 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 });
-

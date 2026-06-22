@@ -12,6 +12,8 @@
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.23",
     "@types/chrome": "^0.1.38",
+    "javascript-obfuscator": "^5.4.3",
+    "rollup-plugin-javascript-obfuscator": "^1.0.4",
     "typescript": "^6.0.2",
     "vite": "^5.1.4"
   }

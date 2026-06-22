@@ -521,6 +521,7 @@ export const saveRecordsToFirebase = async (
               created_at: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
               account: accountLabel, // Lấy Label của Shop thay vì Email
+              listingId: item.listingId || '', // Sẽ được Update bởi Extension
               collectionName: 'tasks' // Quan trọng cho Security Rules cũ
             }, { merge: true });
           });
@@ -550,6 +551,23 @@ export const listenForNewRecords = (teamId: string, callback: (record: Record) =
         callback(newRecord);
       }
     });
+  });
+  return unsubscribe;
+};
+
+// Listen to a specific record document by its Firestore ID (for real-time updates in modals)
+export const listenToRecord = (
+  teamId: string,
+  recordId: string,
+  callback: (record: Record | null) => void
+): (() => void) => {
+  const recordRef = doc(db, 'user', teamId, 'records', recordId);
+  const unsubscribe = onSnapshot(recordRef, (docSnap) => {
+    if (docSnap.exists()) {
+      callback({ ...(docSnap.data() as object), id: docSnap.id } as Record);
+    } else {
+      callback(null);
+    }
   });
   return unsubscribe;
 };
@@ -677,6 +695,7 @@ export const addRecord = async (teamId: string, record: Record): Promise<Record>
           created_at: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           account: accountLabel, // Lấy Label của shop thay vì Email
+          listingId: item.listingId || '', // Sẽ được Update bởi Extension
           collectionName: 'tasks'
         }, { merge: true });
       });

@@ -32,6 +32,7 @@ export interface OrderItem {
   image?: string;
   transactionId?: string;
   sku?: string;
+  listingId?: string;
 }
 
 export interface OrderDetails {

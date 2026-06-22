@@ -33,8 +33,9 @@ export interface OrderItem {
   image?: string;
   transactionId?: string;
   sku?: string;
+  listingId?: string;
   category_code?: string;
-  customerFiles?: string[]; // Mapped category code
+  customerFiles?: string[];
 }
 
 export interface OrderDetails {

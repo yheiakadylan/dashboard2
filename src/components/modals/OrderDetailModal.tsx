@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Record } from '../../types';
+import { Record, OrderItem } from '../../types';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useUI } from '../../contexts/UIContext';
 import ImagePreviewModal from './ImagePreviewModal';
 import { addSkuJob, listenToSkuJob } from '../../services/skuQueueService';
+import { listenToRecord } from '../../services/firebaseService';
 import { useNotification } from '../../contexts/NotificationContext';
 
 interface OrderDetailModalProps {
@@ -25,6 +26,8 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
   const [isFetchingSku, setIsFetchingSku] = useState(false);
   const [localFetchedSku, setLocalFetchedSku] = useState<string | null>(null);
   const [localFetchedCustomerFiles, setLocalFetchedCustomerFiles] = useState<string[] | null>(null);
+  // Live record driven by Firestore onSnapshot — reflects SKU + listing_id updates in real-time
+  const [liveRecord, setLiveRecord] = useState<Record>(record);
 
   const previousSkuStatus = React.useRef<string | null>(null);
   const fetchTimeoutRef = React.useRef<any>(null);
@@ -39,6 +42,23 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
   React.useEffect(() => {
     return () => clearFetchTimeout();
   }, [clearFetchTimeout]);
+
+  // ─── Real-time listener: sync liveRecord with Firestore updates ───
+  React.useEffect(() => {
+    if (!record.id || !teamId) return;
+    const unsubscribe = listenToRecord(teamId, record.id, (updated) => {
+      if (updated) {
+        setLiveRecord(updated);
+        // If SKU was just filled in, update local SKU state for notification
+        const newSkus = updated.details?.items?.map((i: OrderItem) => i.sku).filter(Boolean);
+        if (newSkus && newSkus.length > 0 && newSkus.some((s: string | undefined) => s && s !== 'NULL')) {
+          setLocalFetchedSku(newSkus[0] ?? null);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, [record.id, teamId]);
+
 
   React.useEffect(() => {
     if (record.source === 'Etsy_Sales' && record.order_id && teamId) {
@@ -89,7 +109,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
     if (!record.order_id || !record.account || !teamId) return;
     setIsFetchingSku(true);
     clearFetchTimeout(); // Clear any existing timeout before starting new one
-    
+
     try {
       await addSkuJob(teamId, record.order_id, record.account, true);
     } catch (err) {
@@ -154,17 +174,18 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
     return Array.from(skus);
   }, [record.details?.items]);
 
-  const { details, order_id, dt_local, account } = record;
-  const { customerName, customerEmail, shippingAddress, items, financials } = details;
+  const { details: liveDetails, order_id, dt_local, account } = liveRecord;
+  const { customerName, customerEmail, shippingAddress, items, financials } = liveDetails || record.details!;
 
   const displayItems = React.useMemo(() => {
-    if (!localFetchedSku) return items;
-    return items.map(item => ({ ...item, sku: localFetchedSku }));
-  }, [items, localFetchedSku]);
+    const baseItems = liveRecord.details?.items || items;
+    if (!localFetchedSku) return baseItems;
+    return baseItems.map((item: OrderItem) => ({ ...item, sku: item.sku || localFetchedSku }));
+  }, [liveRecord.details?.items, items, localFetchedSku]);
 
   const displayCustomerFiles = React.useMemo(() => {
-    return localFetchedCustomerFiles || details.customerFiles || [];
-  }, [details.customerFiles, localFetchedCustomerFiles]);
+    return localFetchedCustomerFiles || liveDetails?.customerFiles || [];
+  }, [liveDetails?.customerFiles, localFetchedCustomerFiles]);
 
   // Helper to format prices with USD conversion
   const formatPrice = (amount: number | undefined | null, currency: string = 'USD') => {
@@ -369,42 +390,53 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                         </p>
                       )}
 
-                      {item.transactionId && <p className="text-xs text-gray-400 mt-1">ID: {item.transactionId}</p>}
+                      {item.transactionId && <p className="text-xs text-gray-400 mt-1">Transaction ID: {item.transactionId}</p>}
+                      {item.listingId && (
+                        <p className="text-xs text-blue-500 dark:text-blue-400 mt-1">
+                          Listing ID: <a
+                            href={`https://www.etsy.com/listing/${item.listingId}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="View listing on Etsy"
+                            className="hover:underline hover:text-blue-600 dark:hover:text-blue-300 transition-colors"
+                          >{item.listingId}</a>
+                        </p>
+                      )}
 
-                          {/* Customer Files inside Item (Mobile) */}
-                          {item.customerFiles && item.customerFiles.length > 0 && (
-                            <div className="mt-3 space-y-2">
-                              {item.customerFiles.map((url: string, fIdx: number) => {
-                                const filename = url.split('/').pop()?.split('?')[0] || `file-${fIdx+1}.jpg`;
-                                return (
-                                  <div key={fIdx} className="flex items-center justify-between border border-gray-200 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-800">
-                                    <div className="flex items-center gap-3 overflow-hidden">
-                                      <img 
-                                        src={url} 
-                                        alt={filename} 
-                                        className="w-10 h-10 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0 border border-gray-200 dark:border-gray-600"
-                                        onClick={() => setPreviewImage(url)}
-                                      />
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-xs text-gray-900 dark:text-gray-100 font-medium truncate" title={filename}>{filename}</p>
-                                      </div>
-                                    </div>
-                                    <a 
-                                      href={url} 
-                                      target="_blank" 
-                                      rel="noreferrer"
-                                      className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0"
-                                      title="Download file"
-                                    >
-                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                                      </svg>
-                                    </a>
+                      {/* Customer Files inside Item (Mobile) */}
+                      {item.customerFiles && item.customerFiles.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {item.customerFiles.map((url: string, fIdx: number) => {
+                            const filename = url.split('/').pop()?.split('?')[0] || `file-${fIdx + 1}.jpg`;
+                            return (
+                              <div key={fIdx} className="flex items-center justify-between border border-gray-200 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-800">
+                                <div className="flex items-center gap-3 overflow-hidden">
+                                  <img
+                                    src={url}
+                                    alt={filename}
+                                    className="w-10 h-10 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0 border border-gray-200 dark:border-gray-600"
+                                    onClick={() => setPreviewImage(url)}
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs text-gray-900 dark:text-gray-100 font-medium truncate" title={filename}>{filename}</p>
                                   </div>
-                                );
-                              })}
-                            </div>
-                          )}
+                                </div>
+                                <a
+                                  href={url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0"
+                                  title="Download file"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                                  </svg>
+                                </a>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
 
                     </div>
                   </div>
@@ -471,42 +503,53 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                               </p>
                             )}
 
-                            {item.transactionId && <p className="text-xs text-gray-400 mt-1">ID: {item.transactionId}</p>}
+                            {item.transactionId && <p className="text-xs text-gray-400 mt-1">Transaction ID: {item.transactionId}</p>}
+                            {item.listingId && (
+                              <p className="text-xs text-blue-500 dark:text-blue-400 mt-1">
+                                Listing ID: <a
+                                  href={`https://www.etsy.com/listing/${item.listingId}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title="View listing on Etsy"
+                                  className="hover:underline hover:text-blue-600 dark:hover:text-blue-300 transition-colors"
+                                >{item.listingId}</a>
+                              </p>
+                            )}
 
-                          {/* Customer Files inside Item */}
-                          {item.customerFiles && item.customerFiles.length > 0 && (
-                            <div className="mt-3 space-y-2">
-                              {item.customerFiles.map((url: string, fIdx: number) => {
-                                const filename = url.split('/').pop()?.split('?')[0] || `file-${fIdx+1}.jpg`;
-                                return (
-                                  <div key={fIdx} className="flex items-center justify-between border border-gray-200 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-800">
-                                    <div className="flex items-center gap-3 overflow-hidden">
-                                      <img 
-                                        src={url} 
-                                        alt={filename} 
-                                        className="w-10 h-10 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0 border border-gray-200 dark:border-gray-600"
-                                        onClick={() => setPreviewImage(url)}
-                                      />
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-xs text-gray-900 dark:text-gray-100 font-medium truncate" title={filename}>{filename}</p>
+                            {/* Customer Files inside Item */}
+                            {item.customerFiles && item.customerFiles.length > 0 && (
+                              <div className="mt-3 space-y-2">
+                                {item.customerFiles.map((url: string, fIdx: number) => {
+                                  const filename = url.split('/').pop()?.split('?')[0] || `file-${fIdx + 1}.jpg`;
+                                  return (
+                                    <div key={fIdx} className="flex items-center justify-between border border-gray-200 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-800">
+                                      <div className="flex items-center gap-3 overflow-hidden">
+                                        <img
+                                          src={url}
+                                          alt={filename}
+                                          className="w-10 h-10 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0 border border-gray-200 dark:border-gray-600"
+                                          onClick={() => setPreviewImage(url)}
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs text-gray-900 dark:text-gray-100 font-medium truncate" title={filename}>{filename}</p>
+                                        </div>
                                       </div>
+                                      <a
+                                        href={url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0"
+                                        title="Download file"
+                                      >
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                                        </svg>
+                                      </a>
                                     </div>
-                                    <a 
-                                      href={url} 
-                                      target="_blank" 
-                                      rel="noreferrer"
-                                      className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0"
-                                      title="Download file"
-                                    >
-                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                                      </svg>
-                                    </a>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
+                                  );
+                                })}
+                              </div>
+                            )}
 
                           </div>
                         </div>

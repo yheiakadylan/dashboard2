@@ -48,7 +48,6 @@ export function getDb(): Firestore {
   try {
     // @ts-ignore (field có từ firebase-admin v12+)
     db.settings({ preferRest: true });
-    console.log('[firebaseAdminHelper] Firestore settings: preferRest=true');
   } catch (e: any) {
     console.warn('[firebaseAdminHelper] preferRest not applied:', e?.message || e);
   }

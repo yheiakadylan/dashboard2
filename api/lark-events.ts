@@ -562,6 +562,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       items: {
         title: string;
         sku: string;
+        listingId?: string;
         variations?: string[];
         quantity?: number;
       }[];
@@ -646,7 +647,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               variant: payloadItem.variations?.[0] || existingItem.variant || "",
               variant2: payloadItem.variations?.[1] || existingItem.variant2 || "",
               quantity: existingItem.quantity || payloadItem.quantity || 1,
-              price: existingItem.price || 0
+              price: existingItem.price || 0,
+              ...(payloadItem.listingId ? { listingId: payloadItem.listingId } : {})
             };
           });
           batch.update(recordRef, {
@@ -682,6 +684,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             variant1: item.variations?.[0] || '',
             variant2: item.variations?.[1] || '',
             updatedAt: new Date().toISOString(),
+            // Always sync listingId regardless of task status
+            ...(item.listingId ? { listingId: item.listingId } : {}),
           };
 
           if (recordData) {
@@ -715,10 +719,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
 
         const jobDocRef = db.collection('user').doc(teamId).collection('sku_jobs').doc(orderId);
-        batch.set(jobDocRef, {
-          status: 'completed',
-          updated_at: new Date().toISOString()
-        }, { merge: true });
+        batch.delete(jobDocRef); // Xóa hẳn sau khi sync xong
       }
 
       if (taskUpdatesCount > 0) {
