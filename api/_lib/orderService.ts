@@ -59,7 +59,7 @@ export async function processNewOrder(
           updatedAt: new Date().toISOString(),
           account: accountId,      // Store Account ID for stable querying
           shopLabel: accountLabel, // Store Label for quick UI display
-          listingId: item.listingId, // Will be updated by Extension
+          listingId: item.listingId || '', // Will be updated by Extension
           collectionName: 'tasks'
         }, { merge: true });
       });
