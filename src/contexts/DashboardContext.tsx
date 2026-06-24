@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, createContext } from 'react';
-import { Record, Account, ProcessedData, ManualCost, UserProfile, Category } from '../types';
+import { Record, Account, ProcessedData, ManualCost, UserProfile, Category, EtsyReview } from '../types';
 import {
   saveAccountsToFirebase,
   deleteRecordsForAccounts,
@@ -37,6 +37,8 @@ interface DashboardContextType {
   setRecords: React.Dispatch<React.SetStateAction<Record[]>>;
   manualCosts: ManualCost[];
   setManualCosts: React.Dispatch<React.SetStateAction<ManualCost[]>>;
+  etsyReviews: EtsyReview[];
+  setEtsyReviews: React.Dispatch<React.SetStateAction<EtsyReview[]>>;
 
   // Status
   isLoading: boolean;
@@ -126,6 +128,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     records, setRecords,
     previousPeriodRecords,
     manualCosts, setManualCosts,
+    etsyReviews, setEtsyReviews,
     isLoading,
     isSyncing,
     isFetchingNewRange,
@@ -179,12 +182,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     allAccounts,
     timeZone,
     onSyncSuccess: (count) => {
-      console.log(`[Auto-Sync] ✅ Synced ${count} records to Google Sheets`);
+      console.log(`[Auto-Sync] Synced ${count} records to Google Sheets`);
       // Silent notification - no need to disturb the user
       // addNotification(`Auto-synced ${count} orders to Google Sheets`, 'success');
     },
     onSyncError: (error) => {
-      console.error('[Auto-Sync] ❌ Error:', error);
+      console.error('[Auto-Sync] Error:', error);
       // Only notify on errors that need attention
       if (error.includes('Permission') || error.includes('403')) {
         addNotification('Auto-sync failed: Please check Google Sheet permissions', 'error');
@@ -264,6 +267,18 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     return allAccounts.filter(acc => allowedAccounts.includes(acc.email));
   }, [allAccounts, role, allowedAccounts, selectedBoardId, boards]);
 
+  const visibleEtsyReviews = useMemo(() => {
+    if (role === 'owner' && !selectedBoardId) return etsyReviews;
+
+    const permittedShopIds = new Set(
+      visibleAccounts.flatMap(acc => [acc.email, acc.label])
+        .filter((value): value is string => Boolean(value))
+        .map(value => value.trim().toLowerCase())
+    );
+
+    if (permittedShopIds.size === 0) return [];
+    return etsyReviews.filter(review => permittedShopIds.has(String(review.shop_id || '').trim().toLowerCase()));
+  }, [etsyReviews, visibleAccounts, role, selectedBoardId]);
   // Computed Management Accounts (for MailManager - users with canManageSettings see ALL)
   const managementAccounts = useMemo(() => {
     // Owner always sees all
@@ -408,6 +423,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     manual: any;
     rates: any;
     categories: any;
+    reviews: any;
   }>({
     records: null,
     prevRecords: null,
@@ -416,7 +432,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     tz: '',
     manual: null,
     rates: null, // This will store the stableRates reference
-    categories: null
+    categories: null,
+    reviews: null
   });
 
   // Sync ref for safety timeout check
@@ -438,7 +455,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       timeZone === prevTrigger.tz &&
       stableManualCosts === prevTrigger.manual &&
       stableRates === prevTrigger.rates &&
-      categories === prevTrigger.categories
+      categories === prevTrigger.categories &&
+      visibleEtsyReviews === prevTrigger.reviews
     ) {
       return;
     }
@@ -463,7 +481,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
             tz: timeZone,
             manual: stableManualCosts,
             rates: stableRates,
-            categories: categories
+            categories: categories,
+            reviews: visibleEtsyReviews
         };
 
         // Safety timeout: If worker doesn't respond in 15s, force unlock UI
@@ -490,7 +509,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
             permissions,
             manualCosts: stableManualCosts,
             exchangeRates: stableRates,
-            categories: categories
+            categories: categories,
+            etsyReviews: visibleEtsyReviews
         });
 
         // Store safety timeout in ref to allow cleanup if needed (though requestId check handles it)
@@ -498,7 +518,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }, 300); // reduced to 300ms to allow smooth UI transition without long skeleton flashes
 
     return () => clearTimeout(debounceTimer);
-  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, categories, isFetchingNewRange]);
+  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, categories, visibleEtsyReviews, isFetchingNewRange]);
 
 
 
@@ -528,7 +548,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
         // If full re-sync (no rule names), reset history flags. 
         // If custom sync (specific rules), we might NOT want to reset history flags fully? 
-        // User asked: "re-sync này gồm sync last 7d và history sync luôn".
+        // User asked: re-sync includes last 7d and historical sync.
         // If we don't reset flags, runHistoricalSync might skip if it thinks it's complete.
         // But runHistoricalSync logic checks `historical_sync_complete`.
         // If we want to force re-run history for specific rules, we might need to trick it or just run it regardless of flag?
@@ -618,7 +638,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
         if (unauthorizedDeletions.length > 0) {
           console.error('[Security] User attempted to delete unauthorized accounts:', unauthorizedDeletions.map(a => a.email));
-          addNotification('⚠️ Security Error: You cannot delete accounts outside your permission scope.', 'error');
+          addNotification('Security Error: You cannot delete accounts outside your permission scope.', 'error');
           setSyncState(null);
           setIsSavingAccounts(false);
           return;
@@ -821,6 +841,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       managementAccounts, // For MailManager - respects canManageSettings
       setAccounts: setAllAccounts,
       records, setRecords,
+      etsyReviews: visibleEtsyReviews, setEtsyReviews,
       manualCosts, setManualCosts,
       isLoading, isSyncing, isFetchingNewRange, syncState, syncProgress, accountSyncStatuses, isProcessing, isSavingAccounts,
       exportProgress, isExporting,

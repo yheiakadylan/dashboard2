@@ -95,4 +95,156 @@ document.addEventListener('DOMContentLoaded', async () => {
             saveBtn.textContent = 'Save & Connect';
         }
     });
+
+    // --- Etsy Reviews Tools Section ---
+    const toolStatusMsg = document.getElementById('toolStatusMsg') as HTMLDivElement;
+    const cronHoursInput = document.getElementById('cronHours') as HTMLInputElement;
+    const saveCronBtn = document.getElementById('saveCronBtn') as HTMLButtonElement;
+    const crawl25Btn = document.getElementById('crawl25Btn') as HTMLButtonElement;
+    const backfillBtn = document.getElementById('backfillBtn') as HTMLButtonElement;
+    const minDateInput = document.getElementById('minDate') as HTMLInputElement;
+    const reviewSyncState = document.getElementById('reviewSyncState') as HTMLDivElement;
+    const reviewSyncAction = document.getElementById('reviewSyncAction') as HTMLSpanElement;
+    const reviewSyncLastSuccess = document.getElementById('reviewSyncLastSuccess') as HTMLSpanElement;
+    const reviewSyncLastResult = document.getElementById('reviewSyncLastResult') as HTMLSpanElement;
+    const reviewSyncNextRun = document.getElementById('reviewSyncNextRun') as HTMLSpanElement;
+    const reviewSyncLastError = document.getElementById('reviewSyncLastError') as HTMLDivElement;
+
+    type ReviewSyncStatus = {
+        state?: 'idle' | 'running' | 'success' | 'error';
+        currentAction?: string;
+        lastStartedAt?: string;
+        lastFinishedAt?: string;
+        lastSuccessAt?: string;
+        lastError?: string;
+        lastFetched?: number;
+        lastSaved?: number;
+        nextRunAt?: string;
+        updatedAt?: string;
+    };
+
+    const formatStatusDate = (value?: string) => {
+        if (!value) return '-';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '-';
+        return date.toLocaleString('vi-VN', {
+            timeZone: 'Asia/Ho_Chi_Minh',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    };
+
+    const formatAction = (action?: string) => {
+        if (action === 'recent_25') return 'Recent 25';
+        if (action === 'backfill') return 'Back-fill';
+        if (action === 'cron') return 'Cron';
+        return action || '-';
+    };
+
+    const renderReviewSyncStatus = (status?: ReviewSyncStatus) => {
+        const state = status?.state || 'idle';
+        reviewSyncState.textContent = state;
+        reviewSyncState.className = `review-status-pill ${state}`;
+        reviewSyncAction.textContent = formatAction(status?.currentAction);
+        reviewSyncLastSuccess.textContent = formatStatusDate(status?.lastSuccessAt || status?.lastFinishedAt);
+        reviewSyncLastResult.textContent = typeof status?.lastFetched === 'number' || typeof status?.lastSaved === 'number'
+            ? `Fetched ${status?.lastFetched || 0}, saved ${status?.lastSaved || 0}`
+            : '-';
+        reviewSyncNextRun.textContent = formatStatusDate(status?.nextRunAt);
+
+        if (status?.lastError) {
+            reviewSyncLastError.style.display = 'block';
+            reviewSyncLastError.textContent = status.lastError;
+        } else {
+            reviewSyncLastError.style.display = 'none';
+            reviewSyncLastError.textContent = '';
+        }
+    };
+
+    chrome.storage.local.get(['etsy_review_sync_status'], (res) => {
+        renderReviewSyncStatus(res.etsy_review_sync_status as ReviewSyncStatus | undefined);
+    });
+
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+        if (namespace === 'local' && changes.etsy_review_sync_status) {
+            renderReviewSyncStatus(changes.etsy_review_sync_status.newValue as ReviewSyncStatus | undefined);
+        }
+    });
+
+    // Load existing cron hours
+    chrome.storage.local.get(['etsy_review_sync_hours'], (res) => {
+        if (res.etsy_review_sync_hours && Array.isArray(res.etsy_review_sync_hours)) {
+            cronHoursInput.value = res.etsy_review_sync_hours.join(', ');
+        }
+    });
+
+    saveCronBtn.addEventListener('click', async () => {
+        const val = cronHoursInput.value;
+        const hours = val.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 0 && n <= 23);
+        
+        if (hours.length === 0) {
+            toolStatusMsg.textContent = 'Vui lòng nhập giờ hợp lệ (0-23)';
+            toolStatusMsg.className = 'status error';
+            return;
+        }
+
+        await chrome.storage.local.set({ etsy_review_sync_hours: hours });
+        chrome.runtime.sendMessage({ type: 'SCHEDULE_ETSY_REVIEW_CRON' });
+        
+        toolStatusMsg.textContent = 'Đã lưu giờ cron thành công!';
+        toolStatusMsg.className = 'status success';
+        setTimeout(() => { toolStatusMsg.textContent = ''; toolStatusMsg.className = 'status'; }, 3000);
+    });
+
+    crawl25Btn.addEventListener('click', () => {
+        crawl25Btn.disabled = true;
+        toolStatusMsg.textContent = 'Đang cào 25 reviews mới nhất...';
+        toolStatusMsg.className = 'status info';
+
+        chrome.runtime.sendMessage({ type: "CRAWL_RECENT_REVIEWS_25" }, (response) => {
+            crawl25Btn.disabled = false;
+            if (response && response.success) {
+                toolStatusMsg.textContent = `Thành công! Đã lấy ${response.fetched}, lưu ${response.saved} review.`;
+                toolStatusMsg.className = 'status success';
+            } else {
+                toolStatusMsg.textContent = `Lỗi: ${response?.error || 'Không xác định'}`;
+                toolStatusMsg.className = 'status error';
+            }
+        });
+    });
+
+    backfillBtn.addEventListener('click', async () => {
+        const minDate = minDateInput.value;
+        if (!minDate) {
+            toolStatusMsg.textContent = 'Vui lòng chọn ngày (Min Date) trước khi Back-fill!';
+            toolStatusMsg.className = 'status error';
+            return;
+        }
+
+        const data = await chrome.storage.local.get(['etsy_review_shops']);
+        // Default to first configured shop or rely on background to resolve
+        const shopId = (Array.isArray(data.etsy_review_shops) && data.etsy_review_shops.length > 0) ? data.etsy_review_shops[0].shopId : '';
+
+        backfillBtn.disabled = true;
+        toolStatusMsg.textContent = `Đang Back-fill từ ${minDate}... (Có thể mất vài phút)`;
+        toolStatusMsg.className = 'status info';
+
+        chrome.runtime.sendMessage({ 
+            type: "BACKFILL_ETSY_REVIEWS", 
+            shopId: shopId, // If empty, background script will try to resolve shopId automatically
+            minDate: minDate 
+        }, (response) => {
+            backfillBtn.disabled = false;
+            if (response && response.success) {
+                toolStatusMsg.textContent = `Thành công! Đã lấy ${response.fetched}, lưu ${response.saved} review.`;
+                toolStatusMsg.className = 'status success';
+            } else {
+                toolStatusMsg.textContent = `Lỗi: ${response?.error || 'Không xác định'}`;
+                toolStatusMsg.className = 'status error';
+            }
+        });
+    });
+
 });

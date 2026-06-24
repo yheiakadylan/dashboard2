@@ -189,7 +189,8 @@ const Header: React.FC = () => {
     
     setIsApiLoading(true);
     try {
-      const orderIds = currentOrders.map(r => r[13]); // RECORD_ID index
+      const { ORDER_LIST_INDICES } = await import('../../constants/dataIndices');
+      const orderIds = currentOrders.map(r => r[ORDER_LIST_INDICES.RECORD_ID]); // RECORD_ID index
       const targetRecords = records.filter(r => orderIds.includes(r.id) && r.status !== 'Refunded');
       
       if (targetRecords.length === 0) {
@@ -252,7 +253,8 @@ const Header: React.FC = () => {
     
     setIsApiLoading(true);
     try {
-      const orderIds = currentOrders.map(r => r[13]);
+      const { ORDER_LIST_INDICES } = await import('../../constants/dataIndices');
+      const orderIds = currentOrders.map(r => r[ORDER_LIST_INDICES.RECORD_ID]);
       const targetRecords = records.filter(r => {
         if (!orderIds.includes(r.id) || r.status === 'Refunded') return false;
         if (!r.details?.items || r.details.items.length === 0) return true;

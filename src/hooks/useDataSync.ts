@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Record, Account, CostData, ManualCost } from '../types';
+import { Record, Account, CostData, ManualCost, EtsyReview } from '../types';
 import {
     fetchAllRecords,
     checkEmailsExistInRange,
@@ -12,6 +12,7 @@ import {
     listenForNewRecords,
     listenForAccounts,
     getRecordsForDateRange,
+    getEtsyReviewsForDateRange,
     getAccountsFromFirebase,
     getManualCosts,
     getRefundRecordsForOrderIds,
@@ -54,6 +55,7 @@ export const useDataSync = ({
     const [records, setRecords] = useState<Record[]>([]);
     const [previousPeriodRecords, setPreviousPeriodRecords] = useState<Record[] | null>(null);
     const [manualCosts, setManualCosts] = useState<ManualCost[]>([]);
+    const [etsyReviews, setEtsyReviews] = useState<EtsyReview[]>([]);
 
     // Ref to track latest accounts for safety checks in async functions
     const allAccountsRef = useRef<Account[]>(allAccounts);
@@ -440,10 +442,11 @@ export const useDataSync = ({
             setIsLoading(true);
             setSyncState('Loading data...');
             try {
-                const [fbAccounts, initialDisplayRecords, manualCostEntries] = await Promise.all([
+                const [fbAccounts, initialDisplayRecords, manualCostEntries, initialReviews] = await Promise.all([
                     getAccountsFromFirebase(teamId),
                     getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone),
-                    getManualCosts(teamId)
+                    getManualCosts(teamId),
+                    getEtsyReviewsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone)
                 ]);
 
                 // Check if aborted
@@ -456,6 +459,7 @@ export const useDataSync = ({
                 setAllAccounts(fbAccounts);
                 setRecords(initialDisplayRecords);
                 setManualCosts(manualCostEntries);
+                setEtsyReviews(initialReviews);
 
                 // IMPORTANT: Set loading to false immediately so UI displays data
                 setIsLoading(false);
@@ -619,8 +623,9 @@ export const useDataSync = ({
                 const previousRecordsPromise = shouldFetchPrevious && previousRange
                     ? fetchParallel(previousRange.from, previousRange.to, timeZone)
                     : Promise.resolve(null);
+                const reviewsPromise = getEtsyReviewsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
 
-                const [fbRecords, prevRecords] = await Promise.all([currentRecordsPromise, previousRecordsPromise]);
+                const [fbRecords, prevRecords, fetchedReviews] = await Promise.all([currentRecordsPromise, previousRecordsPromise, reviewsPromise]);
 
                 // RACE CONDITION CHECK: Verify this is still the latest request
                 if (signal.aborted || requestId !== fetchRequestIdRef.current) {
@@ -659,6 +664,7 @@ export const useDataSync = ({
                 // Update state with new data
                 setRecords(finalRecords);
                 setPreviousPeriodRecords(prevRecords);
+                setEtsyReviews(fetchedReviews);
 
                 // Schedule realtime sync after data stabilizes (10 second delay)
                 scheduleRealtimeSync();
@@ -799,6 +805,7 @@ export const useDataSync = ({
         records, setRecords,
         previousPeriodRecords, setPreviousPeriodRecords,
         manualCosts, setManualCosts,
+        etsyReviews, setEtsyReviews,
         isLoading,
         isSyncing,
         isFetchingNewRange,

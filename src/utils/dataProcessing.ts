@@ -106,7 +106,8 @@ export function processData(
     permissions: { [key: string]: boolean },
     manualCosts: any[],
     exchangeRates: { [currency: string]: number } | null,
-    categories: any[] = []
+    categories: any[] = [],
+    etsyReviews: any[] = []
 ): ProcessedData {
     if (isDev) {
         console.log('[Worker] ProcessData called with', records.length, 'records.');
@@ -141,7 +142,12 @@ export function processData(
     const statusMap = new Map<string, { status: string, refund_details?: any, refund_dt?: string }>();
     const caseMap = new Map<string, string>();
     const helpMap = new Map<string, string>();
+    const reviewMap = new Map<string, any>();
     const validOrderIds = new Set<string>();
+
+    etsyReviews.forEach(rev => {
+        if (rev.order_id) reviewMap.set(String(rev.order_id), rev);
+    });
 
     uniqueRecords.forEach(r => {
         if (r.kind === 'order' && r.order_id) {
@@ -167,28 +173,23 @@ export function processData(
     const overviewAllCurrs = { rev: new Set<string>(), funds: new Set<string>(), cost: new Set<string>(), chart: new Set<string>() };
 
     // --- Pre-fill overviewDaily to ensure all dates in range are shown even if 0 ---
-    const fromTime = new Date(filterDateRange.from).getTime();
-    const toTime = new Date(filterDateRange.to).getTime();
-    if (!isNaN(fromTime) && !isNaN(toTime) && fromTime <= toTime) {
-        const current = new Date(fromTime);
-        while (current.getTime() <= toTime) {
-            const dKey = formatDate(current.toISOString(), timeZone);
-            if (dKey !== 'Invalid Date' && !overviewDaily.has(dKey)) {
-                overviewDaily.set(dKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
+    try {
+        let currentDate = new Date(filterDateRange.from + "T00:00:00Z");
+        const endDate = new Date(filterDateRange.to + "T00:00:00Z");
+        if (!isNaN(currentDate.getTime()) && !isNaN(endDate.getTime()) && currentDate <= endDate) {
+            while (currentDate <= endDate) {
+                const dKey = currentDate.toISOString().slice(0, 10);
+                if (!overviewDaily.has(dKey)) {
+                    overviewDaily.set(dKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
+                }
+                if (!isHourly && !overviewChart.has(dKey)) {
+                    overviewChart.set(dKey, { orders: new Set(), rev: new Map() });
+                }
+                currentDate.setUTCDate(currentDate.getUTCDate() + 1);
             }
-            if (!isHourly && dKey !== 'Invalid Date' && !overviewChart.has(dKey)) {
-                overviewChart.set(dKey, { orders: new Set(), rev: new Map() });
-            }
-            current.setDate(current.getDate() + 1);
         }
-        // Ensure 'to' date is fully captured (boundary safety)
-        const toDKey = formatDate(new Date(toTime).toISOString(), timeZone);
-        if (toDKey !== 'Invalid Date' && !overviewDaily.has(toDKey)) {
-            overviewDaily.set(toDKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
-        }
-        if (!isHourly && toDKey !== 'Invalid Date' && !overviewChart.has(toDKey)) {
-            overviewChart.set(toDKey, { orders: new Set(), rev: new Map() });
-        }
+    } catch (e) {
+        console.error("Error prefilling dates", e);
     }
 
     const kpiRaw = { orderIds: new Set<string>(), shops: new Set<string>(), revenue: new Map<string, number>(), funds: new Map<string, number>(), cost: new Map<string, number>(), refOrderIds: new Set<string>(), refund: new Map<string, number>() };
@@ -362,9 +363,12 @@ export function processData(
                 const dateDisplay = formatDateTime(r.dt_local, timeZone);
                 const finalDateCell = (isRef && refundDtStr) ? { type: 'text_with_subtitle' as const, main: dateDisplay, subtitle: `↩ ${refundDtStr}`, subtitleClass: 'text-red-600 font-bold bg-red-100 rounded px-1' } : dateDisplay;
 
+                const reviewData = r.order_id ? reviewMap.get(r.order_id) : null;
+                const rating = reviewData?.rating || '-';
+
                 const commonOrderRow = [
                     { type: 'image' as const, ...getOptimizedImageProps(pImg), alt: shopPName }, shopPName, pVars, r.order_id || 'N/A', r.amount, currency,
-                    r.cost_total ?? null, r.ff_code || '-', r.order_id && caseMap.has(r.order_id) ? caseMap.get(r.order_id) : 'No',
+                    r.cost_total ?? null, r.ff_code || '-', rating, r.order_id && caseMap.has(r.order_id) ? caseMap.get(r.order_id) : 'No',
                     r.order_id && helpMap.has(r.order_id) ? helpMap.get(r.order_id) : 'No', shopLabel,
                     finalDateCell, formatSource(r.source), r.id, r.dt_local, r.source, finalStatus === 'Refunded'
                 ];
@@ -686,7 +690,7 @@ export function processData(
 
     return {
         overview: { table: { headers: overviewHeaders, rows: overviewRows as any }, chartData: overviewChartData },
-        orders: { headers: ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Curren", "Cost", "FF Code", "Case", "Help", "Account", "Date", "Source"], rows: ordersTabRows.sort((a, b) => (b[14] || '').localeCompare(a[14] || '')) },
+        orders: { headers: ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Curren", "Cost", "FF Code", "Rating", "Case", "Help", "Account", "Date", "Source"], rows: ordersTabRows.sort((a, b) => (b[15] || '').localeCompare(a[15] || '')) },
         ebay: { headers: ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"], rows: ebayRows.sort((a, b) => (b[9] || '').localeCompare(a[9] || '')) },
         etsy: { headers: ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"], rows: etsyRows.sort((a, b) => (b[9] || '').localeCompare(a[9] || '')) },
         cases: { headers: ["Order Number", "Message", "Source", "Account", "Date"], rows: caseRows.sort((a, b) => (b[5] || '').localeCompare(a[5] || '')) },

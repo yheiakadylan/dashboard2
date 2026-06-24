@@ -358,7 +358,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(404).json({ message: 'Order found but no shipping details' });
       }
 
-      const { shippingAddress, customerEmail, customerName } = bestRecord.details;
+      const shippingAddress: any = bestRecord.details.shippingAddress || {};
+      const customerEmail = bestRecord.details.customerEmail || '';
+      const customerName = bestRecord.details.customerName || '';
       const nameParts = (shippingAddress.name || customerName || '').split(' ');
       const lastName = nameParts.pop() || '';
       const firstName = nameParts.join(' ') || '';

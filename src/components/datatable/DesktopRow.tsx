@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, ExternalLink } from 'lucide-react';
+import { Check, ExternalLink, Star } from 'lucide-react';
 import Spinner from '../ui/Spinner';
 import CachedImage from './CachedImage';
 import { getHighResImageUrl } from '../../utils/imageUtils';
@@ -262,6 +262,17 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     return (
                         <div key={cellIndex} className={cellClass} style={customStyle}>
                             {renderActionCell(cell, cellIndex, loadingItems, onResyncClick, onViewOrderDetails, onViewDayDetails, row)}
+                        </div>
+                    );
+                }
+
+                if (header === 'Rating' && typeof cell === 'number') {
+                    return (
+                        <div key={cellIndex} className={cellClass} style={customStyle}>
+                            <div className="flex items-center gap-0.5">
+                                <span className="font-medium mr-1">{cell}</span>
+                                <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                            </div>
                         </div>
                     );
                 }

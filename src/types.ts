@@ -103,6 +103,29 @@ export interface RefundDetails {
   reason: string;
 }
 
+export interface EtsyReviewImage {
+  url_75x75?: string | null;
+  url_300x300?: string | null;
+  url_fullxfull?: string | null;
+}
+
+export interface EtsyReview {
+  id?: string;
+  transaction_id: string;
+  order_id: string;
+  shop_id: string;
+  rating: number | null;
+  review: string;
+  create_date: string;
+  buyer_name: string | null;
+  buyer_login_name: string | null;
+  listing_id: string;
+  listing_title: string;
+  review_photo_detailed: EtsyReviewImage | null;
+  listing_image: EtsyReviewImage | null;
+  updated_at?: string;
+}
+
 export interface CostData {
   order_id: string;
   cost_total: number;
@@ -111,7 +134,7 @@ export interface CostData {
   product_name?: string;
 }
 
-export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill';
+export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill' | 'Reviews';
 export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%

@@ -13,6 +13,7 @@ interface WorkerMessage {
     manualCosts: ManualCost[];
     exchangeRates: { [currency: string]: number } | null;
     categories: any[];
+    etsyReviews: any[];
 }
 
 self.onmessage = (e: MessageEvent<WorkerMessage>) => {
@@ -27,7 +28,8 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
         permissions,
         manualCosts,
         exchangeRates,
-        categories
+        categories,
+        etsyReviews
     } = e.data;
 
     try {
@@ -41,7 +43,8 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
             permissions,
             manualCosts,
             exchangeRates,
-            categories
+            categories,
+            etsyReviews
         );
         self.postMessage({ success: true, data: processed, requestId });
     } catch (error: any) {

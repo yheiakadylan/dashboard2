@@ -1,5 +1,5 @@
 import React from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Star } from 'lucide-react';
 import Spinner from '../ui/Spinner';
 import CachedImage from './CachedImage';
 import { getHighResImageUrl } from '../../utils/imageUtils';
@@ -254,7 +254,12 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             return (
                                 <div key={item.i} className="flex flex-col min-w-0">
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate">{item.h}</span>
-                                    <span className={`text-sm truncate ${valueClass}`}>{item.isMoney ? item.val : renderTextContent(item.val, data.selectedKeys, data.onToggleSelect)}</span>
+                                    <span className={`text-sm flex items-center gap-0.5 truncate ${valueClass}`}>
+                                        {item.isMoney ? item.val : renderTextContent(item.val, data.selectedKeys, data.onToggleSelect)}
+                                        {item.h === 'Rating' && item.val !== '-' && (
+                                            <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                                        )}
+                                    </span>
                                 </div>
                             );
                         })}

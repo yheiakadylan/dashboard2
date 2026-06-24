@@ -21,7 +21,8 @@ import {
     Users,
     Package,
     Map,
-    Download
+    Download,
+    Star
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -56,6 +57,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
             case 'Support': return <HelpCircle className={className} />;
             case 'Fulfill': return <Truck className={className} />;
             case 'Products': return <Tag className={className} />;
+            case 'Reviews': return <Star className={className} />;
             default: return <Home className={className} />;
         }
     };

@@ -15,12 +15,14 @@ import {
   Timestamp,
   updateDoc,
   deleteDoc,
-  setDoc
+  setDoc,
+  limit,
+  orderBy
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getMessaging, isSupported } from "firebase/messaging";
-import { Account, Record, UserProfile, Category } from '../types';
+import { Account, Record, UserProfile, Category, EtsyReview } from '../types';
 
 // Firebase configuration - uses VITE_ prefix for client-side access
 const firebaseConfig = {
@@ -235,6 +237,28 @@ export const getRecordsForDateRange = async (teamId: string, startDate: string, 
   const recordSnapshot = await getDocs(q);
   const recordList = recordSnapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as Record));
   return recordList;
+};
+
+export const getEtsyReviewsForDateRange = async (teamId: string, startDate: string, endDate: string, timeZone: string): Promise<EtsyReview[]> => {
+  const reviewsCol = collection(db, 'user', teamId, 'reviews');
+
+  const startOffset = getTimezoneOffsetString(timeZone, startDate);
+  const endOffset = getTimezoneOffsetString(timeZone, endDate);
+
+  const fromDate = new Date(`${startDate}T00:00:00.000${startOffset}`);
+  const fromISO = fromDate.toISOString();
+
+  const toDate = new Date(`${endDate}T23:59:59.999${endOffset}`);
+  const toISO = toDate.toISOString();
+
+  const q = query(reviewsCol,
+    where("create_date", ">=", fromISO),
+    where("create_date", "<=", toISO)
+  );
+
+  const snapshot = await getDocs(q);
+  const reviews = snapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as EtsyReview));
+  return reviews;
 };
 
 export const getAllRecordsForAccount = async (teamId: string, accountEmail: string): Promise<Record[]> => {

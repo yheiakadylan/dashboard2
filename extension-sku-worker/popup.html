@@ -19,6 +19,21 @@
         .success { color: #16a34a; background: #dcfce7; padding: 8px; }
         .error { color: #dc2626; background: #fee2e2; padding: 8px; }
         .info { color: #2563eb; background: #dbeafe; padding: 8px; }
+        .divider { height: 1px; background-color: #e2e8f0; margin: 24px 0; }
+        .section-title { font-size: 15px; font-weight: 600; color: #334155; margin-bottom: 12px; }
+        .flex-row { display: flex; gap: 8px; align-items: center; }
+        .btn-secondary { background: #64748b; }
+        .btn-secondary:hover { background: #475569; }
+        .review-status-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 16px; background: #f8fafc; }
+        .review-status-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .review-status-title { font-size: 12px; font-weight: 700; color: #334155; }
+        .review-status-pill { border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; background: #e2e8f0; color: #475569; }
+        .review-status-pill.running { background: #dbeafe; color: #2563eb; }
+        .review-status-pill.success { background: #dcfce7; color: #16a34a; }
+        .review-status-pill.error { background: #fee2e2; color: #dc2626; }
+        .review-status-row { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: 11px; color: #64748b; }
+        .review-status-row span:last-child { color: #1e293b; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+        .review-status-error { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #dc2626; overflow-wrap: anywhere; }
     </style>
 
 </head>
@@ -46,6 +61,45 @@
         </div>
         <button id="saveBtn">Save & Connect</button>
         <div class="status" id="statusMsg"></div>
+
+        <div class="divider"></div>
+        <div class="section-title">Etsy Reviews Tools</div>
+
+        <div class="review-status-card" id="reviewSyncStatusCard">
+            <div class="review-status-head">
+                <div class="review-status-title">Review Sync Status</div>
+                <div class="review-status-pill" id="reviewSyncState">Idle</div>
+            </div>
+            <div class="review-status-row"><span>Action</span><span id="reviewSyncAction">-</span></div>
+            <div class="review-status-row"><span>Last success</span><span id="reviewSyncLastSuccess">-</span></div>
+            <div class="review-status-row"><span>Last result</span><span id="reviewSyncLastResult">-</span></div>
+            <div class="review-status-row"><span>Next cron</span><span id="reviewSyncNextRun">-</span></div>
+            <div class="review-status-error" id="reviewSyncLastError"></div>
+        </div>
+        
+        <div class="form-group">
+            <label>Cron Sync Hours (UTC):</label>
+            <div class="flex-row">
+                <input type="text" id="cronHours" placeholder="8, 12" style="width: 60%;">
+                <button id="saveCronBtn" class="btn-secondary" style="width: 40%;">Save</button>
+            </div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Giờ chạy tự động hàng ngày (cách nhau dấu phẩy)</div>
+        </div>
+
+        <div class="form-group">
+            <button id="crawl25Btn" class="btn-secondary">Crawl Ngay 25 Reviews Mới Nhất</button>
+        </div>
+
+        <div class="form-group">
+            <label>Back-fill Reviews (Min Date):</label>
+            <div class="flex-row">
+                <input type="date" id="minDate" style="width: 60%;">
+                <button id="backfillBtn" class="btn-secondary" style="width: 40%;">Back-fill</button>
+            </div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Chọn ngày tối thiểu để lấy lại review cũ</div>
+        </div>
+
+        <div class="status" id="toolStatusMsg"></div>
     </div>
 
     <!-- SỬA LỖI MIME TYPE BẰNG CÁCH TRỎ ĐÚNG FILE BUID .JS -->

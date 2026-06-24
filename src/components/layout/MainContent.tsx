@@ -10,6 +10,7 @@ import ProductsTab from '../tabs/ProductsTab';
 import SupportTab from '../tabs/SupportTab';
 import OrderListTab from '../tabs/OrderListTab';
 import FulfillTab from '../tabs/FulfillTab';
+import ReviewsTab from '../tabs/ReviewsTab';
 
 
 interface MainContentProps {
@@ -117,6 +118,13 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
                     return (
                         <Suspense fallback={<div className="p-4 animate-fade-in"><SkeletonLoader variant="table-row" count={8} /></div>}>
                             <FulfillTab processedData={processedData} />
+                        </Suspense>
+                    );
+
+                case 'Reviews':
+                    return (
+                        <Suspense fallback={<div className="p-2 md:p-6 animate-fade-in"><SkeletonLoader variant="card" count={6} /></div>}>
+                            <ReviewsTab />
                         </Suspense>
                     );
 

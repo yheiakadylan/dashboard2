@@ -2,6 +2,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, setPersistence, indexedDBLocalPersistence, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, query, where, doc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
+import { createEtsyReviewSync, ETSY_REVIEW_ALARM } from './reviews/reviewSync';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -30,6 +31,14 @@ let isEtsyLoggedOut = false;
 // Queue mechanism (runs in memory, flushed only if SW entirely sleeps when idle)
 const localQueue: any[] = [];
 
+const etsyReviewSync = createEtsyReviewSync({
+    db,
+    ensureAuth,
+    sleep,
+    markEtsyLoggedOut: () => { isEtsyLoggedOut = true; },
+    setRateLimitUntil: (timestamp: number) => { rateLimitUntil = timestamp; }
+});
+
 interface ExtractedItem {
     sku: string;
     title: string;
@@ -45,12 +54,15 @@ interface FetchSKUResult {
     customerFiles: string[];
 }
 
+
 chrome.runtime.onInstalled.addListener(() => {
     maintainOffscreen();
+    etsyReviewSync.scheduleNextEtsyReviewCron().catch((err: any) => console.error('[Reviews] Failed to schedule on install:', err));
 });
 
 chrome.runtime.onStartup.addListener(() => {
     maintainOffscreen();
+    etsyReviewSync.scheduleNextEtsyReviewCron().catch((err: any) => console.error('[Reviews] Failed to schedule on startup:', err));
     // Vớt lại job pending sau khi SW thức dậy (localQueue bị xóa khi Chrome terminate)
     scanPendingJobs();
 });
@@ -62,6 +74,8 @@ chrome.alarms.onAlarm.addListener((alarm: chrome.alarms.Alarm) => {
         maintainOffscreen();
         scanPendingJobs();
         reportHeartbeat();
+    } else if (alarm.name === ETSY_REVIEW_ALARM) {
+        etsyReviewSync.runEtsyReviewCronJob().catch((err: any) => console.error('[Reviews] Cron job failed:', err));
     }
 });
 
@@ -165,6 +179,10 @@ chrome.storage.onChanged.addListener((changes: { [key: string]: chrome.storage.S
             }
         });
     }
+
+    if (namespace === 'local' && (changes.etsy_review_sync_hours || changes.review_sync_hours || changes.etsyReviewCronHours)) {
+        etsyReviewSync.scheduleNextEtsyReviewCron().catch((err: any) => console.error('[Reviews] Failed to reschedule after setting change:', err));
+    }
 });
 
 async function ensureAuth(): Promise<boolean> {
@@ -239,7 +257,6 @@ async function scanPendingJobs(): Promise<void> {
 // Receive pushing tasks from the offscreen document
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "NEW_SKU_JOB") {
-        // Kiểm tra trùng lặp dựa trên job.id trước khi push vào queue
         const isExists = localQueue.some(j => j.id === msg.job.id);
         if (!isExists) {
             localQueue.push(msg.job);
@@ -247,10 +264,40 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
         processQueue(msg.teamId);
         sendResponse({ success: true });
+        return;
+    }
+
+    if (msg.type === 'BACKFILL_ETSY_REVIEWS') {
+        etsyReviewSync.backFillEtsyReviews(String(msg.shopId || ''), msg.shopName ? String(msg.shopName) : undefined, msg.minDate ? String(msg.minDate) : undefined)
+            .then(result => sendResponse({ success: true, ...result }))
+            .catch(error => sendResponse({ success: false, error: String(error?.message || error) }));
+        return true;
+    }
+
+    if (msg.type === 'CRAWL_RECENT_REVIEWS_25') {
+        etsyReviewSync.crawlRecent25Reviews()
+            .then(result => sendResponse({ success: true, ...result }))
+            .catch(error => sendResponse({ success: false, error: String(error?.message || error) }));
+        return true;
+    }
+
+    if (msg.type === 'RUN_ETSY_REVIEW_SYNC') {
+        etsyReviewSync.runEtsyReviewCronJob()
+            .then((result: any) => sendResponse({ success: true, ...result }))
+            .catch((error: any) => sendResponse({ success: false, error: String(error?.message || error) }));
+        return true;
+    }
+
+    if (msg.type === 'SCHEDULE_ETSY_REVIEW_CRON') {
+        etsyReviewSync.scheduleNextEtsyReviewCron()
+            .then((nextRunAt: any) => sendResponse({ success: true, nextRunAt }))
+            .catch((error: any) => sendResponse({ success: false, error: String(error?.message || error) }));
+        return true;
     }
 });
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 async function processQueue(teamId: string) {
     if (isProcessing) return;
@@ -441,7 +488,7 @@ async function processQueue(teamId: string) {
                         }
                     }
 
-                    await deleteDoc(jobRef); // Xóa hẳn sau khi xử lý xong
+                    await deleteDoc(jobRef); 
                 } catch (innerErr) {
                     console.error("[Worker] Inner processing error:", innerErr);
                 }
@@ -462,14 +509,14 @@ async function processQueue(teamId: string) {
         processedCount++;
 
         // Anti-bot: randomised delay between jobs
-        let randomDelay = Math.floor(Math.random() * 5000) + 3000; // 3–8s normally
+        let randomDelay = Math.floor(Math.random() * 5000) + 3000; // 3-8s normally
 
         if (localQueue.length > 15) {
             // Surge protection: slow down when queue is very large
-            randomDelay = Math.floor(Math.random() * 10000) + 15000; // 15–25s
+            randomDelay = Math.floor(Math.random() * 10000) + 15000; // 15-25s
         } else if (processedCount > 0 && processedCount % 5 === 0) {
             // Macro break every 5 jobs
-            randomDelay = Math.floor(Math.random() * 15000) + 15000; // 15–30s
+            randomDelay = Math.floor(Math.random() * 15000) + 15000; // 15-30s
         }
 
         await sleep(randomDelay);
