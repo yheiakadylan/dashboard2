@@ -118,6 +118,82 @@ const chunkArray = <T>(array: T[], size: number): T[][] => {
   return chunks;
 };
 
+const SAFE_BATCH_WRITE_LIMIT = 450;
+
+function isTaskEligibleOrder(record: Partial<Record> & { source?: string; account?: string }): boolean {
+  const itemCount = record.details?.items?.length || 0;
+  return (
+    (record.source === 'Etsy_Sales' || record.source === 'Ebay_Sales') &&
+    Boolean(record.order_id) &&
+    Boolean(record.account) &&
+    itemCount > 0
+  );
+}
+
+function getExpectedTaskIds(record: Partial<Record>): string[] {
+  const orderId = record.order_id;
+  const items = record.details?.items || [];
+  if (!orderId || items.length === 0) return [];
+  return items.map((_, index) => items.length > 1 ? `${orderId}-${index + 1}` : orderId);
+}
+
+function estimateRecordWrites(record: Partial<Record> & { source?: string; account?: string }): number {
+  // 1 record write + optional sku_job + one task per item.
+  return 1 + (isTaskEligibleOrder(record) ? 1 + (record.details?.items?.length || 0) : 0);
+}
+
+function estimatePostOrderWrites(record: Partial<Record> & { source?: string; account?: string }): number {
+  return isTaskEligibleOrder(record) ? 1 + (record.details?.items?.length || 0) : 0;
+}
+
+function createBatchWriter(db: any, limit: number = SAFE_BATCH_WRITE_LIMIT) {
+  let batch = db.batch();
+  let writeCount = 0;
+  let commitCount = 0;
+
+  const commit = async () => {
+    if (writeCount === 0) return;
+    await batch.commit();
+    commitCount++;
+    batch = db.batch();
+    writeCount = 0;
+  };
+
+  const ensureCapacity = async (additionalWrites: number = 1) => {
+    if (writeCount > 0 && writeCount + additionalWrites > limit) {
+      await commit();
+    }
+  };
+
+  return {
+    async ensureCapacity(additionalWrites: number = 1) {
+      await ensureCapacity(additionalWrites);
+    },
+    set(ref: any, data: any, options?: any) {
+      if (options) batch.set(ref, data, options);
+      else batch.set(ref, data);
+      writeCount++;
+      return this;
+    },
+    update(ref: any, data: any) {
+      batch.update(ref, data);
+      writeCount++;
+      return this;
+    },
+    delete(ref: any) {
+      batch.delete(ref);
+      writeCount++;
+      return this;
+    },
+    async commit() {
+      await commit();
+    },
+    getCommitCount() {
+      return commitCount;
+    }
+  };
+}
+
 // --- Main Handler ---
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -129,6 +205,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const db = getDb();
   const syncStartTime = new Date().toISOString();
   let totalNewRecords = 0;
+  let totalTaskBackfills = 0;
 
   try {
     // 2. Lấy tất cả tài khoản Outlook
@@ -174,6 +251,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // 4. Lọc bỏ các email đã tồn tại (Copy logic từ firebaseService)
       const emailIdsToCheck = allNewRecords.map(r => r.email_id).filter(id => !!id) as string[];
       const existingEmailIds = new Set<string>();
+      const existingRecordsByEmailId = new Map<string, any>();
 
       if (emailIdsToCheck.length > 0) {
         const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
@@ -181,37 +259,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         for (const chunk of idChunks) {
           const q = recordsRef.where('email_id', 'in', chunk);
           const qSnapshot = await q.get();
-          qSnapshot.forEach(doc => existingEmailIds.add(doc.data().email_id));
+          qSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.email_id) {
+              existingEmailIds.add(data.email_id);
+              existingRecordsByEmailId.set(data.email_id, data);
+            }
+          });
         }
       }
 
       const recordsToAdd = allNewRecords.filter(
         r => !r.email_id || !existingEmailIds.has(r.email_id)
       );
+      const existingRecordsToCheck = allNewRecords.filter(
+        r => r.email_id && existingEmailIds.has(r.email_id) && isTaskEligibleOrder(r)
+      );
       totalNewRecords = recordsToAdd.length;
       console.log(`[sync-outlook] Found ${allNewRecords.length} total, ${existingEmailIds.size} existing, ${totalNewRecords} new records to add.`);
 
       // 5. Lưu record mới và cập nhật timestamp
-      if (totalNewRecords > 0) {
+      if (totalNewRecords > 0 || existingRecordsToCheck.length > 0) {
         // 🟢 APPLY CATEGORY MAPPING
         const mappedRecords = await applyCategoryMappings(SHARED_USER_ID, recordsToAdd);
 
-        const batch = db.batch();
+        const batchWriter = createBatchWriter(db);
         const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
 
         // --- CHUẨN BỊ THÔNG BÁO ---
         const notificationEvents: { type: 'order' | 'refund' | 'funds', text: string }[] = [];
 
         for (const record of mappedRecords) {
+          await batchWriter.ensureCapacity(estimateRecordWrites(record as any));
           const docRef = record.email_id
             ? recordsRef.doc(record.email_id)
             : recordsRef.doc();
           // Xóa id ảo nếu có trong object record
           const { id, ...recordData } = record as any;
-          batch.set(docRef, recordData);
+          batchWriter.set(docRef, recordData);
 
           // --- TRIGGER SKU JOB & TASK CREATION ---
-          await processNewOrder(db, batch, SHARED_USER_ID, record as any, accountInfoMap);
+          await processNewOrder(db, batchWriter, SHARED_USER_ID, record as any, accountInfoMap);
 
           // --- TẠO NỘI DUNG THÔNG BÁO ---
           // Lấy tên Shop từ Map
@@ -239,12 +327,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         // Cập nhật last_synced_at cho các tài khoản đã sync
-        outlookAccounts.forEach(account => {
-          const accRef = accountsRef.doc(account.id);
-          batch.update(accRef, { last_synced_at: syncStartTime });
-        });
+        if (existingRecordsToCheck.length > 0) {
+          const taskIdsToCheck = Array.from(new Set(existingRecordsToCheck.flatMap(getExpectedTaskIds)));
+          const existingTaskIds = new Set<string>();
 
-        await batch.commit();
+          for (const chunk of chunkArray(taskIdsToCheck, 30)) {
+            if (chunk.length === 0) continue;
+            const taskSnap = await db.collection('tasks').where('id', 'in', chunk).get();
+            taskSnap.forEach((doc: any) => existingTaskIds.add(doc.id));
+          }
+
+          for (const parsedRecord of existingRecordsToCheck) {
+            const expectedTaskIds = getExpectedTaskIds(parsedRecord);
+            const hasMissingTask = expectedTaskIds.some(taskId => !existingTaskIds.has(taskId));
+            if (!hasMissingTask) continue;
+
+            const storedRecord = parsedRecord.email_id
+              ? existingRecordsByEmailId.get(parsedRecord.email_id)
+              : null;
+            const recordForTaskSync = {
+              ...(storedRecord || {}),
+              ...parsedRecord,
+            };
+
+            await batchWriter.ensureCapacity(estimatePostOrderWrites(recordForTaskSync as any));
+            await processNewOrder(db, batchWriter, SHARED_USER_ID, recordForTaskSync as any, accountInfoMap);
+            expectedTaskIds.forEach(taskId => existingTaskIds.add(taskId));
+            totalTaskBackfills++;
+          }
+        }
+
+        for (const account of outlookAccounts) {
+          await batchWriter.ensureCapacity(1);
+          const accRef = accountsRef.doc(account.id);
+          batchWriter.update(accRef, { last_synced_at: syncStartTime });
+        }
+
+        await batchWriter.commit();
+        console.log(`[sync-outlook] Committed writes in ${batchWriter.getCommitCount()} batch(es). Backfilled ${totalTaskBackfills} order task set(s).`);
 
         // 🟢 TRIGGER SHEET SYNC IMMEDIATELY
         processTeamSync(SHARED_USER_ID).catch(err => console.error('[Outlook] Sheet sync failed:', err));
@@ -315,7 +435,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(200).json({
       message: 'Outlook sync complete.',
       accounts_synced: outlookAccounts.length,
-      new_records_added: totalNewRecords
+      new_records_added: totalNewRecords,
+      task_backfills: totalTaskBackfills
     });
 
   } catch (error: any) {

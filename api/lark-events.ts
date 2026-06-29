@@ -150,6 +150,14 @@ function verifyToken(kind: Parsed['kind'], incoming?: string): boolean {
   if (kind === 'text') return incoming === msgToken || incoming === cardToken;
   return true;
 }
+const INVALID_SKU_VALUES = new Set(['', 'NULL']);
+
+function normalizeSkuForSync(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const upper = raw.toUpperCase();
+  return INVALID_SKU_VALUES.has(upper) ? '' : upper;
+}
 
 /** Handlers */
 async function onText(messageId: string, command: string) {
@@ -642,10 +650,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const existingItems = existingDetails.items || [];
           const updatedItems = items.map((payloadItem, index) => {
             const existingItem = existingItems[index] || {};
+            const nextSku = normalizeSkuForSync(payloadItem.sku) || normalizeSkuForSync(existingItem.sku);
             return {
               ...existingItem,
               name: payloadItem.title || existingItem.name || "",
-              sku: payloadItem.sku || existingItem.sku || "",
+              sku: nextSku || "",
               variant: payloadItem.variations?.[0] || existingItem.variant || "",
               variant2: payloadItem.variations?.[1] || existingItem.variant2 || "",
               quantity: existingItem.quantity || payloadItem.quantity || 1,
@@ -662,7 +671,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         items.forEach((item, index) => {
           const taskId = itemsCount > 1 ? `${orderId}-${index + 1}` : orderId;
 
-          const cleanSku = String(item.sku || '').trim().toUpperCase();
+          const existingRecordItem = recordData?.details?.items?.[index] || {};
+          const cleanSku = normalizeSkuForSync(item.sku) || normalizeSkuForSync(existingRecordItem.sku);
           const SKU_REGEX = /^([^-]+)-([^-]+)-(.*)$/;
           let productType = '';
           let ideaEmpId = '';
@@ -679,16 +689,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const taskExists = existingTaskIds.has(taskId);
 
           const taskUpdate: Record<string, unknown> = {
-            sku: cleanSku,
-            productType,
-            idea_emp_id: ideaEmpId,
-            originalSku,
             variant1: item.variations?.[0] || '',
             variant2: item.variations?.[1] || '',
             updatedAt: new Date().toISOString(),
             // Always sync listingId regardless of task status
             ...(item.listingId ? { listingId: item.listingId } : {}),
           };
+
+          if (cleanSku) {
+            taskUpdate.sku = cleanSku;
+            taskUpdate.productType = productType;
+            taskUpdate.idea_emp_id = ideaEmpId;
+            taskUpdate.originalSku = originalSku;
+          } else if (!taskExists) {
+            taskUpdate.sku = '';
+            taskUpdate.productType = '';
+            taskUpdate.idea_emp_id = '';
+            taskUpdate.originalSku = '';
+          }
 
           if (recordData) {
             const emailAccount = recordData.account || '';
@@ -711,7 +729,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             taskUpdate.quantity = item.quantity || 1;
             taskUpdate.status = 'draft';
             taskUpdate.isUrgent = false;
-            taskUpdate.createdBy = 'tampermonkey_sync';
+            taskUpdate.createdBy = 'auto_sync';
             taskUpdate.created_at = new Date().toISOString();
             taskUpdate.collectionName = 'tasks';
           }
