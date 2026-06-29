@@ -154,6 +154,8 @@ const Header: React.FC = () => {
     setStatusFilter,
     supportFilter,
     setSupportFilter,
+    reviewRatingFilter,
+    setReviewRatingFilter,
     globalUsdMode,
     setGlobalUsdMode,
     isSidebarCollapsed,
@@ -200,14 +202,14 @@ const Header: React.FC = () => {
       }
       
       const payloadOrders = targetRecords.map(r => {
-        const skuString = r.details?.items?.map(i => i.sku).filter(Boolean).join(', ') || 'NULL';
+        const skuString = r.details?.items?.map(i => i.sku).filter(Boolean).join(', ') || '';
         const items = r.details?.items?.map(i => {
             const variations = [];
             if (i.variant) variations.push(i.variant);
             if (i.variant2) variations.push(i.variant2);
             return {
                 title: i.name || '',
-                sku: i.sku || 'NULL',
+                sku: i.sku || '',
                 listingId: i.listingId || '',
                 variations
             };
@@ -620,6 +622,22 @@ const Header: React.FC = () => {
               ))}
             </div>
           )}
+
+          {activeTab === 'Reviews' && (
+            <CustomSelect
+              value={reviewRatingFilter}
+              onChange={(value) => setReviewRatingFilter(value as any)}
+              options={[
+                { value: 'All', label: 'All Ratings' },
+                { value: '5', label: '5 stars' },
+                { value: '4', label: '4 stars' },
+                { value: '3', label: '3 stars' },
+                { value: '2', label: '2 stars' },
+                { value: '1', label: '1 star' }
+              ]}
+              className="w-[140px]"
+            />
+          )}
           <DateRangePicker />
 
           <CustomSelect
@@ -887,6 +905,24 @@ const Header: React.FC = () => {
                     { value: 'All', label: 'All Support' },
                     { value: 'Case', label: 'Case' },
                     { value: 'Help', label: 'Help' }
+                  ]}
+                />
+              </div>
+            )}
+
+            {activeTab === 'Reviews' && (
+              <div className="w-full">
+                <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 mb-1.5 uppercase tracking-wider">Rating</label>
+                <CustomSelect
+                  value={reviewRatingFilter}
+                  onChange={(value) => setReviewRatingFilter(value as any)}
+                  options={[
+                    { value: 'All', label: 'All Ratings' },
+                    { value: '5', label: '5 stars' },
+                    { value: '4', label: '4 stars' },
+                    { value: '3', label: '3 stars' },
+                    { value: '2', label: '2 stars' },
+                    { value: '1', label: '1 star' }
                   ]}
                 />
               </div>

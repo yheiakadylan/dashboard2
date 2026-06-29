@@ -8,7 +8,9 @@ import {
     Truck,
     Tag,
     Package,
-    Map
+    Map,
+    Star,
+    LayoutDashboard
 } from 'lucide-react';
 
 interface BottomNavProps {
@@ -80,6 +82,10 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
                 return <Truck className={iconClass} />;
             case 'Support':
                 return <HelpCircle className={iconClass} />;
+            case 'Reviews':
+                return <Star className={iconClass} />;
+            case 'Report':
+                return <LayoutDashboard className={iconClass} />;
             default:
                 return <Home className={iconClass} />;
         }

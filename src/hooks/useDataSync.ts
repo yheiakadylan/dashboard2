@@ -593,8 +593,8 @@ export const useDataSync = ({
 
                     const chunks = splitDateRange(startDate, endDate);
 
-                    // Parallel Requests
-                    const chunkPromises = chunks.map(async (chunk) => {
+                    const merged: Record[] = [];
+                    for (const chunk of chunks) {
                         if (signal.aborted) return [];
 
                         const q = query(
@@ -603,15 +603,12 @@ export const useDataSync = ({
                             where('dt_local', '<', chunk.end.toISOString())
                         );
                         const snapshot = await getDocs(q);
-                        return snapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as Record));
-                    });
-
-                    const results = await Promise.all(chunkPromises);
+                        snapshot.forEach(doc => merged.push({ ...(doc.data() as object), id: doc.id } as Record));
+                    }
 
                     if (signal.aborted) return [];
 
                     // Merge and sort
-                    const merged = results.flat();
                     return merged.sort((a, b) => {
                         if (b.dt_local < a.dt_local) return -1;
                         if (b.dt_local > a.dt_local) return 1;
@@ -619,13 +616,11 @@ export const useDataSync = ({
                     });
                 };
 
-                const currentRecordsPromise = fetchParallel(filterDateRange.from, filterDateRange.to, timeZone);
-                const previousRecordsPromise = shouldFetchPrevious && previousRange
-                    ? fetchParallel(previousRange.from, previousRange.to, timeZone)
-                    : Promise.resolve(null);
-                const reviewsPromise = getEtsyReviewsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
-
-                const [fbRecords, prevRecords, fetchedReviews] = await Promise.all([currentRecordsPromise, previousRecordsPromise, reviewsPromise]);
+                const fbRecords = await fetchParallel(filterDateRange.from, filterDateRange.to, timeZone);
+                const prevRecords = shouldFetchPrevious && previousRange
+                    ? await fetchParallel(previousRange.from, previousRange.to, timeZone)
+                    : null;
+                const fetchedReviews = await getEtsyReviewsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
 
                 // RACE CONDITION CHECK: Verify this is still the latest request
                 if (signal.aborted || requestId !== fetchRequestIdRef.current) {

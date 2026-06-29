@@ -7,10 +7,11 @@ import { useUI } from '../../contexts/UIContext';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { hasPermission } from '../../utils/permissionHelper';
 import { useNotification } from '../../contexts/NotificationContext';
-import TopProductsChart from '../charts/TopProductsChart';
 import Pagination from '../ui/Pagination';
 import { Search, Filter, CheckSquare, X, ChevronRight, Zap, Package, ChevronLeft, Check, ChevronDown, Tag } from 'lucide-react';
 import { exportInventoryToExcel } from '../../utils/excelExport';
+
+const TopProductsChart = React.lazy(() => import('../charts/TopProductsChart'));
 import { db } from '../../services/firebaseService';
 import { collection, getDocs } from 'firebase/firestore';
 

@@ -4,7 +4,7 @@ import { Tab } from '../types';
 import { useNotification } from './NotificationContext';
 
 // Constants moved here or imported? For now, defining strict types/constants.
-const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Fulfill', 'Support', 'Reviews'];
+const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Fulfill', 'Support', 'Reviews', 'Report'];
 
 interface UIContextType {
     // Layout
@@ -62,6 +62,8 @@ interface UIContextType {
     setStatusFilter: React.Dispatch<React.SetStateAction<'All' | 'New' | 'Refunded'>>;
     supportFilter: 'All' | 'Case' | 'Help';
     setSupportFilter: React.Dispatch<React.SetStateAction<'All' | 'Case' | 'Help'>>;
+    reviewRatingFilter: 'All' | '5' | '4' | '3' | '2' | '1';
+    setReviewRatingFilter: React.Dispatch<React.SetStateAction<'All' | '5' | '4' | '3' | '2' | '1'>>;
 
     // Global Settings
     globalUsdMode: boolean;
@@ -160,6 +162,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const [sourceFilter, setSourceFilter] = useState<'All' | 'Ebay_Sales' | 'Etsy_Sales'>('All');
     const [statusFilter, setStatusFilter] = useState<'All' | 'New' | 'Refunded'>('All');
     const [supportFilter, setSupportFilter] = useState<'All' | 'Case' | 'Help'>('All');
+    const [reviewRatingFilter, setReviewRatingFilter] = useState<'All' | '5' | '4' | '3' | '2' | '1'>('All');
 
     // Modals
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -268,6 +271,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
             sourceFilter, setSourceFilter,
             statusFilter, setStatusFilter,
             supportFilter, setSupportFilter,
+            reviewRatingFilter, setReviewRatingFilter,
             globalUsdMode, setGlobalUsdMode,
             handleViewDayDetails,
             handleShopDetails

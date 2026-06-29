@@ -58,6 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
             case 'Fulfill': return <Truck className={className} />;
             case 'Products': return <Tag className={className} />;
             case 'Reviews': return <Star className={className} />;
+            case 'Report': return <LayoutDashboard className={className} />;
             default: return <Home className={className} />;
         }
     };

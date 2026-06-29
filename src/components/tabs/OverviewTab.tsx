@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { hasPermission } from '../../utils/permissionHelper';
 import KpiCard from '../ui/KpiCard';
@@ -10,9 +10,10 @@ import { ProcessedData } from '../../types';
 import DataTable from '../ui/DataTable';
 import { useUI } from '../../contexts/UIContext';
 
-import OverviewChart from '../charts/OverviewChart';
-import SummaryChart from '../charts/SummaryChart';
 import { useNotification } from '../../contexts/NotificationContext';
+
+const OverviewChart = React.lazy(() => import('../charts/OverviewChart'));
+const SummaryChart = React.lazy(() => import('../charts/SummaryChart'));
 
 interface OverviewTabProps {
     processedData: ProcessedData;
@@ -140,7 +141,9 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                     {isLoading || isFetchingNewRange ? (
                         <SkeletonLoader variant="chart" count={1} className="h-[200px] md:h-[450px]" />
                     ) : (
-                        <OverviewChart data={processedData.overview.chartData} exchangeRates={exchangeRates} />
+                        <Suspense fallback={<SkeletonLoader variant="chart" count={1} className="h-[200px] md:h-[450px]" />}>
+                            <OverviewChart data={processedData.overview.chartData} exchangeRates={exchangeRates} />
+                        </Suspense>
                     )}
                 </ChartErrorBoundary>
 
@@ -149,12 +152,14 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                     {isLoading || isFetchingNewRange ? (
                         <SkeletonLoader variant="chart" count={1} className="h-[200px] md:h-[450px]" />
                     ) : (
-                        <SummaryChart
-                            data={processedData.summary.chartData}
-                            hideTitle={true}
-                            hideFunds={!can('viewKpiFunds')}
-                            exchangeRates={exchangeRates}
-                        />
+                        <Suspense fallback={<SkeletonLoader variant="chart" count={1} className="h-[200px] md:h-[450px]" />}>
+                            <SummaryChart
+                                data={processedData.summary.chartData}
+                                hideTitle={true}
+                                hideFunds={!can('viewKpiFunds')}
+                                exchangeRates={exchangeRates}
+                            />
+                        </Suspense>
                     )}
                 </ChartErrorBoundary>
             </div>

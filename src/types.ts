@@ -134,7 +134,7 @@ export interface CostData {
   product_name?: string;
 }
 
-export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill' | 'Reviews';
+export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill' | 'Reviews' | 'Report';
 export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%

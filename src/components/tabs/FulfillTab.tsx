@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense } from 'react';
 import ChartErrorBoundary from '../ui/ChartErrorBoundary';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { ProcessedData } from '../../types';
@@ -8,7 +8,8 @@ import Pagination from '../ui/Pagination';
 
 const ITEMS_PER_PAGE = 200;
 
-import FulfillChart from '../charts/FulfillChart';
+const FulfillChart = React.lazy(() => import('../charts/FulfillChart'));
+
 import { useNotification } from '../../contexts/NotificationContext';
 
 interface FulfillTabProps {

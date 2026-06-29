@@ -3,6 +3,7 @@ import { useDashboard } from '../../contexts/DashboardContext';
 import { useUI } from '../../contexts/UIContext';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import ImagePreviewModal from '../modals/ImagePreviewModal';
+import { buildAccountLabelMap, resolveAccountLabel } from '../../utils/accountLabels';
 
 const decodeHTML = (text: string | null | undefined) => {
     if (!text) return '';
@@ -12,37 +13,36 @@ const decodeHTML = (text: string | null | undefined) => {
 };
 
 const ReviewsTab: React.FC = () => {
-    const { etsyReviews, isLoading } = useDashboard();
-    const { timeZone } = useUI();
+    const { etsyReviews, accounts, isLoading } = useDashboard();
+    const { selectedAccountId, reviewRatingFilter, timeZone } = useUI();
 
-    const [ratingFilter, setRatingFilter] = useState<string>('All');
-    const [shopFilter, setShopFilter] = useState<string>('All');
     const [previewImage, setPreviewImage] = useState<string | null>(null);
 
-    // Extract unique shops for the filter dropdown
-    const uniqueShops = useMemo(() => {
-        const shops = new Set<string>();
-        etsyReviews.forEach(r => {
-            if (r.shop_id) shops.add(r.shop_id);
-        });
-        return Array.from(shops).sort();
-    }, [etsyReviews]);
+    const accountLabelMap = useMemo(() => buildAccountLabelMap(accounts), [accounts]);
+    const getShopLabel = (shopId?: string | number | null) => resolveAccountLabel(accountLabelMap, shopId);
+
+    const selectedShopKeys = useMemo(() => {
+        if (!selectedAccountId || selectedAccountId === 'all') return null;
+        const selectedAccount = accounts.find(account => account.email === selectedAccountId);
+        return new Set(
+            [selectedAccountId, selectedAccount?.id, selectedAccount?.label]
+                .filter((value): value is string => Boolean(value))
+                .map(value => value.trim().toLowerCase())
+        );
+    }, [accounts, selectedAccountId]);
 
     // Apply filters
     const filteredReviews = useMemo(() => {
         return etsyReviews.filter(review => {
-            if (ratingFilter !== 'All') {
-                const isPositive = ratingFilter === 'Positive' ? (review.rating && review.rating >= 4) : false;
-                const isNeutral = ratingFilter === 'Neutral' ? (review.rating === 3) : false;
-                const isNegative = ratingFilter === 'Negative' ? (review.rating && review.rating <= 2) : false;
-                if (!isPositive && !isNeutral && !isNegative) return false;
+            if (reviewRatingFilter !== 'All' && review.rating !== Number(reviewRatingFilter)) {
+                return false;
             }
-            if (shopFilter !== 'All' && review.shop_id !== shopFilter) {
+            if (selectedShopKeys && !selectedShopKeys.has(String(review.shop_id || '').trim().toLowerCase())) {
                 return false;
             }
             return true;
         }).sort((a, b) => new Date(b.create_date).getTime() - new Date(a.create_date).getTime());
-    }, [etsyReviews, ratingFilter, shopFilter]);
+    }, [etsyReviews, reviewRatingFilter, selectedShopKeys]);
 
     if (isLoading) {
         return <LoadingSpinner variant="card" count={5} />;
@@ -64,37 +64,6 @@ const ReviewsTab: React.FC = () => {
     return (
         <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] relative">
             <div className="p-2 md:p-6">
-                {/* Filters */}
-                <div className="flex flex-col sm:flex-row gap-4 mb-6">
-                    <div className="flex flex-col">
-                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Rating Filter</label>
-                        <select
-                            value={ratingFilter}
-                            onChange={(e) => setRatingFilter(e.target.value)}
-                            className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                        >
-                            <option value="All">All Ratings</option>
-                            <option value="Positive">Positive (4-5)</option>
-                            <option value="Neutral">Neutral (3)</option>
-                            <option value="Negative">Negative (1-2)</option>
-                        </select>
-                    </div>
-
-                    <div className="flex flex-col">
-                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Shop Filter</label>
-                        <select
-                            value={shopFilter}
-                            onChange={(e) => setShopFilter(e.target.value)}
-                            className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                        >
-                            <option value="All">All Shops</option>
-                            {uniqueShops.map(shop => (
-                                <option key={shop} value={shop}>{shop}</option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
-
                 {/* List */}
                 <div className="flex flex-col gap-4 pb-20 max-w-5xl mx-auto">
                     {filteredReviews.length > 0 ? (
@@ -106,7 +75,7 @@ const ReviewsTab: React.FC = () => {
                             const reviewPhoto = review.review_photo_detailed;
 
                             return (
-                                <div key={review.order_id || review.transaction_id} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 hover:shadow-md transition-shadow">
+                                <div key={review.id || review.transaction_id || review.order_id} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 hover:shadow-md transition-shadow">
                                     <div className="flex flex-col md:flex-row gap-6">
                                         {/* Left Side: Review */}
                                         <div className="flex-1 min-w-0">
@@ -151,7 +120,7 @@ const ReviewsTab: React.FC = () => {
                                                     Order ID: <span className="font-medium text-gray-900 dark:text-gray-200">{review.order_id || 'N/A'}</span>
                                                 </div>
                                                 <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                                    Shop: <span className="font-medium text-gray-900 dark:text-gray-200">{review.shop_id}</span>
+                                                    Shop: <span className="font-medium text-gray-900 dark:text-gray-200">{getShopLabel(review.shop_id)}</span>
                                                 </div>
                                             </div>
                                             

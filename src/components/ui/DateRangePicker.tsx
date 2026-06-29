@@ -14,27 +14,45 @@ const getTodayInTimezone = (timeZone: string): Date => {
     return new Date(Date.UTC(year, month - 1, day));
 };
 
+const getMondayWeekStart = (date: Date): Date => {
+    const start = new Date(date);
+    const day = start.getUTCDay();
+    start.setUTCDate(start.getUTCDate() - (day === 0 ? 6 : day - 1));
+    return start;
+};
+
 const presets = [
     { label: 'Today', getRange: (today: Date) => ({ from: today, to: today }) },
     { label: 'Yesterday', getRange: (today: Date) => { const d = new Date(today); d.setUTCDate(d.getUTCDate() - 1); return { from: d, to: d }; } },
+    { label: 'This week', getRange: (today: Date) => ({ from: getMondayWeekStart(today), to: today }) },
+    { label: 'Last week', getRange: (today: Date) => { const t = getMondayWeekStart(today); t.setUTCDate(t.getUTCDate() - 1); const f = new Date(t); f.setUTCDate(f.getUTCDate() - 6); return { from: f, to: t }; } },
     { label: 'Last 7 days', getRange: (today: Date) => { const f = new Date(today); f.setUTCDate(f.getUTCDate() - 6); return { from: f, to: today }; } },
     { label: 'Last 30 days', getRange: (today: Date) => { const f = new Date(today); f.setUTCDate(f.getUTCDate() - 29); return { from: f, to: today }; } },
     { label: 'Last 90 days', getRange: (today: Date) => { const f = new Date(today); f.setUTCDate(f.getUTCDate() - 89); return { from: f, to: today }; } },
     { label: 'This month', getRange: (today: Date) => { const f = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)); return { from: f, to: today }; } },
     { label: 'Last month', getRange: (today: Date) => { const f = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1)); const t = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0)); return { from: f, to: t }; } },
-    { label: 'Week to date', getRange: (today: Date) => { const f = new Date(today); f.setUTCDate(f.getUTCDate() - today.getUTCDay()); return { from: f, to: today }; } },
+    { label: 'Week to date', getRange: (today: Date) => ({ from: getMondayWeekStart(today), to: today }) },
     { label: 'Month to date', getRange: (today: Date) => { const f = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)); return { from: f, to: today }; } },
     { label: 'Year to date', getRange: (today: Date) => { const f = new Date(Date.UTC(today.getUTCFullYear(), 0, 1)); return { from: f, to: today }; } },
 ];
 
 
-const DateRangePicker: React.FC = () => {
-    const { filterDateRange, setFilterDateRange, timeZone } = useUI();
+interface DateRangePickerProps {
+    align?: 'left' | 'right';
+    value?: { from: string; to: string };
+    onChange?: (range: { from: string; to: string }) => void;
+    timeZone?: string;
+}
+
+const DateRangePicker: React.FC<DateRangePickerProps> = ({ align = 'left', value, onChange, timeZone: timeZoneOverride }) => {
+    const { filterDateRange, setFilterDateRange, timeZone: uiTimeZone } = useUI();
+    const selectedRange = value || filterDateRange;
+    const activeTimeZone = timeZoneOverride || uiTimeZone;
 
 
     const [isOpen, setIsOpen] = useState(false);
-    const [tempRange, setTempRange] = useState({ from: new Date(`${filterDateRange.from}T00:00:00Z`), to: new Date(`${filterDateRange.to}T00:00:00Z`) });
-    const [viewDate, setViewDate] = useState(new Date(`${filterDateRange.to}T00:00:00Z`));
+    const [tempRange, setTempRange] = useState({ from: new Date(`${selectedRange.from}T00:00:00Z`), to: new Date(`${selectedRange.to}T00:00:00Z`) });
+    const [viewDate, setViewDate] = useState(new Date(`${selectedRange.to}T00:00:00Z`));
     const [activePreset, setActivePreset] = useState('');
     const [selectingStart, setSelectingStart] = useState(true); // To manage selection phase
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -48,24 +66,24 @@ const DateRangePicker: React.FC = () => {
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
 
-    // Sync component state with global context
+    // Sync component state with the selected range source.
     useEffect(() => {
-        const from = new Date(`${filterDateRange.from}T00:00:00Z`);
-        const to = new Date(`${filterDateRange.to}T00:00:00Z`);
+        const from = new Date(`${selectedRange.from}T00:00:00Z`);
+        const to = new Date(`${selectedRange.to}T00:00:00Z`);
         setTempRange({ from, to });
         setViewDate(to);
 
-        const todayInTz = getTodayInTimezone(timeZone);
+        const todayInTz = getTodayInTimezone(activeTimeZone);
         let matchedPreset = '';
         for (const preset of presets) {
             const range = preset.getRange(todayInTz);
-            if (formatDateISO(range.from) === filterDateRange.from && formatDateISO(range.to) === filterDateRange.to) {
+            if (formatDateISO(range.from) === selectedRange.from && formatDateISO(range.to) === selectedRange.to) {
                 matchedPreset = preset.label;
                 break;
             }
         }
         setActivePreset(matchedPreset);
-    }, [filterDateRange, timeZone]);
+    }, [selectedRange, activeTimeZone]);
 
     const getButtonText = useCallback(() => {
         if (activePreset) {
@@ -90,15 +108,20 @@ const DateRangePicker: React.FC = () => {
     }, [isMobile]);
 
     const handleApply = () => {
-        setFilterDateRange({ from: formatDateISO(tempRange.from), to: formatDateISO(tempRange.to) });
+        const nextRange = { from: formatDateISO(tempRange.from), to: formatDateISO(tempRange.to) };
+        const hasChanged = nextRange.from !== selectedRange.from || nextRange.to !== selectedRange.to;
+        if (hasChanged) {
+            if (onChange) onChange(nextRange);
+            else setFilterDateRange(nextRange);
+        }
         setIsOpen(false);
         setSelectingStart(true);
     };
 
     const handleCancel = () => {
-        // Reset temp state to match global state
-        const from = new Date(`${filterDateRange.from}T00:00:00Z`);
-        const to = new Date(`${filterDateRange.to}T00:00:00Z`);
+        // Reset temp state to match the committed range.
+        const from = new Date(`${selectedRange.from}T00:00:00Z`);
+        const to = new Date(`${selectedRange.to}T00:00:00Z`);
         setTempRange({ from, to });
         setIsOpen(false);
         setSelectingStart(true);
@@ -107,7 +130,7 @@ const DateRangePicker: React.FC = () => {
     const handlePresetClick = (presetLabel: string) => {
         const preset = presets.find(p => p.label === presetLabel);
         if (preset) {
-            const range = preset.getRange(getTodayInTimezone(timeZone));
+            const range = preset.getRange(getTodayInTimezone(activeTimeZone));
             setTempRange(range);
             setActivePreset(preset.label);
             setViewDate(range.to);
@@ -143,7 +166,7 @@ const DateRangePicker: React.FC = () => {
 
         const fromTime = tempRange.from.getTime();
         const toTime = tempRange.to.getTime();
-        const todayTime = getTodayInTimezone(timeZone).getTime();
+        const todayTime = getTodayInTimezone(activeTimeZone).getTime();
 
         return (
             <div className="p-2">
@@ -248,7 +271,7 @@ const DateRangePicker: React.FC = () => {
                         </div>,
                         document.body
                     )
-                    : <div className="absolute top-full mt-2 z-20 w-auto">{popupContent}</div>
+                    : <div className={`absolute top-full mt-2 z-20 w-auto ${align === 'right' ? 'right-0' : 'left-0'}`}>{popupContent}</div>
             )}
         </div>
     );

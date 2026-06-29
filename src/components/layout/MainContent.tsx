@@ -6,11 +6,12 @@ import ErrorBoundary from '../ui/ErrorBoundary';
 import ScrollToTop from './ScrollToTop';
 
 import OverviewTab from '../tabs/OverviewTab';
-import ProductsTab from '../tabs/ProductsTab';
-import SupportTab from '../tabs/SupportTab';
-import OrderListTab from '../tabs/OrderListTab';
-import FulfillTab from '../tabs/FulfillTab';
-import ReviewsTab from '../tabs/ReviewsTab';
+const ProductsTab = React.lazy(() => import('../tabs/ProductsTab'));
+const SupportTab = React.lazy(() => import('../tabs/SupportTab'));
+const OrderListTab = React.lazy(() => import('../tabs/OrderListTab'));
+const FulfillTab = React.lazy(() => import('../tabs/FulfillTab'));
+const ReviewsTab = React.lazy(() => import('../tabs/ReviewsTab'));
+const ReportTab = React.lazy(() => import('../tabs/ReportTab'));
 
 
 interface MainContentProps {
@@ -92,7 +93,9 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
 
                 case 'Products':
                     return (
-                        <ProductsTab processedData={processedData} />
+                        <Suspense fallback={<div className="p-2 md:p-6 animate-fade-in"><SkeletonLoader variant="card" count={6} /></div>}>
+                            <ProductsTab processedData={processedData} />
+                        </Suspense>
                     );
 
                 case 'Order List':
@@ -112,7 +115,11 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
                     );
 
                 case 'Support':
-                    return <SupportTab processedData={processedData} />;
+                    return (
+                        <Suspense fallback={<div className="p-4 animate-fade-in"><SkeletonLoader variant="table-row" count={8} /></div>}>
+                            <SupportTab processedData={processedData} />
+                        </Suspense>
+                    );
 
                 case 'Fulfill':
                     return (
@@ -125,6 +132,13 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
                     return (
                         <Suspense fallback={<div className="p-2 md:p-6 animate-fade-in"><SkeletonLoader variant="card" count={6} /></div>}>
                             <ReviewsTab />
+                        </Suspense>
+                    );
+
+                case 'Report':
+                    return (
+                        <Suspense fallback={<div className="p-2 md:p-6 animate-fade-in"><SkeletonLoader variant="card" count={6} /></div>}>
+                            <ReportTab />
                         </Suspense>
                     );
 
