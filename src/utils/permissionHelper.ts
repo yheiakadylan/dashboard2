@@ -2,7 +2,7 @@
  * Permission Helper Utilities
  * 
  * Provides centralized permission checking for granular access control.
- * New permission system with 15 explicit permissions (tabs, KPIs, actions).
+ * New permission system with explicit permissions (tabs, KPIs, actions).
  */
 
 export interface UserPermissions {
@@ -12,6 +12,7 @@ export interface UserPermissions {
     viewProductsTab?: boolean;      // Tab: Products
     viewSupportTab?: boolean;       // Tab: Support (Messages/Cases)
     viewFulfillTab?: boolean;       // Tab: Fulfill
+    viewReportTab?: boolean;        // Tab: Report
 
     // === KPI PERMISSIONS ===
     viewKpiOrders?: boolean;        // KPI Card: Total Orders

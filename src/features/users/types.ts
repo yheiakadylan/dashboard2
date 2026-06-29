@@ -9,6 +9,7 @@ export interface UserRole {
     viewProductsTab?: boolean;
     viewSupportTab?: boolean;
     viewFulfillTab?: boolean;
+    viewReportTab?: boolean;
 
     // KPI permissions
     viewKpiOrders?: boolean;

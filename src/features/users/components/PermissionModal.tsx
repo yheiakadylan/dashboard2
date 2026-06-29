@@ -16,13 +16,14 @@ const PermissionModal: React.FC<PermissionModalProps> = ({ user, onSave, onClose
     tabs: {
       title: 'Tabs',
       description: 'Which sections user can see in sidebar',
-      keys: ['viewOverviewTab', 'viewOrderListTab', 'viewProductsTab', 'viewSupportTab', 'viewFulfillTab'] as const,
+      keys: ['viewOverviewTab', 'viewOrderListTab', 'viewProductsTab', 'viewSupportTab', 'viewFulfillTab', 'viewReportTab'] as const,
       labels: {
         viewOverviewTab: 'Overview',
         viewOrderListTab: 'Order List',
         viewProductsTab: 'Products',
         viewSupportTab: 'Support',
         viewFulfillTab: 'Fulfill',
+        viewReportTab: 'Report',
       }
     },
     kpis: {

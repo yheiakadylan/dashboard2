@@ -53,6 +53,8 @@ const DashboardLayout: React.FC = () => {
         toggleSidebar,
         tabOrder,
         hiddenTabs,
+        activeTab,
+        handleTabClick,
         isMobileMenuOpen,
         setIsMobileMenuOpen
     } = useUI();
@@ -219,7 +221,16 @@ const DashboardLayout: React.FC = () => {
 
 
 
-    const visibleTabs = getPermittedTabs(tabOrder, role, permissions).filter(tab => !hiddenTabs.has(tab));
+    const visibleTabs = React.useMemo(
+        () => getPermittedTabs(tabOrder, role, permissions).filter(tab => !hiddenTabs.has(tab)),
+        [tabOrder, role, permissions, hiddenTabs]
+    );
+
+    useEffect(() => {
+        if (visibleTabs.length > 0 && !visibleTabs.includes(activeTab)) {
+            handleTabClick(visibleTabs[0]);
+        }
+    }, [activeTab, handleTabClick, visibleTabs]);
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 bg-gradient-mesh text-gray-900 dark:text-gray-100 flex overflow-hidden">

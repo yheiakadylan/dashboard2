@@ -39,6 +39,8 @@ const TabSettings: React.FC = () => {
                     return permissions.viewProductsTab === true;
                 case 'Fulfill':
                     return permissions.viewFulfillTab === true;
+                case 'Report':
+                    return permissions.viewReportTab === true;
 
                 default:
                     return false;

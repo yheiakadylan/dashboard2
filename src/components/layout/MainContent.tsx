@@ -4,6 +4,7 @@ import { useUI } from '../../contexts/UIContext';
 import SkeletonLoader from '../ui/SkeletonLoader';
 import ErrorBoundary from '../ui/ErrorBoundary';
 import ScrollToTop from './ScrollToTop';
+import { hasPermission } from '../../utils/permissionHelper';
 
 import OverviewTab from '../tabs/OverviewTab';
 const ProductsTab = React.lazy(() => import('../tabs/ProductsTab'));
@@ -20,7 +21,7 @@ interface MainContentProps {
 }
 
 const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncOrder }) => {
-    const { isLoading, records, processedData, isProcessing, isFetchingNewRange } = useDashboard();
+    const { isLoading, records, processedData, isProcessing, isFetchingNewRange, role, permissions } = useDashboard();
     const {
         activeTab,
         filterDateRange,
@@ -136,6 +137,9 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
                     );
 
                 case 'Report':
+                    if (!hasPermission(role, permissions, 'viewReportTab')) {
+                        return <div className="p-8 text-center text-gray-500">You do not have permission to view this report.</div>;
+                    }
                     return (
                         <Suspense fallback={<div className="p-2 md:p-6 animate-fade-in"><SkeletonLoader variant="card" count={6} /></div>}>
                             <ReportTab />

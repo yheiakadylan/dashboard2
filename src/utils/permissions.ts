@@ -21,6 +21,8 @@ export const getPermittedTabs = (
                 return hasPermission(role, permissions, 'viewSupportTab');
             case 'Fulfill':
                 return hasPermission(role, permissions, 'viewFulfillTab');
+            case 'Report':
+                return hasPermission(role, permissions, 'viewReportTab');
             default:
                 return false;
         }
