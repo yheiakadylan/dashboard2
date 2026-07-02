@@ -17,13 +17,16 @@ export interface Account {
 export interface OrderItem {
   name: string;
   variant?: string; // Material & Size, etc.
+  variant2?: string;
   personalization?: string;
   quantity: number;
   price: number;
   image?: string;
   transactionId?: string;
   sku?: string;
+  listingId?: string;
   category_code?: string; // Added field
+  customerFiles?: string[];
 }
 
 export interface OrderDetails {

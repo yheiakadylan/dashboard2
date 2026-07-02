@@ -410,10 +410,35 @@ async function processQueue(teamId: string) {
                             let taskSku = skuString;
                             let taskCustomerFiles: string[] = [];
                             let taskListingId = "";
+                            let matchedTransactionId = "";
                             const v1 = task.variant1;
                             const v2 = task.variant2;
+                            let matchedItem: ExtractedItem | null = null;
 
-                            if (extractedItems.length > 1) {
+                            const existingTaskTransactionId = task.transactionId ? String(task.transactionId) : "";
+                            if (existingTaskTransactionId) {
+                                matchedItem = extractedItems.find(ext => String(ext.transaction_id || "") === existingTaskTransactionId) || null;
+                            }
+
+                            if (!matchedItem && extractedItems.length > 0) {
+                                const taskId = String(task.id || "");
+                                const orderIdText = String(job.order_id);
+                                if (taskId === orderIdText) {
+                                    matchedItem = extractedItems[0] || null;
+                                } else if (taskId.startsWith(`${orderIdText}-`)) {
+                                    const itemNumber = Number(taskId.slice(orderIdText.length + 1));
+                                    if (Number.isInteger(itemNumber) && itemNumber > 0) {
+                                        matchedItem = extractedItems[itemNumber - 1] || null;
+                                    }
+                                }
+                            }
+
+                            if (matchedItem) {
+                                taskSku = matchedItem.sku;
+                                if (matchedItem.customerFiles && matchedItem.customerFiles.length > 0) taskCustomerFiles = matchedItem.customerFiles;
+                                if (matchedItem.listingId) taskListingId = String(matchedItem.listingId);
+                                if (matchedItem.transaction_id) matchedTransactionId = String(matchedItem.transaction_id);
+                            } else if (extractedItems.length > 1) {
                                 // Fuzzy match: score by title prefix + variant overlap
                                 let maxScore = -1;
                                 let bestMatch: ExtractedItem | null = null;
@@ -435,6 +460,7 @@ async function processQueue(teamId: string) {
                                     taskSku = bestMatch.sku;
                                     if (bestMatch.customerFiles && bestMatch.customerFiles.length > 0) taskCustomerFiles = bestMatch.customerFiles;
                                     if (bestMatch.listingId) taskListingId = String(bestMatch.listingId);
+                                    if (bestMatch.transaction_id) matchedTransactionId = String(bestMatch.transaction_id);
                                 }
                             } else if (extractedItems.length === 1) {
                                 taskSku = extractedItems[0].sku;
@@ -444,12 +470,14 @@ async function processQueue(teamId: string) {
                                     taskCustomerFiles = globalCustomerFiles;
                                 }
                                 if (extractedItems[0].listingId) taskListingId = String(extractedItems[0].listingId);
+                                if (extractedItems[0].transaction_id) matchedTransactionId = String(extractedItems[0].transaction_id);
                             }
 
                             // Write customerFiles & listingId directly to Firestore first
                             const updateData: any = {};
                             if (taskCustomerFiles && taskCustomerFiles.length > 0) updateData.customerFiles = taskCustomerFiles;
                             if (taskListingId) updateData.listingId = taskListingId;
+                            if (matchedTransactionId) updateData.transactionId = matchedTransactionId;
 
                             if (Object.keys(updateData).length > 0) {
                                 try {
@@ -470,7 +498,8 @@ async function processQueue(teamId: string) {
                                         variant1: v1,
                                         variant2: v2,
                                         customerFiles: taskCustomerFiles,
-                                        listingId: taskListingId
+                                        listingId: taskListingId,
+                                        transactionId: matchedTransactionId
                                     })
                                 });
                                 if (!apiRes.ok) {
@@ -482,6 +511,8 @@ async function processQueue(teamId: string) {
                                 await updateDoc(doc(db, 'tasks', task.id), {
                                     sku: taskSku,
                                     ...(taskListingId ? { listingId: taskListingId } : {}),
+                                    ...(matchedTransactionId ? { transactionId: matchedTransactionId } : {}),
+                                    ...(taskCustomerFiles.length > 0 ? { customerFiles: taskCustomerFiles } : {}),
                                     updatedAt: new Date().toISOString()
                                 });
                             }

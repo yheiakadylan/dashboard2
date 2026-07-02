@@ -161,6 +161,16 @@ function normalizeSkuForSync(value: unknown): string {
   return INVALID_SKU_VALUES.has(upper) ? '' : upper;
 }
 
+function normalizeCustomerFilesForSync(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const files = value
+    .map(file => String(file ?? '').trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(files));
+}
+
 function shouldPreferRecordForSkuSync(
   current: { data: any } | undefined,
   candidate: { ref: any; data: any },
@@ -595,6 +605,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         title: string;
         sku: string;
         listingId?: string;
+        transactionId?: string;
+        customerFiles?: string[];
         variations?: string[];
         quantity?: number;
       }[];
@@ -680,6 +692,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const updatedItems = items.map((payloadItem, index) => {
             const existingItem = existingItems[index] || {};
             const nextSku = normalizeSkuForSync(payloadItem.sku) || normalizeSkuForSync(existingItem.sku);
+            const payloadCustomerFiles = normalizeCustomerFilesForSync(payloadItem.customerFiles);
             return {
               ...existingItem,
               name: payloadItem.title || existingItem.name || "",
@@ -688,7 +701,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               variant2: payloadItem.variations?.[1] || existingItem.variant2 || "",
               quantity: existingItem.quantity || payloadItem.quantity || 1,
               price: existingItem.price || 0,
-              ...(payloadItem.listingId ? { listingId: payloadItem.listingId } : {})
+              ...(payloadItem.listingId ? { listingId: payloadItem.listingId } : {}),
+              ...(payloadItem.transactionId ? { transactionId: payloadItem.transactionId } : {}),
+              ...(payloadCustomerFiles !== undefined ? { customerFiles: payloadCustomerFiles } : {})
             };
           });
           batchWriter.update(recordRef, {
@@ -703,6 +718,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
           const existingRecordItem = recordData?.details?.items?.[index] || {};
           const cleanSku = normalizeSkuForSync(item.sku) || normalizeSkuForSync(existingRecordItem.sku);
+          const payloadCustomerFiles = normalizeCustomerFilesForSync(item.customerFiles);
+          const recordCustomerFiles = normalizeCustomerFilesForSync(existingRecordItem.customerFiles);
+          const customerFilesToSync = payloadCustomerFiles ?? recordCustomerFiles;
           const SKU_REGEX = /^([^-]+)-([^-]+)-(.*)$/;
           let productType = '';
           let ideaEmpId = '';
@@ -724,7 +742,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             updatedAt: new Date().toISOString(),
             // Always sync listingId regardless of task status
             ...(item.listingId ? { listingId: item.listingId } : {}),
+            ...((item.transactionId || existingRecordItem.transactionId) ? { transactionId: item.transactionId || existingRecordItem.transactionId } : {}),
           };
+
+          if (customerFilesToSync !== undefined) {
+            taskUpdate.customerFiles = customerFilesToSync;
+          }
 
           if (cleanSku) {
             taskUpdate.sku = cleanSku;

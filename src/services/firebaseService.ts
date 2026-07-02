@@ -692,11 +692,13 @@ export const saveRecordsToFirebase = async (
               variant2: item.variant2 || '', // NEW FIELD
               personalization: item.personalization || '', // NEW FIELD
               quantity: item.quantity || 1, // Store quantity
+              transactionId: item.transactionId || '',
               // Logic: Có nội dung personalization thực sự -> 'draft', ngược lại -> 'new'
               status: 'draft', // Ném thẳng vào Draft, Extension sẽ bổ sung SKU sau
               isUrgent: false,
               createdBy: 'auto_sync',
               mockupUrl: item.image || '', // Ảnh thumbnail từ email
+              customerFiles: Array.isArray(item.customerFiles) ? item.customerFiles : [],
               created_at: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
               account: accountLabel, // Lấy Label của Shop thay vì Email
@@ -883,11 +885,13 @@ export const addRecord = async (teamId: string, record: Record): Promise<Record>
           variant2: item.variant2 || '', // NEW FIELD
           personalization: item.personalization || '', // NEW FIELD
           quantity: item.quantity || 1, // Store quantity
+          transactionId: item.transactionId || '',
           // Logic: Có nội dung personalization thực sự -> 'draft', ngược lại -> 'new'
           status: 'draft',
           isUrgent: false,
           createdBy: 'auto_sync',
           mockupUrl: item.image || '',
+          customerFiles: Array.isArray(item.customerFiles) ? item.customerFiles : [],
           created_at: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           account: accountLabel, // Lấy Label của shop thay vì Email

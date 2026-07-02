@@ -111,10 +111,12 @@ export async function processNewOrder(
           variant2: item.variant2 || '',
           personalization: item.personalization || '',
           quantity: item.quantity || 1,
+          transactionId: item.transactionId || '',
           status: 'draft',
           isUrgent: false,
           createdBy: 'auto_sync',
           mockupUrl: item.image || '',
+          customerFiles: Array.isArray(item.customerFiles) ? item.customerFiles : [],
           created_at: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           account: accountId,      // Store Account ID for stable querying
