@@ -11,8 +11,7 @@ import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 import { Record as MailRecord } from './_lib/types.js';
 import { markDailyCacheDirtyForISOValues } from './_lib/dailyCacheAdmin.js';
-import { createBatchWriter } from './_lib/orderService.js';
-
+import { createBatchWriter, getTaskShippingAddress } from './_lib/orderService.js';
 
 
 /** Dedupe theo id; với card-action ưu tiên dùng uuid nếu có */
@@ -713,6 +712,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         const itemsCount = items.length;
+        const taskShippingAddress = getTaskShippingAddress(recordData?.details);
+
         items.forEach((item, index) => {
           const taskId = itemsCount > 1 ? `${orderId}-${index + 1}` : orderId;
 
@@ -747,6 +748,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
           if (customerFilesToSync !== undefined) {
             taskUpdate.customerFiles = customerFilesToSync;
+          }
+
+          if (taskShippingAddress) {
+            taskUpdate.shippingAddress = taskShippingAddress;
           }
 
           if (cleanSku) {

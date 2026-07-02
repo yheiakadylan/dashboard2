@@ -16,6 +16,22 @@ export function estimateRecordWrites(record: Partial<MailRecord> & { source?: st
   return 1 + (isTaskEligibleOrder(record) ? 1 + (record.details?.items?.length || 0) : 0);
 }
 
+function normalizeAllCapsCity(city: unknown): unknown {
+  if (typeof city !== 'string') return city;
+  const trimmed = city.trim();
+  if (!trimmed || trimmed !== trimmed.toUpperCase() || !/[A-Z]/.test(trimmed)) return city;
+  return trimmed.toLowerCase().replace(/\b[a-z]/g, char => char.toUpperCase());
+}
+
+export function getTaskShippingAddress(details: any): Record<string, string> | undefined {
+  if (!details?.shippingAddress) return undefined;
+  return {
+    ...details.shippingAddress,
+    city: normalizeAllCapsCity(details.shippingAddress.city),
+    ...(details.customerEmail ? { email: details.customerEmail } : {})
+  };
+}
+
 export function createBatchWriter(db: any, limit: number = SAFE_BATCH_WRITE_LIMIT) {
   let batch = db.batch();
   let writeCount = 0;
@@ -86,6 +102,7 @@ export async function processNewOrder(
       updated_at: new Date().toISOString()
     }, { merge: true });
 
+
     // 2. Stage 1 Sync: Create 'draft' tasks in central tasks collection for EACH item
     if (record.details && record.details.items && record.details.items.length > 0) {
       const tasksRef = db.collection('tasks');
@@ -93,6 +110,7 @@ export async function processNewOrder(
       const accountId = info?.id || record.account;
       const accountLabel = info?.label || record.account;
       const platformName = isEtsy ? 'Etsy' : 'eBay';
+      const shippingAddress = getTaskShippingAddress(record.details);
 
       record.details.items.forEach((item: any, index: number) => {
         // Append -1, -2 etc. for multi-item orders
@@ -122,7 +140,8 @@ export async function processNewOrder(
           account: accountId,      // Store Account ID for stable querying
           shopLabel: accountLabel, // Store Label for quick UI display
           listingId: item.listingId || '', // Will be updated by Extension
-          collectionName: 'tasks'
+          collectionName: 'tasks',
+          ...(shippingAddress ? { shippingAddress } : {})
         }, { merge: true });
       });
     }
