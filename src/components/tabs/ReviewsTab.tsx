@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
-import { useUI } from '../../contexts/UIContext';
+import { useUIFilters } from '../../contexts/UIContext';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import ImagePreviewModal from '../modals/ImagePreviewModal';
 import { buildAccountLabelMap, resolveAccountLabel } from '../../utils/accountLabels';
@@ -14,7 +14,7 @@ const decodeHTML = (text: string | null | undefined) => {
 
 const ReviewsTab: React.FC = () => {
     const { etsyReviews, accounts, isLoading } = useDashboard();
-    const { selectedAccountId, reviewRatingFilter, timeZone } = useUI();
+    const { selectedAccountId, reviewRatingFilter, timeZone } = useUIFilters();
 
     const [previewImage, setPreviewImage] = useState<string | null>(null);
 

@@ -23,6 +23,11 @@ import { getAuth } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getMessaging, isSupported } from "firebase/messaging";
 import { Account, Record, UserProfile, Category, EtsyReview } from '../types';
+import {
+  fetchCachedDateRange,
+  getAffectedCacheDatesForISO,
+  markDailyCacheDirtyForDates,
+} from './dailyCacheService';
 
 // Firebase configuration - uses VITE_ prefix for client-side access
 const firebaseConfig = {
@@ -117,6 +122,96 @@ const getTimezoneOffsetString = (timeZone: string, dateStr: string): string => {
   }
 };
 
+type DateLikeValue = string | number | Date | Timestamp | { seconds?: number; toDate?: () => Date } | null | undefined;
+
+const toISODateString = (value: DateLikeValue): string | undefined => {
+  if (!value) return undefined;
+
+  if (typeof value === 'string') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toISOString();
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  }
+
+  if (typeof value === 'number') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  }
+
+  if (value instanceof Timestamp) {
+    return value.toDate().toISOString();
+  }
+
+  if (typeof value.toDate === 'function') {
+    const date = value.toDate();
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  }
+
+  if (typeof value.seconds === 'number') {
+    return new Date(value.seconds * 1000).toISOString();
+  }
+
+  return undefined;
+};
+
+const normalizeRecordDateFields = <T extends Partial<Record>>(record: T): T => {
+  const normalizedDtLocal = toISODateString(record.dt_local as DateLikeValue);
+  const normalizedFulfillDate = toISODateString(record.fulfill_date as DateLikeValue);
+  const nextDtLocal = normalizedDtLocal && normalizedDtLocal !== record.dt_local ? normalizedDtLocal : undefined;
+  const nextFulfillDate = normalizedFulfillDate && normalizedFulfillDate !== record.fulfill_date ? normalizedFulfillDate : undefined;
+  if (!nextDtLocal && !nextFulfillDate) return record;
+
+  return {
+    ...record,
+    ...(nextDtLocal ? { dt_local: nextDtLocal } : {}),
+    ...(nextFulfillDate ? { fulfill_date: nextFulfillDate } : {}),
+  };
+};
+
+const normalizeReviewDateFields = <T extends Partial<EtsyReview>>(review: T): T => {
+  const normalizedCreateDate = toISODateString(review.create_date as DateLikeValue);
+  const normalizedUpdatedAt = toISODateString(review.updated_at as DateLikeValue);
+  const nextCreateDate = normalizedCreateDate && normalizedCreateDate !== review.create_date ? normalizedCreateDate : undefined;
+  const nextUpdatedAt = normalizedUpdatedAt && normalizedUpdatedAt !== review.updated_at ? normalizedUpdatedAt : undefined;
+  if (!nextCreateDate && !nextUpdatedAt) return review;
+
+  return {
+    ...review,
+    ...(nextCreateDate ? { create_date: nextCreateDate } : {}),
+    ...(nextUpdatedAt ? { updated_at: nextUpdatedAt } : {}),
+  };
+};
+
+const normalizeList = <T,>(items: T[], normalizeItem: (item: T) => T): T[] => {
+  let normalizedItems: T[] | null = null;
+
+  items.forEach((item, index) => {
+    const normalizedItem = normalizeItem(item);
+    if (normalizedItems) {
+      normalizedItems.push(normalizedItem);
+      return;
+    }
+
+    if (normalizedItem !== item) {
+      normalizedItems = items.slice(0, index);
+      normalizedItems.push(normalizedItem);
+    }
+  });
+
+  return normalizedItems || items;
+};
+
+const normalizeRecordDoc = (docSnap: { id: string; data: () => DocumentData }): Record => {
+  return normalizeRecordDateFields({ ...(docSnap.data() as object), id: docSnap.id } as Record);
+};
+
+const normalizeReviewDoc = (docSnap: { id: string; data: () => DocumentData }): EtsyReview => {
+  return normalizeReviewDateFields({ ...(docSnap.data() as object), id: docSnap.id } as EtsyReview);
+};
+
 
 export const getAccountsFromFirebase = async (teamId: string): Promise<Account[]> => {
   const accountsCol = collection(db, 'user', teamId, 'accounts');
@@ -202,63 +297,112 @@ export const updateAccountsInFirebase = async (teamId: string, accountsToUpdate:
   await batch.commit();
 };
 
-export const updateRecordsInFirebase = async (teamId: string, recordsToUpdate: (Partial<Record> & { id: string })[]): Promise<void> => {
+type UpdateRecordsProgress = {
+  processed: number;
+  total: number;
+  batchIndex: number;
+  batchCount: number;
+  writes: number;
+};
+
+type UpdateRecordsOptions = {
+  batchSize?: number;
+  markDailyCacheDirty?: boolean;
+  onProgress?: (progress: UpdateRecordsProgress) => void;
+};
+
+export const markRecordsDailyCacheDirty = async (
+  teamId: string,
+  dates: string[],
+  reason: string,
+): Promise<void> => {
+  await markDailyCacheDirtyForDates(db, teamId, ['records'], dates, reason)
+    .catch(error => console.warn('[dailyCache] Failed to mark records dirty:', error));
+};
+
+export const updateRecordsInFirebase = async (
+  teamId: string,
+  recordsToUpdate: (Partial<Record> & { id: string })[],
+  options: UpdateRecordsOptions = {}
+): Promise<string[]> => {
   if (!recordsToUpdate || recordsToUpdate.length === 0) {
-    return;
+    return [];
   }
-  const batch = writeBatch(db);
-  recordsToUpdate.forEach(recordUpdate => {
-    const { id, ...dataToUpdate } = recordUpdate;
-    if (id && Object.keys(dataToUpdate).length > 0) {
-      const recordRef = doc(db, 'user', teamId, 'records', id);
-      batch.update(recordRef, dataToUpdate);
+  const batchSize = Math.max(1, Math.min(options.batchSize || 250, 450));
+  const affectedDates = new Set<string>();
+
+  const updatesNeedingLookup = recordsToUpdate.filter(recordUpdate => recordUpdate.id && !recordUpdate.dt_local);
+  for (const recordUpdate of updatesNeedingLookup) {
+    try {
+      const recordSnap = await getDoc(doc(db, 'user', teamId, 'records', recordUpdate.id));
+      const existingRecord = recordSnap.exists() ? recordSnap.data() as Partial<Record> : null;
+      getAffectedCacheDatesForISO(existingRecord?.dt_local).forEach(date => affectedDates.add(date));
+    } catch (error) {
+      console.warn('[dailyCache] Could not resolve updated record date for dirty mark:', error);
     }
-  });
-  await batch.commit();
+  }
+
+  let processed = 0;
+  const batchCount = Math.ceil(recordsToUpdate.length / batchSize);
+  for (let i = 0; i < recordsToUpdate.length; i += batchSize) {
+    const batchIndex = Math.floor(i / batchSize) + 1;
+    const batch = writeBatch(db);
+    let writes = 0;
+
+    recordsToUpdate.slice(i, i + batchSize).forEach(recordUpdate => {
+      const { id, ...dataToUpdate } = recordUpdate;
+      if (id && Object.keys(dataToUpdate).length > 0) {
+        const recordRef = doc(db, 'user', teamId, 'records', id);
+        const normalizedUpdate = normalizeRecordDateFields(dataToUpdate as Partial<Record>);
+        batch.update(recordRef, normalizedUpdate);
+        getAffectedCacheDatesForISO(normalizedUpdate.dt_local).forEach(date => affectedDates.add(date));
+        writes++;
+      }
+    });
+
+    if (writes > 0) {
+      await batch.commit();
+    }
+    processed = Math.min(i + batchSize, recordsToUpdate.length);
+    options.onProgress?.({ processed, total: recordsToUpdate.length, batchIndex, batchCount, writes });
+  }
+
+  const affectedDateList = Array.from(affectedDates);
+  if (options.markDailyCacheDirty !== false) {
+    await markRecordsDailyCacheDirty(teamId, affectedDateList, 'records-updated');
+  }
+  return affectedDateList;
 };
 
 export const getRecordsForDateRange = async (teamId: string, startDate: string, endDate: string, timeZone: string): Promise<Record[]> => {
-  const recordsCol = collection(db, 'user', teamId, 'records');
-
-  const startOffset = getTimezoneOffsetString(timeZone, startDate);
-  const endOffset = getTimezoneOffsetString(timeZone, endDate);
-
-  const fromDate = new Date(`${startDate}T00:00:00.000${startOffset}`);
-  const fromISO = fromDate.toISOString();
-
-  const toDate = new Date(`${endDate}T23:59:59.999${endOffset}`);
-  const toISO = toDate.toISOString();
-
-  const q = query(recordsCol,
-    where("dt_local", ">=", fromISO),
-    where("dt_local", "<=", toISO)
-  );
-
-  const recordSnapshot = await getDocs(q);
-  const recordList = recordSnapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as Record));
-  return recordList;
+  const records = await fetchCachedDateRange<Record>({
+    db,
+    teamId,
+    collectionName: 'records',
+    field: 'dt_local',
+    startDate,
+    endDate,
+    timeZone,
+    compactDoc: normalizeRecordDoc,
+  });
+  return normalizeList(records, normalizeRecordDateFields);
 };
 
 export const getEtsyReviewsForDateRange = async (teamId: string, startDate: string, endDate: string, timeZone: string): Promise<EtsyReview[]> => {
   const reviewsCol = collection(db, 'user', teamId, 'reviews');
-
   const startOffset = getTimezoneOffsetString(timeZone, startDate);
   const endOffset = getTimezoneOffsetString(timeZone, endDate);
+  const fromISO = new Date(`${startDate}T00:00:00.000${startOffset}`).toISOString();
+  const toISO = new Date(`${endDate}T23:59:59.999${endOffset}`).toISOString();
 
-  const fromDate = new Date(`${startDate}T00:00:00.000${startOffset}`);
-  const fromISO = fromDate.toISOString();
-
-  const toDate = new Date(`${endDate}T23:59:59.999${endOffset}`);
-  const toISO = toDate.toISOString();
-
-  const q = query(reviewsCol,
-    where("create_date", ">=", fromISO),
-    where("create_date", "<=", toISO)
+  const reviewsQuery = query(
+    reviewsCol,
+    where('create_date', '>=', fromISO),
+    where('create_date', '<=', toISO),
   );
-
-  const snapshot = await getDocs(q);
-  const reviews = snapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as EtsyReview));
-  return reviews;
+  const snapshot = await getDocs(reviewsQuery);
+  const reviews = snapshot.docs.map(normalizeReviewDoc);
+  return normalizeList(reviews, normalizeReviewDateFields);
 };
 
 export const getAllRecordsForAccount = async (teamId: string, accountEmail: string): Promise<Record[]> => {
@@ -365,12 +509,14 @@ export const deleteRecordsForAccounts = async (teamId: string, accountEmails: st
 
   if (querySnapshot.empty) return;
 
-  const BATCH_LIMIT = 500;
+  const BATCH_LIMIT = 450;
   const promises: Promise<void>[] = [];
   let batch = writeBatch(db);
   let count = 0;
+  const affectedDates = new Set<string>();
 
   querySnapshot.forEach((doc) => {
+    getAffectedCacheDatesForISO((doc.data() as Partial<Record>).dt_local).forEach(date => affectedDates.add(date));
     batch.delete(doc.ref);
     count++;
     if (count === BATCH_LIMIT) {
@@ -385,6 +531,8 @@ export const deleteRecordsForAccounts = async (teamId: string, accountEmails: st
   }
 
   await Promise.all(promises);
+  await markDailyCacheDirtyForDates(db, teamId, ['records'], Array.from(affectedDates), 'accounts-deleted')
+    .catch(error => console.warn('[dailyCache] Failed to mark deleted account records dirty:', error));
 };
 
 // Helper to chunk arrays
@@ -435,8 +583,9 @@ export const saveRecordsToFirebase = async (
     return [];
   }
 
+  const normalizedRecordsToAdd = normalizeList(recordsToAdd, normalizeRecordDateFields);
   const recordsCollectionRef = collection(db, 'user', teamId, 'records');
-  const BATCH_LIMIT = 500;
+  const BATCH_WRITE_LIMIT = 450;
 
   // Pre-fetch all accounts to avoid await inside forEach loop
   const accountsMap: { [email: string]: string } = {};
@@ -454,9 +603,17 @@ export const saveRecordsToFirebase = async (
   try {
     const addPromises: Promise<void>[] = [];
     let addBatch = writeBatch(db);
-    let addCount = 0;
+    let pendingWriteCount = 0;
 
-    recordsToAdd.forEach((record) => {
+    const rotateAddBatchIfNeeded = () => {
+      if (pendingWriteCount < BATCH_WRITE_LIMIT) return;
+      addPromises.push(addBatch.commit());
+      addBatch = writeBatch(db);
+      pendingWriteCount = 0;
+    };
+
+    normalizedRecordsToAdd.forEach((record) => {
+      rotateAddBatchIfNeeded();
       // --- THAY ĐỔI QUAN TRỌNG ---
       // Nếu có email_id, dùng nó làm Document ID.
       // Nếu không, mới để Firestore tự sinh ID.
@@ -471,18 +628,14 @@ export const saveRecordsToFirebase = async (
       addBatch.set(newRecordRef, recordData);
       // --------------------------
 
-      addCount++;
-      if (addCount >= BATCH_LIMIT) {
-        addPromises.push(addBatch.commit());
-        addBatch = writeBatch(db);
-        addCount = 0;
-      }
+      pendingWriteCount++;
 
       // [NEW] Auto Push SKU Job & Create Draft Tasks for new Etsy Sales
       if (record.source === 'Etsy_Sales' && record.order_id && record.account) {
         // 1. Push to Sku Job Queue
         const jobsRef = collection(db, 'user', teamId, 'sku_jobs');
         const jobDocRef = doc(jobsRef, record.order_id);
+        rotateAddBatchIfNeeded();
         addBatch.set(jobDocRef, {
           order_id: record.order_id,
           account: record.account,
@@ -491,6 +644,7 @@ export const saveRecordsToFirebase = async (
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }, { merge: true });
+        pendingWriteCount++;
 
         // 2. Stage 1 Sync: Create 'pending_sku' tasks in vikcomltd for EACH item
         if (record.details && record.details.items && record.details.items.length > 0) {
@@ -523,6 +677,7 @@ export const saveRecordsToFirebase = async (
             }
 
             const taskDocRef = doc(tasksRef, taskId);
+            rotateAddBatchIfNeeded();
             addBatch.set(taskDocRef, {
               id: taskId,
               readableId: taskId, // Hiển thị trên Board
@@ -548,15 +703,19 @@ export const saveRecordsToFirebase = async (
               listingId: item.listingId || '', // Sẽ được Update bởi Extension
               collectionName: 'tasks' // Quan trọng cho Security Rules cũ
             }, { merge: true });
+            pendingWriteCount++;
           });
         }
       }
     });
-    if (addCount > 0) {
+    if (pendingWriteCount > 0) {
       addPromises.push(addBatch.commit());
     }
     await Promise.all(addPromises);
-    return recordsToAdd;
+    const affectedDates = normalizedRecordsToAdd.flatMap(record => getAffectedCacheDatesForISO(record.dt_local));
+    await markDailyCacheDirtyForDates(db, teamId, ['records'], affectedDates, 'records-added')
+      .catch(error => console.warn('[dailyCache] Failed to mark added records dirty:', error));
+    return normalizedRecordsToAdd;
   } catch (error) {
     console.error("Error while adding new records:", error);
     console.error("Failed records data:", JSON.stringify(recordsToAdd, null, 2));
@@ -571,7 +730,7 @@ export const listenForNewRecords = (teamId: string, callback: (record: Record) =
   const unsubscribe = onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => {
     snapshot.docChanges().forEach((change) => {
       if (change.type === "added" && !change.doc.metadata.hasPendingWrites) {
-        const newRecord = { ...(change.doc.data() as object), id: change.doc.id } as Record;
+        const newRecord = normalizeRecordDoc(change.doc);
         callback(newRecord);
       }
     });
@@ -637,7 +796,13 @@ export const deleteManualCost = async (teamId: string, costId: string): Promise<
 
 export const deleteRecord = async (teamId: string, recordId: string): Promise<void> => {
   const recordRef = doc(db, 'user', teamId, 'records', recordId);
+  const recordSnap = await getDoc(recordRef);
+  const affectedDates = recordSnap.exists()
+    ? getAffectedCacheDatesForISO((recordSnap.data() as Partial<Record>).dt_local)
+    : [];
   await deleteDoc(recordRef);
+  await markDailyCacheDirtyForDates(db, teamId, ['records'], affectedDates, 'record-deleted')
+    .catch(error => console.warn('[dailyCache] Failed to mark deleted record dirty:', error));
 };
 
 export const deleteRecordsByEmailId = async (teamId: string, emailId: string): Promise<void> => {
@@ -648,31 +813,38 @@ export const deleteRecordsByEmailId = async (teamId: string, emailId: string): P
   if (querySnapshot.empty) return;
 
   const batch = writeBatch(db);
+  const affectedDates = new Set<string>();
   querySnapshot.forEach((doc) => {
+    getAffectedCacheDatesForISO((doc.data() as Partial<Record>).dt_local).forEach(date => affectedDates.add(date));
     batch.delete(doc.ref);
   });
   await batch.commit();
+  await markDailyCacheDirtyForDates(db, teamId, ['records'], Array.from(affectedDates), 'records-deleted-by-email')
+    .catch(error => console.warn('[dailyCache] Failed to mark email-deleted records dirty:', error));
 };
 
 // === [UPDATED] Hàm thêm 1 record, hỗ trợ Document ID ===
 export const addRecord = async (teamId: string, record: Record): Promise<Record> => {
   const recordsCollectionRef = collection(db, 'user', teamId, 'records');
-  const { id, ...data } = record;
+  const normalizedRecord = normalizeRecordDateFields(record);
+  const { id, ...data } = normalizedRecord;
 
   // Nếu có email_id -> Dùng làm Document ID
-  const docRef = record.email_id
-    ? doc(recordsCollectionRef, record.email_id)
+  const docRef = normalizedRecord.email_id
+    ? doc(recordsCollectionRef, normalizedRecord.email_id)
     : doc(recordsCollectionRef); // Fallback: Auto ID
 
   await setDoc(docRef, data);
+  await markDailyCacheDirtyForDates(db, teamId, ['records'], getAffectedCacheDatesForISO(normalizedRecord.dt_local), 'record-added')
+    .catch(error => console.warn('[dailyCache] Failed to mark single added record dirty:', error));
 
   // [NEW] Auto Push SKU Job & Create Draft Tasks for new Etsy Sales
-  if (record.source === 'Etsy_Sales' && record.order_id && record.account) {
+  if (normalizedRecord.source === 'Etsy_Sales' && normalizedRecord.order_id && normalizedRecord.account) {
     // 1. Push to SKU Job Queue
-    const jobDocRef = doc(collection(db, 'user', teamId, 'sku_jobs'), record.order_id);
+    const jobDocRef = doc(collection(db, 'user', teamId, 'sku_jobs'), normalizedRecord.order_id);
     await setDoc(jobDocRef, {
-      order_id: record.order_id,
-      account: record.account,
+      order_id: normalizedRecord.order_id,
+      account: normalizedRecord.account,
       status: 'pending',
       priority: false,
       created_at: new Date().toISOString(),
@@ -680,32 +852,32 @@ export const addRecord = async (teamId: string, record: Record): Promise<Record>
     }, { merge: true });
 
     // 2. Stage 1 Sync: Create 'pending_sku' tasks in vikcomltd for EACH item
-    if (record.details && record.details.items && record.details.items.length > 0) {
+    if (normalizedRecord.details && normalizedRecord.details.items && normalizedRecord.details.items.length > 0) {
       const tasksRef = collection(db, 'tasks');
       const batch = writeBatch(db); // Use batch for multiple items to ensure atomicity
 
       // Fetch account label
-      let accountLabel = record.account;
+      let accountLabel = normalizedRecord.account;
       try {
         const accountsRef = collection(db, 'user', teamId, 'accounts');
         const accSnap = await getDocs(accountsRef);
-        const foundAcc = accSnap.docs.map(d => d.data()).find(a => a.email === record.account);
+        const foundAcc = accSnap.docs.map(d => d.data()).find(a => a.email === normalizedRecord.account);
         if (foundAcc && foundAcc.label) {
           accountLabel = foundAcc.label;
         }
       } catch (e) { console.error("Could not fetch account label for task sync", e); }
 
-      record.details.items.forEach((item: any, index: number) => {
-        const taskId = record.details!.items!.length > 1
-          ? `${record.order_id}-${index + 1}`
-          : record.order_id;
+      normalizedRecord.details.items.forEach((item: any, index: number) => {
+        const taskId = normalizedRecord.details!.items!.length > 1
+          ? `${normalizedRecord.order_id}-${index + 1}`
+          : normalizedRecord.order_id;
 
         const taskDocRef = doc(tasksRef, taskId);
         batch.set(taskDocRef, {
           id: taskId,
           readableId: taskId,
           orderId: record.order_id, // Bổ sung để Extension query cho nhanh
-          title: record.product_name || item.name || 'New Etsy Order',
+          title: normalizedRecord.product_name || item.name || 'New Etsy Order',
           sku: item.sku || '',
           variant1: item.variant1 || item.variant || '', // NEW FIELD
           variant2: item.variant2 || '', // NEW FIELD
@@ -727,7 +899,7 @@ export const addRecord = async (teamId: string, record: Record): Promise<Record>
     }
   }
 
-  return { ...record, id: docRef.id };
+  return { ...normalizedRecord, id: docRef.id };
 };
 
 export const bulkPushSkuJobs = async (teamId: string, records: Record[]): Promise<number> => {
@@ -820,9 +992,6 @@ export const searchGlobalRecords = async (teamId: string, term: string): Promise
 
 // === Settings Management ===
 export interface TeamSettings {
-  googleSheetId?: string;
-  sheetAccount?: Account;
-  autoSyncToSheet?: boolean;
   [key: string]: any;
 }
 

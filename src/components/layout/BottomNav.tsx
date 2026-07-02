@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Tab } from '../../types';
-import { useUI } from '../../contexts/UIContext';
+import { useUIModals, useUITabs } from '../../contexts/UIContext';
 import {
     Home,
     FileText,
@@ -18,7 +18,8 @@ interface BottomNavProps {
 }
 
 const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
-    const { activeTab, handleTabClick, isNotificationDetailOpen } = useUI();
+    const { activeTab, handleTabClick } = useUITabs();
+    const { isNotificationDetailOpen } = useUIModals();
     const bottomTabs = tabs;
 
     // Refs for each tab button to calculate position

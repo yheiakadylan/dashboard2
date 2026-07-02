@@ -1,4 +1,4 @@
-import React, { useState, useCallback, Suspense, lazy, useEffect } from 'react';
+import React, { useState, useCallback, Suspense, lazy, useEffect, useMemo } from 'react';
 // import { User } from 'firebase/auth';
 import Header from './components/layout/Header';
 import { useDashboard } from './contexts/DashboardContext';
@@ -8,29 +8,41 @@ import { Record } from './types';
 import { reprocessRecord } from './services/emailService';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { getPermittedTabs } from './utils/permissions';
-import { UIProvider, useUI } from './contexts/UIContext';
-import SidebarSkeleton from './components/layout/SidebarSkeleton';
+import { UIProvider, useUILayout, useUIModals, useUITabs } from './contexts/UIContext';
 import Spinner from './components/ui/Spinner';
 import { DeepLinkHandler } from './components/layout/DeepLinkHandler';
 import { triggerHaptic } from './utils/haptics';
-// Lazy load heavy components
 import Sidebar from './components/layout/Sidebar';
-// const DataTable = lazy(() => import('./components/ui/DataTable'));
-import AccountManager from './features/accounts/components/AccountManager';
-import OrderDetailModal from './components/modals/OrderDetailModal';
-import TabSettings from './features/settings/components/TabSettings';
 import BottomNav from './components/layout/BottomNav';
 import InstallPrompt from './components/ui/InstallPrompt';
 
 import LoginNotificationHandler from './features/auth/components/LoginNotificationHandler';
 import ConnectedDashboardProvider from './contexts/ConnectedDashboardProvider';
-import Auth from './features/auth/components/Auth';
 import MainContent from './components/layout/MainContent';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import { getMessagingInstance } from './services/firebaseService';
 import { onMessage } from 'firebase/messaging';
 import CommandPalette from './components/ui/CommandPalette';
 
+const AccountManager = lazy(() => import('./features/accounts/components/AccountManager'));
+const Auth = lazy(() => import('./features/auth/components/Auth'));
+const OrderDetailModal = lazy(() => import('./components/modals/OrderDetailModal'));
+const TabSettings = lazy(() => import('./features/settings/components/TabSettings'));
+
+const ModalLoadingFallback = () => (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60]">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl flex flex-col items-center">
+            <Spinner size="lg" />
+            <span className="mt-4 text-gray-500 dark:text-gray-400 font-medium">Loading...</span>
+        </div>
+    </div>
+);
+
+const FullPageLoadingFallback = () => (
+    <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
+        <Spinner size="xl" />
+    </div>
+);
 
 const DashboardLayout: React.FC = () => {
     const {
@@ -46,20 +58,32 @@ const DashboardLayout: React.FC = () => {
 
     const { addNotification } = useNotification();
 
-    const {
-        isTabSettingsOpen,
-        isAccountManagerOpen,
-        isSidebarCollapsed,
-        toggleSidebar,
-        tabOrder,
-        hiddenTabs,
-        activeTab,
-        handleTabClick,
-        isMobileMenuOpen,
-        setIsMobileMenuOpen
-    } = useUI();
+    const { isTabSettingsOpen, isAccountManagerOpen } = useUIModals();
+    const { isSidebarCollapsed, toggleSidebar, isMobileMenuOpen, setIsMobileMenuOpen } = useUILayout();
+    const { tabOrder, hiddenTabs, activeTab, handleTabClick } = useUITabs();
 
     const [selectedOrder, setSelectedOrder] = useState<Record | null>(null);
+    const recordsById = useMemo(() => {
+        const map = new Map<string, Record>();
+        records.forEach(record => {
+            if (record.id) map.set(record.id, record);
+        });
+        return map;
+    }, [records]);
+    const recordsByOrderId = useMemo(() => {
+        const map = new Map<string, Record>();
+        records.forEach(record => {
+            if (record.order_id && !map.has(record.order_id)) map.set(record.order_id, record);
+        });
+        return map;
+    }, [records]);
+    const accountsByEmail = useMemo(() => {
+        const map = new Map<string, typeof accounts[number]>();
+        accounts.forEach(account => {
+            if (account.email) map.set(account.email, account);
+        });
+        return map;
+    }, [accounts]);
 
     // Pull-to-refresh for mobile
     const { isPulling, isRefreshing, pullDistance, pullProgress, touchHandlers } = usePullToRefresh({
@@ -80,7 +104,7 @@ const DashboardLayout: React.FC = () => {
             return;
         }
 
-        const record = records.find(r => r.id === recordId);
+        const record = recordsById.get(recordId);
 
         // Check if record exists
         if (!record) {
@@ -95,7 +119,7 @@ const DashboardLayout: React.FC = () => {
         }
 
         setSelectedOrder(record);
-    }, [records, addNotification]);
+    }, [recordsById, addNotification]);
 
     const handleResyncOrder = useCallback(async (recordId: string) => {
         // Validate input
@@ -105,7 +129,7 @@ const DashboardLayout: React.FC = () => {
             return;
         }
 
-        const record = records.find(r => r.id === recordId);
+        const record = recordsById.get(recordId);
 
         // Check if record exists and has email_id
         if (!record) {
@@ -119,17 +143,22 @@ const DashboardLayout: React.FC = () => {
         }
 
         // Check if account exists
-        const account = accounts.find(a => a.email === record.account);
+        const account = accountsByEmail.get(record.account);
         if (!account) {
             addNotification("Account for this order not found.", "error");
             return;
         }
 
-        console.log(`Resyncing order #${record.order_id}...`);
         try {
             const updatedRecord = await reprocessRecord(teamId, account, record);
             if (updatedRecord) {
-                setRecords(prev => prev.map(r => r.id === recordId ? updatedRecord : r));
+                setRecords(prev => {
+                    const index = prev.findIndex(r => r.id === recordId);
+                    if (index === -1 || prev[index] === updatedRecord) return prev;
+                    const next = prev.slice();
+                    next[index] = updatedRecord;
+                    return next;
+                });
                 addNotification(`Order #${record.order_id} resynced successfully!`, 'success');
             } else {
                 addNotification(`Failed to resync order #${record.order_id}. No data parsed.`, 'error');
@@ -139,20 +168,19 @@ const DashboardLayout: React.FC = () => {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
             addNotification(`Error resyncing order: ${errorMessage}`, 'error');
         }
-    }, [records, accounts, teamId, setRecords, addNotification]);
+    }, [recordsById, accountsByEmail, teamId, setRecords, addNotification]);
 
     const closeOrderDetail = useCallback(() => setSelectedOrder(null), []);
 
     const handleOpenOrderById = useCallback((orderId: string) => {
-        console.log('[Deep Link] Opening order:', orderId);
         // Find record by order_id (not by record.id)
-        const record = records.find(r => r.order_id === orderId);
+        const record = recordsByOrderId.get(orderId);
         if (record) {
             handleViewOrderDetails(record.id);
         } else {
             addNotification(`Order #${orderId} not found in current date range`, 'error');
         }
-    }, [records, handleViewOrderDetails, addNotification]);
+    }, [recordsByOrderId, handleViewOrderDetails, addNotification]);
 
     // Listen for foreground FCM messages
     useEffect(() => {
@@ -279,18 +307,24 @@ const DashboardLayout: React.FC = () => {
             </div>
 
             {isAccountManagerOpen && (
-                <AccountManager />
+                <Suspense fallback={<ModalLoadingFallback />}>
+                    <AccountManager />
+                </Suspense>
             )}
             {isTabSettingsOpen && (
-                <TabSettings />
+                <Suspense fallback={<ModalLoadingFallback />}>
+                    <TabSettings />
+                </Suspense>
             )}
             {selectedOrder && (
-                <OrderDetailModal
-                    record={selectedOrder}
-                    onClose={closeOrderDetail}
-                    onResync={handleResyncOrder}
-                    allRecords={records}
-                />
+                <Suspense fallback={<ModalLoadingFallback />}>
+                    <OrderDetailModal
+                        record={selectedOrder}
+                        onClose={closeOrderDetail}
+                        onResync={handleResyncOrder}
+                        allRecords={records}
+                    />
+                </Suspense>
             )}
             <BottomNav tabs={visibleTabs} />
             <InstallPrompt />
@@ -306,15 +340,6 @@ const DashboardLayout: React.FC = () => {
     );
 };
 
-const ModalLoadingFallback = () => (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60]">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl flex flex-col items-center">
-            <Spinner size="lg" />
-            <span className="mt-4 text-gray-500 dark:text-gray-400 font-medium">Loading...</span>
-        </div>
-    </div>
-);
-
 
 
 
@@ -325,13 +350,13 @@ const App: React.FC = () => {
     let content;
 
     if (authLoading) {
-        content = (
-            <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
-                <Spinner size="xl" />
-            </div>
-        );
+        content = <FullPageLoadingFallback />;
     } else if (!user || !userProfile) {
-        content = <Auth authError={authError} />;
+        content = (
+            <Suspense fallback={<FullPageLoadingFallback />}>
+                <Auth authError={authError} />
+            </Suspense>
+        );
     } else {
         content = (
             <>

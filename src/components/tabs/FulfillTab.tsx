@@ -10,6 +10,8 @@ const ITEMS_PER_PAGE = 200;
 
 const FulfillChart = React.lazy(() => import('../charts/FulfillChart'));
 
+const isFulfillRowRefunded = (row: any[]) => row[row.length - 2] === true;
+
 import { useNotification } from '../../contexts/NotificationContext';
 
 interface FulfillTabProps {
@@ -29,7 +31,7 @@ const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
         let active = 0;
         let refunded = 0;
         processedData.fulfill.table.rows.forEach(r => {
-            if (r[r.length - 1] === true) refunded++;
+            if (isFulfillRowRefunded(r)) refunded++;
             else active++;
         });
         return { activeCount: active, refundedCount: refunded };
@@ -44,7 +46,7 @@ const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
         const rows = processedData.fulfill.table.rows;
         if (statusFilter === 'All') return rows;
         return rows.filter(row => {
-            const isRefunded = row[row.length - 1] === true;
+            const isRefunded = isFulfillRowRefunded(row);
             return statusFilter === 'Refunded' ? isRefunded : !isRefunded;
         });
     }, [processedData.fulfill.table.rows, statusFilter]);
@@ -151,11 +153,11 @@ const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
                                     data={paginatedRows}
                                     autoHeight={!isDesktop}
                                     onRowClick={(row) => {
-                                        const isRefunded = row[row.length - 1] === true;
+                                        const isRefunded = isFulfillRowRefunded(row);
                                         if (isRefunded) {
                                             const orderId = row[1] as string;
                                             const productNameCell = row[2] as any;
-                                            const reason = typeof productNameCell === 'object' ? productNameCell.subtitle?.replace('↩ ', '') : null;
+                                            const reason = typeof productNameCell === 'object' ? productNameCell.subtitle?.replace(/^Refund:\s*/i, '').replace('↩ ', '') : null;
                                             
                                             if (reason) {
                                                 addNotification(`Reason for #${orderId}: ${reason}`, 'info');

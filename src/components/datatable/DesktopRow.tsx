@@ -5,7 +5,7 @@ import CachedImage from './CachedImage';
 import { getHighResImageUrl } from '../../utils/imageUtils';
 import { ListChildComponentProps, RowData } from './types';
 import { HIDDEN_MOBILE_HEADERS } from '../../constants';
-import { getColumnStyle } from '../../constants/columnConfigs';
+import { getColumnStyle, resolveFlexBasis } from '../../constants/columnConfigs';
 
 // Helper to check if a header should be hidden on mobile (Only applied in Desktop View now)
 const isHiddenOnDesktopMobileView = (header: string) => HIDDEN_MOBILE_HEADERS.includes(header);
@@ -193,7 +193,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                 const customStyle = {
                     flexGrow: config.flexGrow ?? 1,
                     flexShrink: 0,
-                    flexBasis: config.basis.includes('/') ? `${(eval(config.basis) * 100)}%` : config.basis,
+                    flexBasis: resolveFlexBasis(config.basis),
                     ...(columnWidths && columnWidths[header] ? { minWidth: `${columnWidths[header]}px`, flexBasis: `${columnWidths[header]}px` } : {})
                 };
 
@@ -248,7 +248,6 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                                 <span className="truncate">{typeof cell === 'object' ? cell.main : String(cell || '')}</span>
                                 {isRefunded && !cell?.type && (
                                     <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400">
-                                        <span>↩</span>
                                         <span>Refunded</span>
                                     </span>
                                 )}

@@ -2,7 +2,7 @@ import React, { useMemo, Suspense } from 'react';
 import DataTable from '../ui/DataTable';
 import { ProcessedData } from '../../types';
 import LoadingSpinner from '../ui/LoadingSpinner';
-import { useUI } from '../../contexts/UIContext';
+import { useUIFilters } from '../../contexts/UIContext';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import Pagination from '../ui/Pagination';
 
@@ -14,7 +14,7 @@ interface SupportTabProps {
 }
 
 const SupportTab: React.FC<SupportTabProps> = ({ processedData }) => {
-    const { timeZone, supportFilter, setSupportFilter } = useUI();
+    const { supportFilter } = useUIFilters();
     const isDesktop = useMediaQuery('(min-width: 768px)');
     const [currentPage, setCurrentPage] = React.useState(0);
 

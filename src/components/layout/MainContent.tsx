@@ -1,12 +1,13 @@
 import React, { Suspense, useState, useEffect } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
-import { useUI } from '../../contexts/UIContext';
+import { useUIFilters, useUITabs } from '../../contexts/UIContext';
 import SkeletonLoader from '../ui/SkeletonLoader';
 import ErrorBoundary from '../ui/ErrorBoundary';
 import ScrollToTop from './ScrollToTop';
 import { hasPermission } from '../../utils/permissionHelper';
+import { markPerf } from '../../utils/perfMarks';
 
-import OverviewTab from '../tabs/OverviewTab';
+const OverviewTab = React.lazy(() => import('../tabs/OverviewTab'));
 const ProductsTab = React.lazy(() => import('../tabs/ProductsTab'));
 const SupportTab = React.lazy(() => import('../tabs/SupportTab'));
 const OrderListTab = React.lazy(() => import('../tabs/OrderListTab'));
@@ -21,39 +22,35 @@ interface MainContentProps {
 }
 
 const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncOrder }) => {
-    const { isLoading, records, processedData, isProcessing, isFetchingNewRange, role, permissions } = useDashboard();
-    const {
-        activeTab,
-        filterDateRange,
-        dayFilter,
-        sourceFilter,
-        statusFilter,
-        timeZone,
-        handleViewDayDetails,
-        handleShopDetails
-    } = useUI();
+    const { isLoading, processedData, isProcessing, isFetchingNewRange, role, permissions } = useDashboard();
+    const { activeTab, handleViewDayDetails, handleShopDetails } = useUITabs();
+    const { filterDateRange, dayFilter, sourceFilter, statusFilter, timeZone } = useUIFilters();
 
     // Smart loading: Only show overlay if processing takes > 150ms (prevents micro-flashes)
     const [showOverlay, setShowOverlay] = useState(false);
     const hasData = processedData.orders.rows.length > 0 || processedData.overview.chartData.length > 0;
 
     useEffect(() => {
+        markPerf('tab:switch', { activeTab });
+    }, [activeTab]);
+
+    useEffect(() => {
         // Show progress overlay only when processing EXISTING data (re-filtering)
         // If fetching new range, we show Skeleton instead
-        if (isProcessing && hasData && !isFetchingNewRange) {
+        if (activeTab !== 'Report' && isProcessing && hasData && !isFetchingNewRange) {
             const timer = setTimeout(() => setShowOverlay(true), 150);
             return () => clearTimeout(timer);
         } else {
             setShowOverlay(false);
         }
-    }, [isProcessing, hasData, isFetchingNewRange]);
+    }, [activeTab, isProcessing, hasData, isFetchingNewRange]);
 
     // RENDER SKELETON LOGIC
     // Show skeleton if:
     // 1. Initial loading (isLoading)
     // 2. Fetching entirely new date range (isFetchingNewRange)
     // 3. Processing but we have no data to show (isProcessing && !hasData)
-    const shouldShowSkeleton = isLoading || isFetchingNewRange || (isProcessing && !hasData);
+    const shouldShowSkeleton = isLoading || (activeTab !== 'Report' && (isFetchingNewRange || (isProcessing && !hasData)));
 
     if (shouldShowSkeleton) {
         if (activeTab === 'Order List' || activeTab === 'Products') {
@@ -82,14 +79,16 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
                 case 'Overview':
                     const isSingleDay = filterDateRange.from === filterDateRange.to;
                     return (
-                        <ErrorBoundary>
-                            <OverviewTab
-                                processedData={processedData}
-                                isSingleDay={isSingleDay}
-                                handleViewDayDetails={handleViewDayDetails}
-                                handleShopDetails={handleShopDetails}
-                            />
-                        </ErrorBoundary>
+                        <Suspense fallback={<div className="p-2 md:p-6 animate-fade-in"><SkeletonLoader variant="card" count={6} /></div>}>
+                            <ErrorBoundary>
+                                <OverviewTab
+                                    processedData={processedData}
+                                    isSingleDay={isSingleDay}
+                                    handleViewDayDetails={handleViewDayDetails}
+                                    handleShopDetails={handleShopDetails}
+                                />
+                            </ErrorBoundary>
+                        </Suspense>
                     );
 
                 case 'Products':
@@ -110,7 +109,6 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
                                 timeZone={timeZone}
                                 handleViewOrderDetails={onViewOrderDetails}
                                 handleResyncOrder={onResyncOrder}
-                                allRecords={records}
                             />
                         </Suspense>
                     );

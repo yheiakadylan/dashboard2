@@ -2,7 +2,7 @@ import React from 'react';
 import { User } from 'firebase/auth';
 import { UserProfile } from '../features/auth/hooks/useAuthLogic';
 import { DashboardProvider } from './DashboardContext';
-import { useUI } from './UIContext';
+import { useUIFilters, useUISettings, useUITabs } from './UIContext';
 
 
 interface ConnectedDashboardProviderProps {
@@ -13,7 +13,9 @@ interface ConnectedDashboardProviderProps {
 }
 
 const ConnectedDashboardProvider: React.FC<ConnectedDashboardProviderProps> = ({ user, userProfile, logout, children }) => {
-    const { timeZone, filterDateRange, selectedAccountId, searchTerm, globalUsdMode } = useUI();
+    const { timeZone, filterDateRange, selectedAccountId, searchTerm } = useUIFilters();
+    const { activeTab } = useUITabs();
+    const { globalUsdMode } = useUISettings();
 
     // Memoize stable permissions and accounts to prevent infinite loops in DashboardProvider
     const memoizedPermissions = React.useMemo(() => userProfile.permissions || {}, [userProfile.permissions]);
@@ -32,6 +34,7 @@ const ConnectedDashboardProvider: React.FC<ConnectedDashboardProviderProps> = ({
             selectedAccountId={selectedAccountId}
             searchTerm={searchTerm}
             globalUsdMode={globalUsdMode}
+            activeTab={activeTab}
         >
             {children}
         </DashboardProvider>

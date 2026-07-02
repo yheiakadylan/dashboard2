@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Tab } from '../../../types';
 import { useDashboard } from '../../../contexts/DashboardContext';
-import { useUI } from '../../../contexts/UIContext';
+import { useUIModals, useUITabs, useUITheme } from '../../../contexts/UIContext';
 import ThemeToggle from '../../../components/ui/ThemeToggle';
 
 
@@ -10,12 +10,12 @@ const TabSettings: React.FC = () => {
     const {
         tabOrder,
         hiddenTabs,
-        setIsTabSettingsOpen,
         setTabOrder,
         toggleTabVisibility,
-        resetTabPreferences,
-        theme
-    } = useUI();
+        resetTabPreferences
+    } = useUITabs();
+    const { setIsTabSettingsOpen } = useUIModals();
+    const { theme } = useUITheme();
 
 
     const [draggedTab, setDraggedTab] = useState<Tab | null>(null);

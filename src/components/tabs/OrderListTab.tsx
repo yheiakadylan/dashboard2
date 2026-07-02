@@ -1,18 +1,16 @@
 import React, { Suspense, useMemo, useState } from 'react';
 import LoadingSpinner from '../ui/LoadingSpinner';
-import { ProcessedData, Record } from '../../types';
+import { ProcessedData } from '../../types';
 import DataTable from '../ui/DataTable';
 import { ORDER_LIST_INDICES } from '../../constants/dataIndices';
 import { formatDateEfficiently } from '../../utils/dateFormatter';
-import GoogleSheetModal from '../modals/GoogleSheetModal';
-import OrderSelectorModal from '../modals/OrderSelectorModal';
-import PreviewSyncModal from '../modals/PreviewSyncModal';
-import { useUI } from '../../contexts/UIContext';
+import { useUISettings } from '../../contexts/UIContext';
 import { useDashboard } from '../../contexts/DashboardContext';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import Pagination from '../ui/Pagination';
 
 const ITEMS_PER_PAGE = 200;
+const DESKTOP_TABLE_STYLE = { height: 'calc(100vh - 160px)' };
 
 interface OrderListTabProps {
     processedData: ProcessedData;
@@ -22,7 +20,6 @@ interface OrderListTabProps {
     timeZone: string;
     handleViewOrderDetails: (recordId: string) => void;
     handleResyncOrder: (recordId: string) => Promise<void>;
-    allRecords: Record[];
 }
 
 const OrderListTab: React.FC<OrderListTabProps> = ({
@@ -32,13 +29,10 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     statusFilter,
     timeZone,
     handleViewOrderDetails,
-    handleResyncOrder,
-    allRecords
+    handleResyncOrder
 }) => {
-    const { isOrderSelectorOpen, setIsOrderSelectorOpen, isGoogleSheetModalOpen, setIsGoogleSheetModalOpen, globalUsdMode } = useUI();
+    const { globalUsdMode } = useUISettings();
     const { exchangeRates } = useDashboard();
-    const [showPreviewModal, setShowPreviewModal] = useState(false);
-    const [selectedRecords, setSelectedRecords] = useState<Record[]>([]);
     const isDesktop = useMediaQuery('(min-width: 768px)');
     const [currentPage, setCurrentPage] = useState(0);
 
@@ -137,24 +131,17 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
 
     // When a row is clicked, the recordId is now the second to last element
     // because isRefunded was appended afterwards at the very end.
-    const handleRowClick = (row: any[]) => {
+    const handleRowClick = React.useCallback((row: any[]) => {
         const recordId = row[row.length - 2] as string | undefined;
         if (recordId) {
             handleViewOrderDetails(recordId);
         }
-    };
-
-    const handleOrderSelection = (selectedIds: Set<string>) => {
-        const records = allRecords.filter(r => r.id && selectedIds.has(r.id));
-        setSelectedRecords(records);
-        setIsOrderSelectorOpen(false);
-        setShowPreviewModal(true);
-    };
+    }, [handleViewOrderDetails]);
 
     return (
         <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] relative">
             <div className="p-2 md:p-6">
-                <div style={isDesktop ? { height: 'calc(100vh - 160px)' } : {}} className="flex flex-col border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
+                <div style={isDesktop ? DESKTOP_TABLE_STYLE : undefined} className="flex flex-col border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
                     <div className="flex-1 min-h-0 relative">
                         <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
                             <DataTable
@@ -175,37 +162,6 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
             </div>
 
 
-            {/* Order Selector Modal */}
-            <OrderSelectorModal
-                isOpen={isOrderSelectorOpen}
-                onClose={() => setIsOrderSelectorOpen(false)}
-                allRecords={allRecords}
-                onConfirm={handleOrderSelection}
-                onOpenSettings={() => setIsGoogleSheetModalOpen(true)}
-            />
-
-            {/* Google Sheet Config Modal - NO records */}
-            {isGoogleSheetModalOpen && (
-                <GoogleSheetModal
-                    isOpen={isGoogleSheetModalOpen}
-                    onClose={() => setIsGoogleSheetModalOpen(false)}
-                    records={[]}
-                />
-            )}
-
-            {/* Preview Sync Modal */}
-            <PreviewSyncModal
-                isOpen={showPreviewModal}
-                onClose={() => {
-                    setShowPreviewModal(false);
-                    setSelectedRecords([]);
-                }}
-                selectedRecords={selectedRecords}
-                onSuccess={() => {
-                    setShowPreviewModal(false);
-                    setSelectedRecords([]);
-                }}
-            />
         </div>
     );
 };

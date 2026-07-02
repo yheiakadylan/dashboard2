@@ -6,9 +6,9 @@ import { SHARED_USER_ID } from '../src/constants.js';
 import { RULES, parseMessage } from '../src/services/rules.js';
 import type { Account, Record } from './_lib/types.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
-import { processTeamSync } from './_lib/syncService.js';
 import { applyCategoryMappings } from './_lib/mappingHelper.js';
 import { processNewOrder } from './_lib/orderService.js';
+import { markDailyCacheDirtyForISOValues } from './_lib/dailyCacheAdmin.js';
 
 // --- Helpers ---
 /*
@@ -366,8 +366,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await batchWriter.commit();
         console.log(`[sync-outlook] Committed writes in ${batchWriter.getCommitCount()} batch(es). Backfilled ${totalTaskBackfills} order task set(s).`);
 
-        // 🟢 TRIGGER SHEET SYNC IMMEDIATELY
-        processTeamSync(SHARED_USER_ID).catch(err => console.error('[Outlook] Sheet sync failed:', err));
+        await markDailyCacheDirtyForISOValues(
+          db,
+          SHARED_USER_ID,
+          ['records'],
+          mappedRecords.map(record => record.dt_local),
+          'outlook-sync'
+        ).catch(error => console.warn('[sync-outlook] Failed to mark daily cache dirty:', error));
 
         // --- GỮI THÔNG BÁO PUSH (SAU KHI LƯU DB THÀNH CÔNG) ---
         if (notificationEvents.length > 0) {

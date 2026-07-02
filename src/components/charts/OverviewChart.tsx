@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { OverviewChartData } from '../../types';
-import { useUI } from '../../contexts/UIContext';
+import { useUISettings } from '../../contexts/UIContext';
 
 interface OverviewChartProps {
   data: OverviewChartData[];
@@ -14,7 +14,7 @@ const USD_REVENUE_COLOR = '#10B981';
 import EmptyState from '../ui/EmptyState';
 
 const OverviewChart: React.FC<OverviewChartProps> = ({ data, exchangeRates }) => {
-  const { globalUsdMode: usdMode } = useUI();
+  const { globalUsdMode: usdMode } = useUISettings();
 
   if (!data || data.length === 0) {
     return (

@@ -16,6 +16,20 @@ const STORAGE_KEY = 'dashboard_notifications';
 const AUTO_CLEANUP_DAYS = 3;
 const MAX_NOTIFICATIONS = 50; // Limit to prevent memory issues
 
+const isNotificationVerboseEnabled = () => {
+    try {
+        return import.meta.env.DEV && localStorage.getItem('notificationVerbose') === '1';
+    } catch {
+        return false;
+    }
+};
+
+const logNotification = (message: string, details?: unknown) => {
+    if (isNotificationVerboseEnabled()) {
+        console.info('[NotificationCenter]', message, details ?? '');
+    }
+};
+
 interface UseNotificationCenterOptions {
     teamId?: string; // If provided, sync with Firestore
     enableFirestoreSync?: boolean; // Enable/disable Firestore sync
@@ -58,11 +72,11 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
     // Firestore realtime listener (if teamId provided)
     useEffect(() => {
         if (!teamId || !enableFirestoreSync) {
-            console.log('[NotificationCenter] Firestore sync disabled or no teamId');
+            logNotification('Firestore sync disabled or no teamId');
             return;
         }
 
-        console.log('[NotificationCenter] Setting up Firestore listener for teamId:', teamId, 'limit:', limitCount);
+        logNotification('Setting up Firestore listener', { teamId, limitCount });
 
         const notificationsRef = collection(db, 'user', teamId, 'notifications');
 
@@ -72,7 +86,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
         const cleanupQ = query(notificationsRef, where('createdAt', '<', cutoffDateISO), limit(50));
         getDocs(cleanupQ).then(snap => {
             if (snap.size > 0) {
-                console.log(`[NotificationCenter] Auto-sweeping ${snap.size} expired notifications from Firestore DB`);
+                logNotification('Auto-sweeping expired notifications from Firestore DB', { count: snap.size });
                 snap.forEach(d => deleteDoc(d.ref).catch(() => {}));
             }
         }).catch(err => { /* Soft fail background cleanups */ });
@@ -139,7 +153,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                             );
 
                             if (isDuplicateContent) {
-                                console.log('[NotificationCenter] Found duplicate content, auto-deleting from DB:', firestoreNotification.id);
+                                logNotification('Found duplicate content, auto-deleting from DB', firestoreNotification.id);
                                 // Self-heal: Permanently remove the duplicate from Firestore so it doesn't trigger on every reload
                                 const notifRef = doc(db, 'user', teamId, 'notifications', firestoreNotification.id);
                                 deleteDoc(notifRef).catch(err => console.error("[NotificationCenter] Failed to clean duplicate:", err));
@@ -157,7 +171,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                                 if (existingSummaryIndex >= 0) {
                                     // Found existing summary for this date. Replace it with the new one (latest version).
                                     // This prevents seeing 2 summaries for the same day.
-                                    console.log('[NotificationCenter] Replaced existing summary for date:', targetDate);
+                                    logNotification('Replaced existing summary for date', targetDate);
 
                                     const newList = [...prev];
                                     newList[existingSummaryIndex] = firestoreNotification;
@@ -219,7 +233,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
         );
 
         return () => {
-            console.log('[NotificationCenter] Cleaning up Firestore listener');
+            logNotification('Cleaning up Firestore listener');
             unsubscribe();
         };
     }, [teamId, enableFirestoreSync, limitCount]);
@@ -291,13 +305,13 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
      * Clear all notifications (deletes from both localStorage and Firestore)
      */
     const clearAll = useCallback(async () => {
-        console.log('[NotificationCenter] Clearing all notifications');
+        logNotification('Clearing all notifications');
 
         // Delete from Firestore if enabled
         if (teamId && enableFirestoreSync) {
             try {
                 const notificationsToDelete = notifications.filter(n => !n.id.startsWith('notif_'));
-                console.log(`[NotificationCenter] Deleting ${notificationsToDelete.length} notifications from Firestore`);
+                logNotification('Deleting notifications from Firestore', { count: notificationsToDelete.length });
 
                 // Delete all Firestore notifications in parallel
                 const deletePromises = notificationsToDelete.map(n => {
@@ -306,7 +320,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                 });
 
                 await Promise.all(deletePromises);
-                console.log('[NotificationCenter] Successfully cleared all from Firestore');
+                logNotification('Successfully cleared all from Firestore');
             } catch (error) {
                 console.error('[NotificationCenter] Failed to clear from Firestore:', error);
             }
@@ -332,13 +346,13 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
 
             if (hardDelete) {
                 await deleteDoc(docRef);
-                console.log('[NotificationCenter] Hard deleted from Firestore:', id);
+                logNotification('Hard deleted from Firestore', id);
             } else if (userProfile?.email) {
                 // Soft delete: Add user email to deletedBy array
                 await updateDoc(docRef, {
                     deletedBy: arrayUnion(userProfile.email)
                 });
-                console.log('[NotificationCenter] Soft deleted (hidden) for user:', userProfile.email);
+                logNotification('Soft deleted (hidden) for user', userProfile.email);
             } else {
                 console.warn('[NotificationCenter] No user email found for soft delete, skipping Firestore update');
             }

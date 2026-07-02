@@ -10,6 +10,8 @@ import { getDb } from './_lib/firebaseAdminHelper.js';
 import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 import { Record as MailRecord } from './_lib/types.js';
+import { markDailyCacheDirtyForISOValues } from './_lib/dailyCacheAdmin.js';
+import { createBatchWriter } from './_lib/orderService.js';
 
 
 
@@ -157,6 +159,25 @@ function normalizeSkuForSync(value: unknown): string {
   if (!raw) return '';
   const upper = raw.toUpperCase();
   return INVALID_SKU_VALUES.has(upper) ? '' : upper;
+}
+
+function shouldPreferRecordForSkuSync(
+  current: { data: any } | undefined,
+  candidate: { ref: any; data: any },
+): boolean {
+  if (!current) return true;
+
+  const currentHasItems = Array.isArray(current.data.details?.items) && current.data.details.items.length > 0;
+  const candidateHasItems = Array.isArray(candidate.data.details?.items) && candidate.data.details.items.length > 0;
+  if (candidateHasItems !== currentHasItems) return candidateHasItems;
+
+  const currentIsRefund = current.data.source === 'Etsy_Refunded';
+  const candidateIsRefund = candidate.data.source === 'Etsy_Refunded';
+  if (candidateIsRefund !== currentIsRefund) return !candidateIsRefund;
+
+  const currentIsSale = current.data.source === 'Etsy_Sales' || current.data.source === 'Ebay_Sales';
+  const candidateIsSale = candidate.data.source === 'Etsy_Sales' || candidate.data.source === 'Ebay_Sales';
+  return candidateIsSale && !currentIsSale;
 }
 
 /** Handlers */
@@ -509,15 +530,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const db = getDb();
       const teamId = SHARED_USER_ID;
       const jobsRef = db.collection('user').doc(teamId).collection('sku_jobs');
-      const batch = db.batch();
+      const batchWriter = createBatchWriter(db);
       let count = 0;
 
       for (const order of orders) {
         const { orderId, account } = order;
         if (!orderId || !account) continue;
 
+        await batchWriter.ensureCapacity(1);
         const jobDocRef = jobsRef.doc(orderId);
-        batch.set(jobDocRef, {
+        batchWriter.set(jobDocRef, {
           order_id: orderId,
           account: account,
           status: 'pending',
@@ -530,7 +552,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       if (count > 0) {
-        await batch.commit();
+        await batchWriter.commit();
       }
 
       return res.status(200).json({
@@ -585,7 +607,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const db = getDb();
       const teamId = SHARED_USER_ID;
-      const batch = db.batch();
+      const batchWriter = createBatchWriter(db);
 
       const accountsRef = db.collection('user').doc(teamId).collection('accounts');
       const accSnap = await accountsRef.get();
@@ -608,7 +630,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           snap.docs.forEach(doc => {
             const data = doc.data();
             if (data.order_id) {
-              recordsMap.set(data.order_id, { ref: doc.ref, data });
+              const candidate = { ref: doc.ref, data };
+              const current = recordsMap.get(data.order_id);
+              if (shouldPreferRecordForSkuSync(current, candidate)) {
+                recordsMap.set(data.order_id, candidate);
+              }
             }
           });
         }
@@ -637,6 +663,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       let taskUpdatesCount = 0;
+      const updatedRecordDates: Array<string | null | undefined> = [];
       for (const order of orders) {
         const { orderId, items } = order;
         if (!orderId || !items || !Array.isArray(items)) continue;
@@ -644,6 +671,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const recordInfo = recordsMap.get(orderId);
         const recordData = recordInfo?.data;
         const recordRef = recordInfo?.ref;
+        const estimatedWrites = (recordRef && recordData ? 1 : 0) + items.length + 1;
+        await batchWriter.ensureCapacity(estimatedWrites);
 
         if (recordRef && recordData) {
           const existingDetails = recordData.details || {};
@@ -662,9 +691,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               ...(payloadItem.listingId ? { listingId: payloadItem.listingId } : {})
             };
           });
-          batch.update(recordRef, {
+          batchWriter.update(recordRef, {
             "details.items": updatedItems
           });
+          updatedRecordDates.push(recordData.dt_local);
         }
 
         const itemsCount = items.length;
@@ -734,16 +764,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             taskUpdate.collectionName = 'tasks';
           }
 
-          batch.set(taskDocRef, taskUpdate, { merge: true });
+          batchWriter.set(taskDocRef, taskUpdate, { merge: true });
           taskUpdatesCount++;
         });
 
         const jobDocRef = db.collection('user').doc(teamId).collection('sku_jobs').doc(orderId);
-        batch.delete(jobDocRef); // Xóa hẳn sau khi sync xong
+        batchWriter.delete(jobDocRef); // Xóa hẳn sau khi sync xong
       }
 
       if (taskUpdatesCount > 0) {
-        await batch.commit();
+        await batchWriter.commit();
+        await markDailyCacheDirtyForISOValues(
+          db,
+          teamId,
+          ['records'],
+          updatedRecordDates,
+          'lark-sku-sync'
+        ).catch(error => console.warn('[lark-events] Failed to mark daily cache dirty:', error));
       }
 
       return res.status(200).json({

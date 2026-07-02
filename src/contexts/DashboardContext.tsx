@@ -1,9 +1,15 @@
-import React, { useState, useEffect, useMemo, useRef, createContext } from 'react';
-import { Record, Account, ProcessedData, ManualCost, UserProfile, Category, EtsyReview } from '../types';
+import React, { useState, useEffect, useMemo, useRef, useCallback, createContext } from 'react';
+import { Record, Account, ProcessedData, ManualCost, UserProfile, Category, EtsyReview, type Tab } from '../types';
 import {
   saveAccountsToFirebase,
   deleteRecordsForAccounts,
-  getRecordsForDateRange
+  getRecordsForDateRange,
+  getTeamMembers,
+  getCategories,
+  saveCategory,
+  saveCategoriesBulk,
+  searchGlobalRecords,
+  bulkPushSkuJobs
 } from '../services/firebaseService';
 import type { ExportProgress } from '../utils/excelExport';
 import { setupGmailWatch } from '../services/emailService';
@@ -11,8 +17,9 @@ import { useNotification } from './NotificationContext';
 import { User } from 'firebase/auth';
 import { useDataSync } from '../hooks/useDataSync';
 import { useRecordFiltering } from '../hooks/useRecordFiltering';
-import { useAutoSync } from '../hooks/useAutoSync';
 import { useExchangeRates } from '../hooks/useExchangeRates';
+import type { ProcessingScope } from '../utils/dataProcessing';
+import { startMeasure } from '../utils/perfMarks';
 
 
 // Default Tab List
@@ -45,6 +52,7 @@ interface DashboardContextType {
   isSyncing: boolean;
   isFetchingNewRange: boolean;
   syncState: string | null;
+  setSyncState: React.Dispatch<React.SetStateAction<string | null>>;
   syncProgress: { current: number, total: number, message: string } | null;
   accountSyncStatuses: { [key: string]: string };
   isProcessing: boolean;
@@ -80,6 +88,8 @@ interface DashboardContextType {
 
 
   processedData: ProcessedData;
+  processedDataKeys: Partial<globalThis.Record<ProcessingScope, string>>;
+  currentDataKey: string;
   exchangeRates: { [key: string]: number } | null;
   updateRate: (currency: string, rate: number) => void;
   resetRates: () => void;
@@ -94,6 +104,112 @@ interface DashboardContextType {
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
+
+const INITIAL_PROCESSED_DATA: ProcessedData = {
+  overview: { table: { headers: [], rows: [] }, chartData: [] },
+  orders: { headers: [], rows: [] },
+  ebay: { headers: [], rows: [] },
+  etsy: { headers: [], rows: [] },
+  cases: { headers: [], rows: [] },
+  help: { headers: [], rows: [] },
+  fulfill: { table: { headers: [], rows: [] }, merchizeChartData: [], printwayChartData: [], allProductChartData: [], refundedChartData: [], totalCost: 0, refundRate: 0 },
+  summary: {
+    kpis: {},
+    table: { headers: [], rows: [] },
+    chartData: [],
+    topProductsByShop: {},
+    topProductsByCategory: {},
+    topProductsBySize: {},
+    categoryComparison: [],
+  },
+  products: { headers: [], rows: [] },
+  variants: { headers: [], rows: [] }
+};
+
+const getProcessingScopeForTab = (tab: Tab): ProcessingScope | null => {
+  switch (tab) {
+    case 'Overview':
+      return 'overview';
+    case 'Order List':
+      return 'orders';
+    case 'Products':
+      return 'products';
+    case 'Fulfill':
+      return 'fulfill';
+    case 'Support':
+      return 'support';
+    default:
+      return null;
+  }
+};
+
+const scopeNeedsPreviousPeriod = (scope: ProcessingScope) => scope === 'all' || scope === 'overview';
+const scopeNeedsManualCosts = (scope: ProcessingScope) => scope === 'all' || scope === 'overview' || scope === 'fulfill';
+const scopeNeedsExchangeRates = (scope: ProcessingScope) => scope === 'all' || scope === 'overview' || scope === 'products' || scope === 'fulfill';
+const scopeNeedsCategories = (scope: ProcessingScope) => scope === 'all' || scope === 'products';
+const scopeNeedsReviews = (scope: ProcessingScope) => scope === 'all' || scope === 'orders';
+const scopeNeedsOrderDetails = (scope: ProcessingScope) => scope === 'all' || scope === 'orders' || scope === 'products';
+const EXPORT_WORKER_TIMEOUT_MS = 120000;
+
+const stripRecordDetailsForWorker = (record: Record): Record => {
+  if (!record.details) return record;
+  const { details: _details, ...compactRecord } = record;
+  void _details;
+  return compactRecord as Record;
+};
+
+const getWorkerRecordsForScope = (records: Record[], scope: ProcessingScope): Record[] => {
+  if (scopeNeedsOrderDetails(scope)) return records;
+  return records.map(stripRecordDetailsForWorker);
+};
+
+const getWorkerPreviousRecordsForScope = (records: Record[] | null, scope: ProcessingScope): Record[] | null => {
+  if (!records || !scopeNeedsPreviousPeriod(scope)) return null;
+  return records.map(stripRecordDetailsForWorker);
+};
+
+const mergeProcessedDataByScope = (
+  previous: ProcessedData,
+  next: ProcessedData,
+  scope: ProcessingScope
+): ProcessedData => {
+  if (scope === 'all') return next;
+
+  switch (scope) {
+    case 'overview':
+      return {
+        ...previous,
+        overview: next.overview,
+        summary: {
+          ...previous.summary,
+          kpis: next.summary.kpis,
+          table: next.summary.table,
+          chartData: next.summary.chartData,
+        },
+      };
+    case 'orders':
+      return { ...previous, orders: next.orders, ebay: next.ebay, etsy: next.etsy };
+    case 'products':
+      return {
+        ...previous,
+        products: next.products,
+        variants: next.variants,
+        summary: {
+          ...previous.summary,
+          topProductsByShop: next.summary.topProductsByShop,
+          topProductsByCategory: next.summary.topProductsByCategory,
+          topProductsBySize: next.summary.topProductsBySize,
+          categoryComparison: next.summary.categoryComparison,
+        },
+      };
+    case 'fulfill':
+      return { ...previous, fulfill: next.fulfill };
+    case 'support':
+      return { ...previous, cases: next.cases, help: next.help };
+    default:
+      return previous;
+  }
+};
 
 interface DashboardProviderProps {
   children: React.ReactNode;
@@ -111,11 +227,24 @@ interface DashboardProviderProps {
   selectedAccountId: string;
   searchTerm: string;
   globalUsdMode: boolean;
+  activeTab: Tab;
 }
+
+const useStableJsonValue = <T,>(value: T): T => {
+  const stableRef = useRef<{ value: T; hash: string } | null>(null);
+
+  return useMemo(() => {
+    const nextHash = JSON.stringify(value);
+    if (!stableRef.current || nextHash !== stableRef.current.hash) {
+      stableRef.current = { value, hash: nextHash };
+    }
+    return stableRef.current.value;
+  }, [value]);
+};
 
 export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   children, user, teamId, role, permissions, allowedAccounts, onLogout,
-  timeZone, filterDateRange, selectedAccountId, searchTerm, globalUsdMode
+  timeZone, filterDateRange, selectedAccountId, searchTerm, globalUsdMode, activeTab
 }) => {
 
   const { addNotification } = useNotification();
@@ -149,54 +278,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   const { rates: exchangeRates, updateRate, resetRates, refreshRates, nextUpdateTime } = useExchangeRates();
 
-  // --- Auto-Sync to Google Sheets ---
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
-
-  // Listen to auto-sync settings changes in real-time
-  useEffect(() => {
-    if (!teamId) return;
-
-    let unsubscribe: (() => void) | undefined;
-    let isMounted = true;
-
-    import('../services/firebaseService').then(({ listenForSettings }) => {
-      if (!isMounted) return;
-      unsubscribe = listenForSettings(teamId, (settings) => {
-        if (settings.autoSyncToSheet !== undefined) {
-          setAutoSyncEnabled(settings.autoSyncToSheet);
-        }
-      });
-    });
-
-    return () => {
-      isMounted = false;
-      if (unsubscribe) unsubscribe();
-    };
-  }, [teamId]);
-
-  // Use auto-sync hook
-  useAutoSync({
-    enabled: autoSyncEnabled,
-    teamId,
-    records,
-    allAccounts,
-    timeZone,
-    onSyncSuccess: (count) => {
-      console.log(`[Auto-Sync] Synced ${count} records to Google Sheets`);
-      // Silent notification - no need to disturb the user
-      // addNotification(`Auto-synced ${count} orders to Google Sheets`, 'success');
-    },
-    onSyncError: (error) => {
-      console.error('[Auto-Sync] Error:', error);
-      // Only notify on errors that need attention
-      if (error.includes('Permission') || error.includes('403')) {
-        addNotification('Auto-sync failed: Please check Google Sheet permissions', 'error');
-      }
-    }
-  });
-
-
-
   // --- 4. Logic Functions ---
 
   // Board Logic
@@ -205,7 +286,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   const refreshBoards = React.useCallback(async () => {
     if (role === 'owner' && teamId) {
-      const { getTeamMembers } = await import('../services/firebaseService');
       const fetchedBoards = await getTeamMembers(teamId);
       setBoards(fetchedBoards);
     }
@@ -220,7 +300,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   const refreshCategories = React.useCallback(async () => {
     if (teamId) {
-      const { getCategories } = await import('../services/firebaseService');
       const fetched = await getCategories(teamId);
       setCategories(fetched);
     }
@@ -230,22 +309,20 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     refreshCategories();
   }, [refreshCategories]);
 
-  const createCategory = async (category: { code: string, name: string }) => {
+  const createCategory = useCallback(async (category: { code: string, name: string }) => {
     if (!teamId) return;
-    const { saveCategory } = await import('../services/firebaseService');
     await saveCategory(teamId, category);
     await refreshCategories();
-  };
+  }, [teamId, refreshCategories]);
 
-  const bulkSaveCategories = async (categoriesToSave: { code: string, name: string, oldCode?: string }[]) => {
+  const bulkSaveCategories = useCallback(async (categoriesToSave: { code: string, name: string, oldCode?: string }[]) => {
     if (!teamId) return;
-    const { saveCategoriesBulk } = await import('../services/firebaseService');
     
     setSyncState('Saving categories...');
     await saveCategoriesBulk(teamId, categoriesToSave);
     await refreshCategories();
     setSyncState(null);
-  };
+  }, [teamId, refreshCategories, setSyncState]);
 
   // Computed Visible Accounts (for data display)
   const visibleAccounts = useMemo(() => {
@@ -297,28 +374,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   // BUT the worker needs filterDateRange to optimize
 
   // --- Worker / Data Processing ---
-  const initialProcessedData: ProcessedData = {
-    overview: { table: { headers: [], rows: [] }, chartData: [] },
-    orders: { headers: [], rows: [] },
-    ebay: { headers: [], rows: [] },
-    etsy: { headers: [], rows: [] },
-    cases: { headers: [], rows: [] },
-    help: { headers: [], rows: [] },
-    fulfill: { table: { headers: [], rows: [] }, merchizeChartData: [], printwayChartData: [], allProductChartData: [], refundedChartData: [], totalCost: 0, refundRate: 0 },
-    summary: {
-      kpis: {},
-      table: { headers: [], rows: [] },
-      chartData: [],
-      topProductsByShop: {},
-      topProductsByCategory: {},
-      topProductsBySize: {},
-      categoryComparison: [],
-    },
-    products: { headers: [], rows: [] },
-    variants: { headers: [], rows: [] }
-  };
-
-  const [processedData, setProcessedData] = useState<ProcessedData>(initialProcessedData);
+  const [processedData, setProcessedData] = useState<ProcessedData>(INITIAL_PROCESSED_DATA);
+  const [processedDataKeys, setProcessedDataKeys] = useState<Partial<globalThis.Record<ProcessingScope, string>>>({});
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isSavingAccounts, setIsSavingAccounts] = useState<boolean>(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
@@ -332,30 +389,73 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   const workerRef = useRef<Worker | null>(null);
   const workerRequestIdRef = useRef<number>(0);
+  const workerSafetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workerMeasureRef = useRef<(() => void) | null>(null);
+  const restartWorkerRef = useRef<() => void>(() => {});
+
+  const clearWorkerSafetyTimeout = useCallback(() => {
+    if (workerSafetyTimeoutRef.current) {
+      clearTimeout(workerSafetyTimeoutRef.current);
+      workerSafetyTimeoutRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
-    workerRef.current = new Worker(new URL('../workers/dataWorker.ts', import.meta.url), { type: 'module' });
-    workerRef.current.onmessage = (e) => {
-      const { success, data, error, requestId } = e.data;
+    const attachWorker = () => {
+      const worker = new Worker(new URL('../workers/dataWorker.ts', import.meta.url), { type: 'module' });
+      worker.onmessage = (e) => {
+        const { success, data, error, requestId, scope = 'all', dataKey } = e.data as {
+          success: boolean;
+          data?: ProcessedData;
+          error?: string;
+          requestId: number;
+          scope?: ProcessingScope;
+          dataKey?: string;
+        };
 
-      // Check if this response is from the latest request
-      if (requestId !== workerRequestIdRef.current) {
-        return;
-      }
+        // Check if this response is from the latest request
+        if (requestId !== workerRequestIdRef.current) {
+          return;
+        }
 
-      if (success) setProcessedData(data);
-      else console.error("[Worker] Error:", error);
-      setIsProcessing(false);
+        clearWorkerSafetyTimeout();
+        workerMeasureRef.current?.();
+        workerMeasureRef.current = null;
+        if (success && data) {
+          setProcessedData(prev => mergeProcessedDataByScope(prev, data, scope));
+          if (dataKey) setProcessedDataKeys(prev => ({ ...prev, [scope]: dataKey }));
+        } else console.error("[Worker] Error:", error);
+        setIsProcessing(false);
+      };
+
+      // Safety error handler
+      worker.onerror = (err) => {
+        clearWorkerSafetyTimeout();
+        workerMeasureRef.current?.();
+        workerMeasureRef.current = null;
+        console.error("Worker Silent Error:", err);
+        setIsProcessing(false);
+      };
+
+      workerRef.current = worker;
     };
 
-    // Safety error handler
-    workerRef.current.onerror = (err) => {
-      console.error("Worker Silent Error:", err);
-      setIsProcessing(false);
+    restartWorkerRef.current = () => {
+      workerRequestIdRef.current += 1;
+      workerRef.current?.terminate();
+      workerRef.current = null;
+      attachWorker();
     };
 
-    return () => workerRef.current?.terminate();
-  }, []);
+    attachWorker();
+
+    return () => {
+      clearWorkerSafetyTimeout();
+      restartWorkerRef.current = () => {};
+      workerRef.current?.terminate();
+      workerRef.current = null;
+    };
+  }, [clearWorkerSafetyTimeout]);
 
   // Computed Processing Accounts (Stable reference for Worker)
   // Strips out timestamps to prevent re-processing when only sync status changes
@@ -369,40 +469,18 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }));
   }, [visibleAccounts]);
 
-  // Use a ref to hold the absolute stable version of accounts (by content)
-  // This prevents filteredRecords from changing reference if the content is same
-  const stableAccountsRef = useRef(processingAccounts);
-  const stableProcessingAccounts = useMemo(() => {
-    const isDifferent = JSON.stringify(processingAccounts) !== JSON.stringify(stableAccountsRef.current);
-    if (isDifferent) {
-      stableAccountsRef.current = processingAccounts;
-    }
-    return stableAccountsRef.current;
-  }, [processingAccounts]);
+  // Keep references stable by content so worker/filter effects do not rerun for equivalent payloads.
+  const stableProcessingAccounts = useStableJsonValue(processingAccounts);
 
   const processingAccountsHash = useMemo(() => JSON.stringify(stableProcessingAccounts), [stableProcessingAccounts]);
+  const currentDataKey = useMemo(
+    () => `${filterDateRange.from}|${filterDateRange.to}|${timeZone}|${selectedAccountId}|${searchTerm}`,
+    [filterDateRange.from, filterDateRange.to, timeZone, selectedAccountId, searchTerm]
+  );
 
   // --- STABILIZE OTHER DEPENDENCIES ---
-  const stableManualCostsRef = useRef(manualCosts);
-  const stableManualCosts = useMemo(() => {
-    const isDifferent = JSON.stringify(manualCosts) !== JSON.stringify(stableManualCostsRef.current);
-    if (isDifferent) {
-      stableManualCostsRef.current = manualCosts;
-    }
-    return stableManualCostsRef.current;
-  }, [manualCosts]);
-
-
-
-  const stableRatesRef = useRef(exchangeRates);
-  const stableRates = useMemo(() => {
-    const isDifferent = JSON.stringify(exchangeRates) !== JSON.stringify(stableRatesRef.current);
-    if (isDifferent) {
-      stableRatesRef.current = exchangeRates;
-    }
-    return stableRatesRef.current;
-  }, [exchangeRates]);
-
+  const stableManualCosts = useStableJsonValue(manualCosts);
+  const stableRates = useStableJsonValue(exchangeRates);
 
   // Filter Records for Display/Processing
   // Use stableProcessingAccounts to prevent re-filtering (and re-processing) when only timestamps change
@@ -424,6 +502,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     rates: any;
     categories: any;
     reviews: any;
+    scope: ProcessingScope | null;
   }>({
     records: null,
     prevRecords: null,
@@ -433,7 +512,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     manual: null,
     rates: null, // This will store the stableRates reference
     categories: null,
-    reviews: null
+    reviews: null,
+    scope: null
   });
 
   // Sync ref for safety timeout check
@@ -444,26 +524,69 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   useEffect(() => {
     if (!workerRef.current) return;
 
+    if (activeTab === 'Report') {
+      clearWorkerSafetyTimeout();
+      if (isProcessingRef.current) {
+        restartWorkerRef.current();
+        setIsProcessing(false);
+      }
+      lastTriggeredRef.current = {
+        records: null,
+        prevRecords: null,
+        accountsHash: '',
+        filter: null,
+        tz: '',
+        manual: null,
+        rates: null,
+        categories: null,
+        reviews: null,
+        scope: null
+      };
+      return;
+    }
+
+    const processingScope = getProcessingScopeForTab(activeTab);
+    if (!processingScope) {
+      clearWorkerSafetyTimeout();
+      if (isProcessingRef.current) {
+        restartWorkerRef.current();
+        setIsProcessing(false);
+      }
+      return;
+    }
+
     // Optimized comparison to avoid redundant worker runs
     const prevTrigger = lastTriggeredRef.current;
+    const relevantPreviousRecords = scopeNeedsPreviousPeriod(processingScope) ? previousPeriodRecords : null;
+    const relevantManualCosts = scopeNeedsManualCosts(processingScope) ? stableManualCosts : null;
+    const relevantRates = scopeNeedsExchangeRates(processingScope) ? stableRates : null;
+    const relevantCategories = scopeNeedsCategories(processingScope) ? categories : null;
+    const relevantReviews = scopeNeedsReviews(processingScope) ? visibleEtsyReviews : null;
 
     if (
       filteredRecords === prevTrigger.records &&
-      previousPeriodRecords === prevTrigger.prevRecords &&
+      relevantPreviousRecords === prevTrigger.prevRecords &&
       processingAccountsHash === prevTrigger.accountsHash &&
       filterDateRange === prevTrigger.filter &&
       timeZone === prevTrigger.tz &&
-      stableManualCosts === prevTrigger.manual &&
-      stableRates === prevTrigger.rates &&
-      categories === prevTrigger.categories &&
-      visibleEtsyReviews === prevTrigger.reviews
+      relevantManualCosts === prevTrigger.manual &&
+      relevantRates === prevTrigger.rates &&
+      relevantCategories === prevTrigger.categories &&
+      relevantReviews === prevTrigger.reviews &&
+      processingScope === prevTrigger.scope
     ) {
       return;
     }
 
-    // Debounce worker trigger: skip processing if records are empty and we are still fetching.
-    // This prevents the worker from processing empty data and flashing null to the UI.
-    if (filteredRecords.length === 0 && isFetchingNewRange) {
+    const rangeChangedBeforeRecords =
+      prevTrigger.filter !== null &&
+      filterDateRange !== prevTrigger.filter &&
+      filteredRecords === prevTrigger.records;
+
+    // Avoid processing stale records with the newly selected range while the range fetch is in flight.
+    // React effects from the same render can briefly see the old isFetching value, so also guard on
+    // "range changed but records are still the exact previous array".
+    if (isFetchingNewRange || rangeChangedBeforeRecords) {
       return;
     }
 
@@ -473,58 +596,137 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     setIsProcessing(true);
 
     const debounceTimer = setTimeout(() => {
+        const workerRecords = getWorkerRecordsForScope(filteredRecords, processingScope);
+        const workerPreviousRecords = getWorkerPreviousRecordsForScope(previousPeriodRecords, processingScope);
+        const workerManualCosts = relevantManualCosts || [];
+        const workerRates = relevantRates;
+        const workerCategories = relevantCategories || [];
+        const workerReviews = relevantReviews || [];
+
         lastTriggeredRef.current = {
             records: filteredRecords,
-            prevRecords: previousPeriodRecords,
+            prevRecords: relevantPreviousRecords,
             accountsHash: processingAccountsHash,
             filter: filterDateRange,
             tz: timeZone,
-            manual: stableManualCosts,
-            rates: stableRates,
-            categories: categories,
-            reviews: visibleEtsyReviews
+            manual: relevantManualCosts,
+            rates: relevantRates,
+            categories: relevantCategories,
+            reviews: relevantReviews,
+            scope: processingScope
         };
-
-        // Safety timeout: If worker doesn't respond in 15s, force unlock UI
-        const safetyHandler = setTimeout(() => {
-            if (isProcessingRef.current) {
-                console.warn("Worker timed out, forcing UI unlock.");
-                setIsProcessing(false);
-            }
-        }, 15000);
 
         // Increment request ID
         workerRequestIdRef.current += 1;
         const currentRequestId = workerRequestIdRef.current;
 
+        clearWorkerSafetyTimeout();
+        workerSafetyTimeoutRef.current = setTimeout(() => {
+            if (isProcessingRef.current && currentRequestId === workerRequestIdRef.current) {
+                console.warn("Worker timed out, restarting worker and keeping previous data visible.");
+                restartWorkerRef.current();
+                setIsProcessing(false);
+            }
+            workerSafetyTimeoutRef.current = null;
+        }, 15000);
+
         // Use stable accounts for worker
+        workerMeasureRef.current = startMeasure('worker:process', {
+            scope: processingScope,
+            records: filteredRecords.length,
+            compactRecords: workerRecords !== filteredRecords,
+            tab: activeTab
+        });
         workerRef.current!.postMessage({
             requestId: currentRequestId,
-            records: filteredRecords,
-            previousRecords: previousPeriodRecords,
+            dataKey: currentDataKey,
+            scope: processingScope,
+            records: workerRecords,
+            previousRecords: workerPreviousRecords,
             accounts: stableProcessingAccounts,
             filterDateRange,
             timeZone,
             role,
             permissions,
-            manualCosts: stableManualCosts,
-            exchangeRates: stableRates,
-            categories: categories,
-            etsyReviews: visibleEtsyReviews
+            manualCosts: workerManualCosts,
+            exchangeRates: workerRates,
+            categories: workerCategories,
+            etsyReviews: workerReviews
         });
 
-        // Store safety timeout in ref to allow cleanup if needed (though requestId check handles it)
-        // For simplicity, we just clear the debounce timer on effect cleanup below
     }, 300); // reduced to 300ms to allow smooth UI transition without long skeleton flashes
 
     return () => clearTimeout(debounceTimer);
-  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, categories, visibleEtsyReviews, isFetchingNewRange]);
+  }, [activeTab, filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, categories, visibleEtsyReviews, isFetchingNewRange, currentDataKey, clearWorkerSafetyTimeout]);
 
 
+
+  const buildFullProcessedDataForExport = useCallback((): Promise<ProcessedData> => {
+    return new Promise((resolve, reject) => {
+      const exportWorker = new Worker(new URL('../workers/dataWorker.ts', import.meta.url), { type: 'module' });
+      const requestId = Date.now();
+      const endMeasure = startMeasure('worker:export-full', {
+        records: filteredRecords.length,
+        from: filterDateRange.from,
+        to: filterDateRange.to,
+        timeZone,
+      });
+
+      const cleanup = () => {
+        clearTimeout(timeoutId);
+        exportWorker.terminate();
+        endMeasure();
+      };
+
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        reject(new Error('Export data processing timed out'));
+      }, EXPORT_WORKER_TIMEOUT_MS);
+
+      exportWorker.onmessage = (event) => {
+        const { success, data, error, requestId: responseRequestId } = event.data as {
+          success: boolean;
+          data?: ProcessedData;
+          error?: string;
+          requestId: number;
+        };
+
+        if (responseRequestId !== requestId) return;
+        cleanup();
+
+        if (success && data) {
+          resolve(data);
+        } else {
+          reject(new Error(error || 'Export data processing failed'));
+        }
+      };
+
+      exportWorker.onerror = (error) => {
+        cleanup();
+        reject(new Error(error.message || 'Export worker failed'));
+      };
+
+      exportWorker.postMessage({
+        requestId,
+        scope: 'all',
+        records: filteredRecords,
+        previousRecords: previousPeriodRecords,
+        accounts: stableProcessingAccounts,
+        filterDateRange,
+        timeZone,
+        role,
+        permissions,
+        manualCosts: stableManualCosts,
+        exchangeRates: stableRates,
+        categories,
+        etsyReviews: visibleEtsyReviews
+      });
+    });
+  }, [filteredRecords, previousPeriodRecords, stableProcessingAccounts, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, categories, visibleEtsyReviews]);
 
   // --- Action Handlers ---
 
-  const handleSyncClick = async () => {
+  const handleSyncClick = useCallback(async () => {
     if (isSyncing || !user) return;
     const accountsToSync = selectedAccountId === 'all' ? visibleAccounts : visibleAccounts.filter(acc => acc.email === selectedAccountId);
     if (accountsToSync.length === 0) { addNotification("No accounts selected.", "info"); return; }
@@ -537,9 +739,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       } catch (e) { console.error(e); }
       setSyncState(null);
     });
-  };
+  }, [isSyncing, user, selectedAccountId, visibleAccounts, addNotification, runSync, records, setSyncState, teamId, filterDateRange, timeZone, setRecords]);
 
-  const handleResyncAccount = async (account: Account, ruleNames?: string[]) => {
+  const handleResyncAccount = useCallback(async (account: Account, ruleNames?: string[]) => {
     if (!user) return;
     const taskTitle = ruleNames ? `Resync ${account.email} (${ruleNames.length} rules)` : `Resync ${account.email}`;
     enqueueSyncTask(taskTitle, async () => {
@@ -577,9 +779,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       } finally { setSyncState(null); }
     });
     addNotification(`Queued re-sync for ${account.email}`, "info");
-  };
+  }, [user, enqueueSyncTask, setSyncState, teamId, setAllAccounts, runSync, records, runHistoricalSync, addNotification]);
 
-  const handleQuickSync = async (account: Account, ruleNames?: string[]) => {
+  const handleQuickSync = useCallback(async (account: Account, ruleNames?: string[]) => {
     if (!user) return;
     const toDate = new Date();
     const fromDate = new Date(); fromDate.setDate(fromDate.getDate() - 7);
@@ -597,9 +799,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       } finally { setSyncState(null); }
     });
     addNotification(`Queued quick sync for ${account.email}`, "info");
-  };
+  }, [user, enqueueSyncTask, setSyncState, runSync, records, addNotification]);
 
-  const handleSaveAccounts = async (updatedAccounts: Account[], explicitlyRemovedIds: string[] = []) => {
+  const handleSaveAccounts = useCallback(async (updatedAccounts: Account[], explicitlyRemovedIds: string[] = []) => {
     if (!user) return;
     setIsSavingAccounts(true);
     setSyncState('Saving accounts...');
@@ -697,23 +899,25 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     } finally {
       setIsSavingAccounts(false);
     }
-  };
+  }, [user, setSyncState, allAccounts, records, role, allowedAccounts, addNotification, teamId, setRecords, isLoading, runSync, filterDateRange, timeZone, runHistoricalSync]);
 
 
 
 
   // Export to Excel - Show options modal
-  const handleExport = () => {
+  const handleExport = useCallback(() => {
     if (!processedData) {
       addNotification('No data to export', 'info');
       return;
     }
     setShowExportOptions(true);
-  };
+  }, [processedData, addNotification]);
 
   // Export to Excel with options
-  const handleExportWithOptions = (includeImages: boolean) => {
-    if (!processedData) {
+  const handleExportWithOptions = useCallback(async (includeImages: boolean) => {
+    if (isExporting) return;
+
+    if (filteredRecords.length === 0 && stableManualCosts.length === 0) {
       addNotification('No data to export', 'info');
       return;
     }
@@ -746,31 +950,30 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
     addNotification(`Generating Excel file${includeImages ? ' with images' : ''}...`, 'info');
 
-    // Dynamic import to reduce initial bundle size
-    import('../utils/excelExport').then(({ exportDashboardToExcel }) => {
-      exportDashboardToExcel(processedData, filename, includeImages, globalUsdMode, exchangeRates, (progress) => {
-        setExportProgress(progress);
-      })
-        .then(() => {
-          addNotification('Export completed', 'success');
-        })
-        .catch((err) => {
-          console.error(err);
-          addNotification('Export failed', 'error');
-        })
-        .finally(() => {
-          setIsExporting(false);
-          setExportProgress(null);
-        });
-    });
-  };
+    try {
+      const [fullProcessedData, { exportDashboardToExcel }] = await Promise.all([
+        buildFullProcessedDataForExport(),
+        import('../utils/excelExport')
+      ]);
 
-  const performGlobalSearch = async (term: string) => {
+      await exportDashboardToExcel(fullProcessedData, filename, includeImages, globalUsdMode, exchangeRates, (progress) => {
+        setExportProgress(progress);
+      });
+      addNotification('Export completed', 'success');
+    } catch (err) {
+      console.error(err);
+      addNotification('Export failed', 'error');
+    } finally {
+      setIsExporting(false);
+      setExportProgress(null);
+    }
+  }, [isExporting, filteredRecords.length, stableManualCosts.length, addNotification, timeZone, buildFullProcessedDataForExport, globalUsdMode, exchangeRates]);
+
+  const performGlobalSearch = useCallback(async (term: string) => {
     if (!term || !term.trim()) return;
     setIsProcessing(true);
     setSyncState('Searching globally...');
     try {
-      const { searchGlobalRecords } = await import('../services/firebaseService');
       const results = await searchGlobalRecords(teamId, term);
 
       if (results.length > 0) {
@@ -786,14 +989,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       setIsProcessing(false);
       setSyncState(null);
     }
-  };
+  }, [teamId, addNotification, setRecords, setSyncState]);
 
-  const clearGlobalSearch = () => {
+  const clearGlobalSearch = useCallback(() => {
     // Reload records for current date range
     const fetchData = async () => {
       setIsProcessing(true);
       try {
-        const { getRecordsForDateRange } = await import('../services/firebaseService');
         const data = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
         setRecords(data);
       } catch (error) {
@@ -803,13 +1005,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       }
     };
     fetchData();
-  };
+  }, [teamId, filterDateRange, timeZone, setRecords]);
 
-  const handleBulkFetchSKU = async () => {
+  const handleBulkFetchSKU = useCallback(async () => {
     if (!teamId) return;
     try {
-      const { bulkPushSkuJobs } = await import('../services/firebaseService');
-      
       const currentOrders = processedData.orders.rows;
       if (currentOrders.length === 0) {
         addNotification('No orders to fetch SKU for.', 'info');
@@ -830,49 +1030,62 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     } finally {
       setSyncState(null);
     }
-  };
+  }, [teamId, processedData.orders.rows, addNotification, setSyncState, filteredRecords]);
 
+
+  const contextValue = useMemo<DashboardContextType>(() => ({
+    user, teamId, role, permissions, allowedAccounts, filterDateRange, timeZone,
+    accounts: visibleAccounts,
+    allAccounts,
+    managementAccounts,
+    setAccounts: setAllAccounts,
+    records, setRecords,
+    etsyReviews: visibleEtsyReviews, setEtsyReviews,
+    manualCosts, setManualCosts,
+    isLoading, isSyncing, isFetchingNewRange, syncState, setSyncState, syncProgress, accountSyncStatuses, isProcessing, isSavingAccounts,
+    exportProgress, isExporting,
+    showExportOptions, setShowExportOptions,
+    handleSaveAccounts,
+    handleSyncClick,
+    handleResyncAccount,
+    handleQuickSync,
+    handleLogout: onLogout,
+    handleExport,
+    handleExportWithOptions,
+    performGlobalSearch,
+    clearGlobalSearch,
+    handleBulkFetchSKU,
+    processedData,
+    processedDataKeys,
+    currentDataKey,
+    exchangeRates,
+    updateRate,
+    resetRates,
+    refreshRates,
+    nextUpdateTime,
+    boards,
+    selectedBoardId,
+    setSelectedBoardId,
+    refreshBoards,
+    categories,
+    refreshCategories,
+    createCategory,
+    bulkSaveCategories
+  }), [
+    user, teamId, role, permissions, allowedAccounts, filterDateRange, timeZone,
+    visibleAccounts, allAccounts, managementAccounts, setAllAccounts, records, setRecords,
+    visibleEtsyReviews, setEtsyReviews, manualCosts, setManualCosts,
+    isLoading, isSyncing, isFetchingNewRange, syncState, syncProgress, accountSyncStatuses, isProcessing, isSavingAccounts,
+    exportProgress, isExporting, showExportOptions, setShowExportOptions,
+    handleSaveAccounts, handleSyncClick, handleResyncAccount, handleQuickSync, onLogout,
+    handleExport, handleExportWithOptions, performGlobalSearch, clearGlobalSearch, handleBulkFetchSKU,
+    processedData, processedDataKeys, currentDataKey, exchangeRates, updateRate, resetRates, refreshRates, nextUpdateTime,
+    boards, selectedBoardId, setSelectedBoardId, refreshBoards,
+    categories, refreshCategories, createCategory, bulkSaveCategories
+  ]);
 
   return (
-    <DashboardContext.Provider value={{
-      user, teamId, role, permissions, allowedAccounts, filterDateRange, timeZone,
-      accounts: visibleAccounts, // Filtered for data display
-      allAccounts, // All accounts (unfiltered)
-      managementAccounts, // For MailManager - respects canManageSettings
-      setAccounts: setAllAccounts,
-      records, setRecords,
-      etsyReviews: visibleEtsyReviews, setEtsyReviews,
-      manualCosts, setManualCosts,
-      isLoading, isSyncing, isFetchingNewRange, syncState, syncProgress, accountSyncStatuses, isProcessing, isSavingAccounts,
-      exportProgress, isExporting,
-      showExportOptions, setShowExportOptions,
-      handleSaveAccounts,
-      handleSyncClick,
-      handleResyncAccount,
-      handleQuickSync,
-      handleLogout: onLogout,
-      handleExport,
-      handleExportWithOptions,
-      performGlobalSearch,
-      clearGlobalSearch,
-      handleBulkFetchSKU,
-      processedData,
-      exchangeRates,
-      updateRate,
-      resetRates,
-      refreshRates,
-      nextUpdateTime,
-
-      boards,
-      selectedBoardId,
-      setSelectedBoardId,
-      refreshBoards,
-
-      categories,
-      refreshCategories,
-      createCategory,
-      bulkSaveCategories
-    }}>
+    <DashboardContext.Provider value={contextValue}>
       {children}
     </DashboardContext.Provider>
   );

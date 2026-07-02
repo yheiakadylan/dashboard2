@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
-import { useUI } from '../../contexts/UIContext';
+import { useUIModals, useUISettings, useUITabs } from '../../contexts/UIContext';
 import { getPermittedTabs } from '../../utils/permissions';
 import { hasPermission } from '../../utils/permissionHelper';
 import { getImageFromDB } from '../../utils/indexedDB'; // Import IndexedDB utility
@@ -16,7 +16,6 @@ import {
     ChevronsRight,
     SlidersHorizontal,
     Settings,
-    FileSpreadsheet,
     LayoutDashboard,
     Users,
     Package,
@@ -36,14 +35,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
         activeTab,
         handleTabClick,
         tabOrder,
-        hiddenTabs,
-        setIsAccountManagerOpen,
-        isAccountManagerOpen,
-        setIsTabSettingsOpen,
-        setIsOrderSelectorOpen,
-        globalUsdMode,
-        setGlobalUsdMode
-    } = useUI();
+        hiddenTabs
+    } = useUITabs();
+    const { setIsTabSettingsOpen } = useUIModals();
+    const { globalUsdMode, setGlobalUsdMode } = useUISettings();
 
 
 
@@ -203,38 +198,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
                         {isCollapsed && (
                             <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 shadow-lg">
                                 {isExporting ? 'Exporting...' : 'Export Excel'}
-                            </div>
-                        )}
-                    </button>
-                )}
-
-                {hasPermission(role, permissions, 'canExportData') && (
-                    <button
-                        onClick={() => {
-                            if (activeTab !== 'Order List') handleTabClick('Order List');
-                            setIsOrderSelectorOpen(true);
-                        }}
-                        className={`
-                        w-full flex items-center py-2.5 rounded-lg transition-colors group relative
-                        ${isCollapsed ? 'justify-center px-0' : 'px-3'}
-                        text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 hover:text-green-700 dark:hover:text-green-300
-                    `}
-                        title={isCollapsed ? "Sync to Sheet" : undefined}
-                    >
-                        <div className="flex-shrink-0">
-                            <FileSpreadsheet className="h-5 w-5" />
-                        </div>
-                        <span
-                            className={`
-                          font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300
-                          ${isCollapsed ? 'opacity-0 max-w-0 ml-0' : 'opacity-100 max-w-[150px] ml-3'}
-                        `}
-                        >
-                            Sync to Sheet
-                        </span>
-                        {isCollapsed && (
-                            <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 shadow-lg">
-                                Sync to Sheet
                             </div>
                         )}
                     </button>

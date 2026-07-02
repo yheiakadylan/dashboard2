@@ -4,14 +4,15 @@
  */
 
 import React, { useEffect } from 'react';
-import { useUI } from '../../contexts/UIContext';
+import { useUIModals, useUITabs } from '../../contexts/UIContext';
 
 interface Props {
     onOpenOrder?: (orderId: string) => void;
 }
 
 export const DeepLinkHandler: React.FC<Props> = ({ onOpenOrder }) => {
-    const { setActiveTab, setSelectedNotificationId, setIsNotificationDetailOpen } = useUI();
+    const { setActiveTab } = useUITabs();
+    const { setSelectedNotificationId, setIsNotificationDetailOpen } = useUIModals();
 
     useEffect(() => {
         // Parse URL parameters
@@ -34,12 +35,12 @@ export const DeepLinkHandler: React.FC<Props> = ({ onOpenOrder }) => {
             console.log('[Deep Link] Opening order:', orderId);
             setActiveTab('Order List');
             // Wait for tab to load, then open order detail
-            setTimeout(() => {
+            const timeoutId = setTimeout(() => {
                 onOpenOrder(orderId);
             }, 500);
             // Clear URL parameter
             window.history.replaceState({}, '', window.location.pathname);
-            return;
+            return () => clearTimeout(timeoutId);
         }
 
         // Handle tab parameter

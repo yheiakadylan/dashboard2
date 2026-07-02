@@ -11,10 +11,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@babel/core": "^7.28.5",
-    "@google/genai": "^1.27.0",
     "@vercel/node": "^5.5.3",
-    "crypto": "^1.0.1",
+    "dayjs": "^1.11.21",
     "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",
     "firebase": "^12.5.0",

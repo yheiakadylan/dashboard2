@@ -13,7 +13,7 @@ import { executeNotificationAction, NotificationActionHandlers } from '../utils/
 import { Notification } from '../../../types/notification';
 import { Account } from '../../../types';
 import { UserProfile } from '../../auth/hooks/useAuthLogic';
-import { useUI } from '../../../contexts/UIContext';
+import { useUIModals } from '../../../contexts/UIContext';
 
 interface Props {
     actionHandlers?: NotificationActionHandlers;
@@ -24,6 +24,8 @@ interface Props {
 }
 
 const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDetailModalChange, userProfile, accounts = [] }) => {
+    const { selectedNotificationId, setSelectedNotificationId } = useUIModals();
+    const [isFirestoreSyncEnabled, setIsFirestoreSyncEnabled] = useState(Boolean(selectedNotificationId));
     const {
         notifications,
         unreadCount,
@@ -36,13 +38,18 @@ const NotificationCenter: React.FC<Props> = ({ actionHandlers = {}, teamId, onDe
         closePanel,
         loadMore,
         hasMore
-    } = useNotificationCenter({ teamId, enableFirestoreSync: true, userProfile });
+    } = useNotificationCenter({ teamId, enableFirestoreSync: isFirestoreSyncEnabled || Boolean(selectedNotificationId), userProfile });
 
-    const { selectedNotificationId, setSelectedNotificationId } = useUI();
     const [detailModal, setDetailModal] = useState<Notification | null>(null);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'order' | 'system'>('all');
     const panelRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (isOpen && !isFirestoreSyncEnabled) {
+            setIsFirestoreSyncEnabled(true);
+        }
+    }, [isOpen, isFirestoreSyncEnabled]);
 
     // Auto-open notification detail modal from deep link
     useEffect(() => {

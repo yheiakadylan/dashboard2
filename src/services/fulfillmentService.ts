@@ -1,27 +1,43 @@
-// FIX: Import `CostData` from shared `types.ts` and remove local definition.
 import { Record, CostData } from '../types';
 
-export const fetchCostsForRecords = async (records: Record[]): Promise<Map<string, CostData>> => {
+type FetchCostsOptions = {
+  signal?: AbortSignal;
+};
+
+export const fetchCostsForRecords = async (records: Record[], options: FetchCostsOptions = {}): Promise<Map<string, CostData>> => {
   const orderRecords = records.filter(r => r.kind === 'order' && r.order_id);
 
   if (orderRecords.length === 0) {
     return new Map();
   }
 
+  const readCostResponse = async (response: Response, supplier: 'PW' | 'MZ') => {
+    if (!response.ok) {
+      throw new Error(`${supplier} cost fetch failed with status ${response.status}`);
+    }
+    return response.json() as Promise<{ [key: string]: CostData }>;
+  };
+
   try {
     const body = JSON.stringify({ records: orderRecords });
     const headers = { 'Content-Type': 'application/json' };
 
-    const pwPromise = fetch('/api/get-costs-pw', { method: 'POST', headers, body });
-    const mzPromise = fetch('/api/get-costs-mz', { method: 'POST', headers, body });
+    const [pwResult, mzResult] = await Promise.allSettled([
+      fetch('/api/get-costs-pw', { method: 'POST', headers, body, signal: options.signal }).then(response => readCostResponse(response, 'PW')),
+      fetch('/api/get-costs-mz', { method: 'POST', headers, body, signal: options.signal }).then(response => readCostResponse(response, 'MZ')),
+    ]);
 
-    const [pwResponse, mzResponse] = await Promise.all([pwPromise, mzPromise]);
-    
-    const pwCosts: { [key: string]: CostData } = pwResponse.ok ? await pwResponse.json() : {};
-    if(!pwResponse.ok) console.error("Failed to fetch Printway costs:", pwResponse.statusText);
-    
-    const mzCosts: { [key: string]: CostData } = mzResponse.ok ? await mzResponse.json() : {};
-    if(!mzResponse.ok) console.error("Failed to fetch Merchize costs:", mzResponse.statusText);
+    const failedSuppliers = [pwResult, mzResult].filter(result => result.status === 'rejected');
+    if (failedSuppliers.length === 2) {
+      throw new Error(`Failed to fetch fulfillment costs: ${failedSuppliers.map(result => String(result.reason)).join('; ')}`);
+    }
+
+    failedSuppliers.forEach(result => {
+      console.warn('[fulfillmentService] Partial fulfillment cost fetch failure:', result.reason);
+    });
+
+    const pwCosts = pwResult.status === 'fulfilled' ? pwResult.value : {};
+    const mzCosts = mzResult.status === 'fulfilled' ? mzResult.value : {};
 
     // Start with Printway costs and merge Merchize costs into them.
     const combinedCosts = { ...pwCosts };
@@ -43,8 +59,10 @@ export const fetchCostsForRecords = async (records: Record[]): Promise<Map<strin
     
     return costMap;
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error;
+    }
     console.error("Failed to fetch costs via serverless functions:", error);
-    // Return an empty map on failure to prevent the app from crashing.
-    return new Map();
+    throw error;
   }
 };

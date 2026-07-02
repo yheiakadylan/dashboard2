@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
-import { useUI } from '../../contexts/UIContext';
-import { LayoutDashboard, Users, ChevronDown, Check, LogOut, Settings, Search } from 'lucide-react';
+import { useUIFilters, useUILayout, useUIModals, useUISettings, useUITabs } from '../../contexts/UIContext';
+import { LayoutDashboard, Users, ChevronDown, Check, LogOut, Settings } from 'lucide-react';
 
 import { getImageFromDB } from '../../utils/indexedDB';
 
@@ -16,100 +16,7 @@ import NotificationCenter from '../../features/notifications/components/Notifica
 import FilterPopover from '../ui/FilterPopover';
 import ActiveFilterTags from '../ui/ActiveFilterTags';
 import { useNotification } from '../../contexts/NotificationContext';
-
-const CustomSelect: React.FC<{
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string }[];
-  className?: string;
-  triggerClassName?: string;
-  align?: 'left' | 'right';
-  icon?: React.ReactNode;
-  disabled?: boolean;
-  showSearch?: boolean;
-  searchPlaceholder?: string;
-}> = ({ value, onChange, options, className = '', triggerClassName = '', align = 'left', icon, disabled = false, showSearch = false, searchPlaceholder = 'Search...' }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const [searchValue, setSearchValue] = useState('');
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-        setSearchValue('');
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const selectedLabel = options.find(o => o.value === value)?.label || value;
-
-  const filteredOptions = showSearch
-    ? options.filter(o => o.label.toLowerCase().includes(searchValue.toLowerCase()))
-    : options;
-
-  return (
-    <div className={`relative ${className}`} ref={dropdownRef}>
-      <button
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        disabled={disabled}
-        className={`flex items-center justify-between w-full appearance-none bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md px-3 py-2 text-sm font-medium text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${triggerClassName} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-      >
-        <span className="truncate mr-1">{selectedLabel}</span>
-        {icon || (
-          <svg className="h-4 w-4 text-gray-500 flex-shrink-0 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-          </svg>
-        )}
-      </button>
-
-      {isOpen && !disabled && (
-        <div className={`absolute top-full mt-1 ${align === 'right' ? 'right-0' : 'left-0'} min-w-full max-h-60 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-xl z-50 py-1`}>
-          {showSearch && (
-            <div className="px-2 py-1.5 sticky top-0 bg-white dark:bg-gray-800 z-10 border-b border-gray-100 dark:border-gray-700 mb-1">
-              <div className="relative flex items-center">
-                <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
-                  <Search className="h-3.5 w-3.5 text-gray-400" />
-                </div>
-                <input
-                  type="text"
-                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
-                  placeholder={searchPlaceholder}
-                  value={searchValue}
-                  onChange={(e) => setSearchValue(e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                  autoFocus
-                />
-              </div>
-            </div>
-          )}
-          {filteredOptions.length > 0 ? (
-            filteredOptions.map((option) => (
-              <button
-                key={option.value}
-                onClick={() => {
-                  onChange(option.value);
-                  setIsOpen(false);
-                  setSearchValue('');
-                }}
-                className={`w-full text-left px-3 py-2 text-sm font-medium transition-colors flex items-center ${value === option.value
-                  ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-              >
-                <span className="truncate">{option.label}</span>
-              </button>
-            ))
-          ) : (
-            <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">No results found</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
+import CustomSelect from '../ui/CustomSelect';
 
 const Header: React.FC = () => {
   const {
@@ -130,7 +37,6 @@ const Header: React.FC = () => {
     allowedAccounts, // For notification filtering by shop
     performGlobalSearch, // Global Search Function
     clearGlobalSearch, // Clear Global Search
-    handleBulkFetchSKU, // Bulk fetch SKU
     boards,
     selectedBoardId,
     setSelectedBoardId,
@@ -139,15 +45,14 @@ const Header: React.FC = () => {
     records,
   } = useDashboard();
 
+  const { activeTab } = useUITabs();
   const {
     selectedAccountId,
     setSelectedAccountId,
-    setIsAccountManagerOpen,
     timeZone,
     setTimeZone,
     searchTerm,
     setSearchTerm,
-    activeTab,
     sourceFilter,
     setSourceFilter,
     statusFilter,
@@ -156,17 +61,17 @@ const Header: React.FC = () => {
     setSupportFilter,
     reviewRatingFilter,
     setReviewRatingFilter,
-    globalUsdMode,
-    setGlobalUsdMode,
-    isSidebarCollapsed,
-    toggleSidebar,
+  } = useUIFilters();
+  const {
+    setIsAccountManagerOpen,
+    setIsNotificationDetailOpen,
+  } = useUIModals();
+  const {
     isMobileMenuOpen,
     setIsMobileMenuOpen,
     toggleMobileMenu,
-    setIsNotificationDetailOpen,
-    setIsOrderSelectorOpen,
-    setIsGoogleSheetModalOpen,
-  } = useUI();
+  } = useUILayout();
+  const { globalUsdMode, setGlobalUsdMode } = useUISettings();
 
   // Create userProfile for notification filtering
   const userProfile = teamId ? {
@@ -174,7 +79,7 @@ const Header: React.FC = () => {
     role,
     permissions,
     allowedAccounts,
-    email: useDashboard().user?.email // Include email for soft delete
+    email: user?.email // Include email for soft delete
   } : null;
 
   const { addNotification } = useNotification();
@@ -192,8 +97,8 @@ const Header: React.FC = () => {
     setIsApiLoading(true);
     try {
       const { ORDER_LIST_INDICES } = await import('../../constants/dataIndices');
-      const orderIds = currentOrders.map(r => r[ORDER_LIST_INDICES.RECORD_ID]); // RECORD_ID index
-      const targetRecords = records.filter(r => orderIds.includes(r.id) && r.status !== 'Refunded');
+      const orderIds = new Set(currentOrders.map(r => r[ORDER_LIST_INDICES.RECORD_ID])); // RECORD_ID index
+      const targetRecords = records.filter(r => r.id && orderIds.has(r.id) && r.status !== 'Refunded');
       
       if (targetRecords.length === 0) {
         addNotification('No valid orders to sync.', 'info');
@@ -256,9 +161,9 @@ const Header: React.FC = () => {
     setIsApiLoading(true);
     try {
       const { ORDER_LIST_INDICES } = await import('../../constants/dataIndices');
-      const orderIds = currentOrders.map(r => r[ORDER_LIST_INDICES.RECORD_ID]);
+      const orderIds = new Set(currentOrders.map(r => r[ORDER_LIST_INDICES.RECORD_ID]));
       const targetRecords = records.filter(r => {
-        if (!orderIds.includes(r.id) || r.status === 'Refunded') return false;
+        if (!r.id || !orderIds.has(r.id) || r.status === 'Refunded') return false;
         if (!r.details?.items || r.details.items.length === 0) return true;
         return r.details.items.some(item => !item.sku || item.sku.trim() === '');
       });
@@ -326,18 +231,45 @@ const Header: React.FC = () => {
   const [localPhotoURL, setLocalPhotoURL] = useState(user?.photoURL || '');
 
   useEffect(() => {
-      if (user) {
-          setLocalPhotoURL(user.photoURL || '');
-          getImageFromDB(user.uid).then((blob) => {
-              if (blob) {
-                  setLocalPhotoURL(URL.createObjectURL(blob));
-              }
-          }).catch(e => console.error("Header avatar load failed", e));
-      }
+    let objectUrl: string | null = null;
+    let cancelled = false;
+
+    if (user) {
+      setLocalPhotoURL(user.photoURL || '');
+      getImageFromDB(user.uid).then((blob) => {
+        if (cancelled || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setLocalPhotoURL(objectUrl);
+      }).catch(e => console.error("Header avatar load failed", e));
+    }
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [user]);
 
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchFocusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const focusSearchInput = useCallback(() => {
+    if (searchFocusTimeoutRef.current) {
+      clearTimeout(searchFocusTimeoutRef.current);
+    }
+    searchFocusTimeoutRef.current = setTimeout(() => {
+      searchInputRef.current?.focus();
+      searchFocusTimeoutRef.current = null;
+    }, 100);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (searchFocusTimeoutRef.current) {
+        clearTimeout(searchFocusTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Keyboard shortcuts - Combined to prevent duplicate event listeners (memory leak fix)
   useEffect(() => {
@@ -346,7 +278,7 @@ const Header: React.FC = () => {
       if (e.ctrlKey && e.key === 'f') {
         e.preventDefault();
         setIsSearchExpanded(true);
-        setTimeout(() => searchInputRef.current?.focus(), 100);
+        focusSearchInput();
         return;
       }
 
@@ -375,7 +307,7 @@ const Header: React.FC = () => {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isSearchExpanded, isSyncing, handleSyncClick, setSearchTerm]);
+  }, [isSearchExpanded, isSyncing, handleSyncClick, setSearchTerm, focusSearchInput]);
 
   // --- HÀM LÀM SẠCH THÔNG BÁO ---
   const formatSyncState = (rawState: string) => {
@@ -390,8 +322,8 @@ const Header: React.FC = () => {
   // Memoized handlers
   const handleSearchExpand = useCallback(() => {
     setIsSearchExpanded(true);
-    setTimeout(() => searchInputRef.current?.focus(), 100);
-  }, []);
+    focusSearchInput();
+  }, [focusSearchInput]);
 
   const handleSearchClear = useCallback(() => {
     setSearchTerm('');
@@ -409,25 +341,11 @@ const Header: React.FC = () => {
     setIsMobileMenuOpen(false);
   }, [setIsAccountManagerOpen]);
 
-  const cycleSourceFilter = useCallback(() => {
-    const options = ['All', 'Ebay_Sales', 'Etsy_Sales'] as const;
-    const currentIndex = options.indexOf(sourceFilter as any);
-    const nextIndex = (currentIndex + 1) % options.length;
-    setSourceFilter(options[nextIndex]);
-  }, [sourceFilter, setSourceFilter]);
-
-  const cycleSupportFilter = useCallback(() => {
-    const options = ['All', 'Case', 'Help'] as const;
-    const currentIndex = options.indexOf(supportFilter as any);
-    const nextIndex = (currentIndex + 1) % options.length;
-    setSupportFilter(options[nextIndex]);
-  }, [supportFilter, setSupportFilter]);
-
   // Prepare Account Options for CustomSelect
-  const accountOptions = [
+  const accountOptions = useMemo(() => [
     { value: 'all', label: 'All Accounts' },
     ...accounts.map(acc => ({ value: acc.email, label: acc.label || acc.email }))
-  ];
+  ], [accounts]);
 
   return (
     <header className="glass-base border-b border-gray-200 dark:border-gray-700 sticky top-0 z-30 transition-all duration-200">

@@ -3,9 +3,8 @@ import { useDashboard } from '../../contexts/DashboardContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { TopProduct } from '../../types';
 import useMediaQuery from '../../hooks/useMediaQuery';
-import { saveAs } from 'file-saver';
 import ImagePreviewModal from '../modals/ImagePreviewModal';
-import { useUI } from '../../contexts/UIContext';
+import { useUISettings } from '../../contexts/UIContext';
 
 interface TopProductsChartProps {
   data: { [shopName: string]: TopProduct[] };
@@ -81,44 +80,87 @@ const CustomTooltip = ({ active, payload, isCategoryChart, isVariantChart }: any
   return null;
 };
 
+const normalizeProductNameGroup = (name?: string) => (
+  name || ''
+).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+const sortTopProductsByNameGroup = (products: TopProduct[]) => {
+  const groupQuantity = new Map<string, number>();
+
+  products.forEach(product => {
+    const nameKey = normalizeProductNameGroup(product.name);
+    groupQuantity.set(nameKey, (groupQuantity.get(nameKey) || 0) + product.quantity);
+  });
+
+  return products.sort((a, b) => {
+    const aNameKey = normalizeProductNameGroup(a.name);
+    const bNameKey = normalizeProductNameGroup(b.name);
+    const groupDiff = (groupQuantity.get(bNameKey) || 0) - (groupQuantity.get(aNameKey) || 0);
+    if (groupDiff !== 0) return groupDiff;
+
+    const nameDiff = aNameKey.localeCompare(bNameKey);
+    if (nameDiff !== 0) return nameDiff;
+
+    const quantityDiff = b.quantity - a.quantity;
+    if (quantityDiff !== 0) return quantityDiff;
+
+    const revenueDiff = (b.revenue || 0) - (a.revenue || 0);
+    if (revenueDiff !== 0) return revenueDiff;
+
+    return (a.sku || '').localeCompare(b.sku || '');
+  });
+};
+
+const sortTopProductsForRanking = (products: TopProduct[]) => {
+  return [...products].sort((a, b) => {
+    const quantityDiff = b.quantity - a.quantity;
+    if (quantityDiff !== 0) return quantityDiff;
+
+    const revenueDiff = (b.revenue || 0) - (a.revenue || 0);
+    if (revenueDiff !== 0) return revenueDiff;
+
+    return normalizeProductNameGroup(a.name).localeCompare(normalizeProductNameGroup(b.name));
+  });
+};
+
 const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top Products", hideTitle = false, onItemClick, detailedData }) => {
   const { role, permissions, exchangeRates } = useDashboard();
-  const { globalUsdMode } = useUI();
-  // Add null safety check for data
-  if (!data || typeof data !== 'object') {
-    return null;
-  }
-  const allShopsData = useMemo(() => {
-    const combined: { [name: string]: TopProduct } = {};
-    Object.values(data).flat().forEach(product => {
-      const name = product.name;
-      if (!combined[name]) {
-        combined[name] = { ...product };
-      } else {
-        combined[name].quantity += product.quantity;
-        combined[name].revenue += (product.revenue || 0);
-        combined[name].revenueUSD += (product.revenueUSD || 0);
-      }
-    });
-    return Object.values(combined).sort((a, b) => b.quantity - a.quantity);
-  }, [data]);
-
+  const { globalUsdMode } = useUISettings();
+  const validData = data && typeof data === 'object' ? data : {};
   const isCategoryChart = title.toLowerCase().includes('category');
   const isVariantChart = title.toLowerCase().includes('variant') || title.toLowerCase().includes('size');
+  const allShopsData = useMemo(() => {
+    const combined: { [productKey: string]: TopProduct } = {};
+    Object.values(validData).flat().forEach(product => {
+      const productKey = isCategoryChart ? normalizeProductNameGroup(product.name) : (product.sku || product.name);
+      if (!combined[productKey]) {
+        combined[productKey] = { ...product };
+      } else {
+        combined[productKey].quantity += product.quantity;
+        combined[productKey].revenue += (product.revenue || 0);
+        combined[productKey].revenueUSD += (product.revenueUSD || 0);
+        if (product.shop && !String(combined[productKey].shop || '').split(', ').includes(product.shop)) {
+          combined[productKey].shop = combined[productKey].shop ? `${combined[productKey].shop}, ${product.shop}` : product.shop;
+        }
+      }
+    });
+    return sortTopProductsByNameGroup(Object.values(combined));
+  }, [validData, isCategoryChart]);
 
   const allLabel = isCategoryChart ? 'All Categories' : (isVariantChart ? 'All Variants' : 'All Shops');
-  const shopNames = [allLabel, ...Object.keys(data).sort()];
+  const shopNames = [allLabel, ...Object.keys(validData).sort()];
 
   const [selectedShop, setSelectedShop] = useState<string>(allLabel);
   const [limit, setLimit] = useState<number>(10);
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [previewProduct, setPreviewProduct] = useState<TopProduct | null>(null);
+  const [viewMode, setViewMode] = useState<'chart' | 'grid'>('chart');
 
   useEffect(() => {
-    if (shopNames.length > 0 && (!selectedShop || (!data[selectedShop] && selectedShop !== allLabel))) {
+    if (shopNames.length > 0 && (!selectedShop || (!validData[selectedShop] && selectedShop !== allLabel))) {
       setSelectedShop(allLabel);
     }
-  }, [data, shopNames, selectedShop, allLabel]);
+  }, [validData, shopNames, selectedShop, allLabel]);
 
   // Helper to format currency based on current mode
   const displayRevenue = (item: TopProduct) => {
@@ -154,7 +196,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
     }));
 
     const finalSummaryData = convertData(allShopsData);
-    const sourceData = detailedData || data;
+    const sourceData = detailedData || validData;
     const finalSheetData: { [key: string]: any[] } = {};
     
     Object.entries(sourceData).forEach(([key, items]) => {
@@ -165,7 +207,10 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
   };
 
   // Determine current dataset
-  const fullChartData = selectedShop === allLabel ? allShopsData : (data[selectedShop] || []);
+  const fullChartData = useMemo(
+    () => sortTopProductsForRanking(selectedShop === allLabel ? allShopsData : (validData[selectedShop] || [])),
+    [selectedShop, allLabel, allShopsData, validData]
+  );
   
   // Calculate total quantity for percentage
   const totalQuantity = useMemo(() => fullChartData.reduce((sum, item) => sum + item.quantity, 0), [fullChartData]);
@@ -180,7 +225,7 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
   }, [fullChartData, limit, totalQuantity, globalUsdMode]);
 
   // Check if ANY shop/item has data
-  const hasAnyData = Object.values(data).some(items => items.length > 0) || allShopsData.length > 0;
+  const hasAnyData = Object.values(validData).some(items => items.length > 0) || allShopsData.length > 0;
 
   // Return null only if NO data
   if (!hasAnyData) {
@@ -196,9 +241,6 @@ const TopProductsChart: React.FC<TopProductsChartProps> = ({ data, title = "Top 
       setPreviewProduct(data);
     }
   };
-
-  // View Mode State
-  const [viewMode, setViewMode] = useState<'chart' | 'grid'>('chart');
 
   // Calculate dynamic height based on number of items (Chart Mode)
   const chartHeight = chartData.length === 0 ? 200 : Math.max(300, chartData.length * 50 + 150);

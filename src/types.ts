@@ -178,6 +178,7 @@ export interface FulfillChartData {
 }
 
 export interface TopProduct {
+  sku?: string;
   name: string;
   quantity: number;
   revenue: number;

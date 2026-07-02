@@ -7,7 +7,6 @@ import {
 } from '../services/emailService';
 import {
     updateAccountsInFirebase,
-    updateRecordsInFirebase,
     saveRecordsToFirebase,
     listenForNewRecords,
     listenForAccounts,
@@ -15,12 +14,9 @@ import {
     getEtsyReviewsForDateRange,
     getAccountsFromFirebase,
     getManualCosts,
-    getRefundRecordsForOrderIds,
-    db
+    getRefundRecordsForOrderIds
 } from '../services/firebaseService';
-import { splitDateRange } from '../utils/dateChunking';
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { fetchCostsForRecords } from '../services/fulfillmentService';
+import { isRefundNoticeRecord, syncFulfillmentCosts } from '../services/costSyncService';
 import { User } from 'firebase/auth';
 
 
@@ -32,6 +28,56 @@ interface UseDataSyncProps {
     timeZone: string;
     addNotification: (message: string, type: 'success' | 'error' | 'info') => void;
 }
+
+const insertRecordByDateDesc = (records: Record[], newRecord: Record): Record[] => {
+    const newDate = String(newRecord.dt_local || '');
+    if (!newDate || records.length === 0) return [newRecord, ...records];
+
+    const insertIndex = records.findIndex(record => String(record.dt_local || '').localeCompare(newDate) <= 0);
+    if (insertIndex === -1) return [...records, newRecord];
+
+    return [
+        ...records.slice(0, insertIndex),
+        newRecord,
+        ...records.slice(insertIndex)
+    ];
+};
+
+const RANGE_FETCH_TIMEOUT_MS = 25000;
+const REFUND_CROSS_CHECK_TIMEOUT_MS = 15000;
+const RANGE_FETCH_UI_SAFETY_TIMEOUT_MS = 30000;
+const RANGE_FETCH_MAX_TIMEOUT_MS = 120000;
+const getRangeFetchTimeoutMs = (dayCount: number) => {
+    if (dayCount <= 7) return RANGE_FETCH_TIMEOUT_MS;
+    if (dayCount <= 31) return 45000;
+    return Math.min(RANGE_FETCH_MAX_TIMEOUT_MS, 45000 + (dayCount - 31) * 1000);
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`)), timeoutMs);
+    });
+
+    try {
+        return await Promise.race([promise, timeoutPromise]);
+    } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+    }
+};
+
+const logRangeFetch = (message: string, details: globalThis.Record<string, unknown>) => {
+    let verbose = false;
+    try {
+        verbose = localStorage.getItem('rangeFetchVerbose') === '1';
+    } catch {
+        verbose = false;
+    }
+
+    if (import.meta.env.DEV && verbose) {
+        console.info('[rangeFetch]', message, details);
+    }
+};
 
 export const useDataSync = ({
     user,
@@ -83,14 +129,17 @@ export const useDataSync = ({
     const dateRangeFetchAbortControllerRef = useRef<AbortController | null>(null);
     const syncAbortControllerRef = useRef<AbortController | null>(null);
     const historicalSyncAbortControllerRef = useRef<AbortController | null>(null);
+    const rangeFetchSafetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Refs for Request Tracking
     const fetchRequestIdRef = useRef<number>(0);
+    const rangeFetchUiOwnerRef = useRef<number | null>(null);
     const initialLoadCompleteRef = useRef<boolean>(false); // Track when initial load completes
     const dateRangeStringRef = useRef<string>(''); // Track date range changes
 
     // Refs for Debounced Realtime Sync
     const realtimeSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const initialBackgroundTasksTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const realtimeListenerUnsubscribeRef = useRef<(() => void) | null>(null);
     const isRealtimeSyncEnabledRef = useRef<boolean>(false);
     // Ref to mark whether the accounts listener initial snapshot has been processed
@@ -98,6 +147,24 @@ export const useDataSync = ({
 
     // Queue for sync operations
     const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+    const clearRangeFetchSafetyTimeout = useCallback(() => {
+        if (rangeFetchSafetyTimeoutRef.current) {
+            clearTimeout(rangeFetchSafetyTimeoutRef.current);
+            rangeFetchSafetyTimeoutRef.current = null;
+        }
+    }, []);
+
+    const clearOwnedRangeFetchState = useCallback((requestId: number) => {
+        if (rangeFetchUiOwnerRef.current !== requestId) return;
+        rangeFetchUiOwnerRef.current = null;
+        setIsFetchingNewRange(false);
+        setSyncState(current => (
+            current === 'Fetching...' || current === 'Cross-checking refunds...'
+                ? null
+                : current
+        ));
+    }, []);
 
     // --- Helper: Abort All Operations ---
     const abortAllOperations = useCallback(() => {
@@ -113,6 +180,13 @@ export const useDataSync = ({
             realtimeSyncTimeoutRef.current = null;
         }
 
+        if (initialBackgroundTasksTimeoutRef.current) {
+            clearTimeout(initialBackgroundTasksTimeoutRef.current);
+            initialBackgroundTasksTimeoutRef.current = null;
+        }
+
+        clearRangeFetchSafetyTimeout();
+
         // Disable realtime sync
         isRealtimeSyncEnabledRef.current = false;
 
@@ -121,7 +195,7 @@ export const useDataSync = ({
             realtimeListenerUnsubscribeRef.current();
             realtimeListenerUnsubscribeRef.current = null;
         }
-    }, []);
+    }, [clearRangeFetchSafetyTimeout]);
 
     // --- Helper: Enable Realtime Sync (Debounced) ---
     const scheduleRealtimeSync = useCallback(() => {
@@ -136,6 +210,7 @@ export const useDataSync = ({
         // Schedule enablement after 10 seconds
         realtimeSyncTimeoutRef.current = setTimeout(() => {
             isRealtimeSyncEnabledRef.current = true;
+            realtimeSyncTimeoutRef.current = null;
         }, 10000); // 10 second delay
     }, []);
 
@@ -171,7 +246,6 @@ export const useDataSync = ({
         }
 
         setIsSyncing(true);
-        setIsSyncing(true);
         if (!isSilent) setSyncState(`Syncing ${accountsForSync.length} account(s)...`);
         try {
             const syncStartTime = new Date().toISOString();
@@ -201,28 +275,28 @@ export const useDataSync = ({
             }
 
             // Use validRecords for the rest of the function
-            // Use validRecords for the rest of the function
 
             // OPTIMIZATION: Only fetch costs if syncing Sales rules or Full Sync ("Sale" keyword check)
             // This prevents calling MZ/PW APIs when just updating Refunded status
             const isSaleRuleSync = !ruleNames || ruleNames.some(name => name.includes('Sales'));
 
-            let costMap: Map<string, CostData> = new Map();
+            let costMap = new Map<string, CostData>();
+            let updatedOldRecordCount = 0;
+            let failedCostChunks = 0;
 
             if (isSaleRuleSync) {
-                const recordsToScanForCost = isHistoricalSync
-                    ? validRecords
-                    : [...existingRecords, ...validRecords];
-
-                setSyncState('Updating costs...');
-
-                const ordersNeedingCost = recordsToScanForCost.filter(r => r.kind === 'order' && !r.cost_total);
-
-                if (ordersNeedingCost.length > 0) {
-                    if (signal?.aborted) return [];
-                    setSyncState(`Fetching costs for ${ordersNeedingCost.length} orders...`);
-                    costMap = await fetchCostsForRecords(ordersNeedingCost);
-                }
+                const costSyncResult = await syncFulfillmentCosts({
+                    teamId,
+                    recordsToScan: isHistoricalSync ? validRecords : [...existingRecords, ...validRecords],
+                    recordsToUpdate: existingRecords,
+                    signal,
+                    updateExistingRecords: !isHistoricalSync,
+                    productNameFallback: 'null',
+                    onProgress: progress => setSyncState(progress.message),
+                });
+                costMap = costSyncResult.costMap;
+                updatedOldRecordCount = costSyncResult.updatedRecords;
+                failedCostChunks = costSyncResult.failedChunks;
             } else {
                 // If not syncing sales, we skip cost fetching. 
                 // Any new records (e.g. Refunded emails) will be saved without cost data, which is fine as they are statuses.
@@ -230,29 +304,13 @@ export const useDataSync = ({
 
             if (signal?.aborted) return [];
 
-            let updatedOldRecords: (Partial<Record> & { id: string; })[] = [];
             const newRecordsWithCost = validRecords.map(record => {
-                if (record.order_id && costMap.has(record.order_id)) {
+                if (record.order_id && !isRefundNoticeRecord(record) && costMap.has(record.order_id)) {
                     const costInfo = costMap.get(record.order_id)!;
                     return { ...record, cost_total: costInfo.cost_total, ff_code: costInfo.ff_code, product_name: costInfo.product_name || null };
                 }
                 return record;
             });
-
-            if (costMap.size > 0) {
-                if (!isHistoricalSync) {
-                    updatedOldRecords = existingRecords.filter(r => r.id && r.order_id && costMap.has(r.order_id)).map(record => {
-                        const costInfo = costMap.get(record.order_id!)!;
-                        return { id: record.id!, cost_total: costInfo.cost_total, ff_code: costInfo.ff_code, product_name: costInfo.product_name || null };
-                    });
-
-                    if (updatedOldRecords.length > 0) {
-                        if (signal?.aborted) return [];
-                        setSyncState(`Updating ${updatedOldRecords.length} records...`);
-                        await updateRecordsInFirebase(teamId, updatedOldRecords);
-                    }
-                }
-            }
 
             if (signal?.aborted) return [];
 
@@ -279,10 +337,11 @@ export const useDataSync = ({
                 }
             }
 
-            if (addedRecords.length > 0 || updatedOldRecords.length > 0) {
-                addNotification(`Sync complete. +${addedRecords.length} new, ${updatedOldRecords.length} updated.`, "success");
+            const failedCostSuffix = failedCostChunks > 0 ? ` (${failedCostChunks} cost chunk${failedCostChunks > 1 ? 's' : ''} failed)` : '';
+            if (addedRecords.length > 0 || updatedOldRecordCount > 0) {
+                addNotification(`Sync complete. +${addedRecords.length} new, ${updatedOldRecordCount} updated.${failedCostSuffix}`, "success");
             } else {
-                addNotification(`Sync complete. No new records found.`, "success");
+                addNotification(`Sync complete. No new records found.${failedCostSuffix}`, "success");
             }
             setSyncState(null);
             return addedRecords;
@@ -479,7 +538,8 @@ export const useDataSync = ({
 
                 // Delay background tasks by 5 seconds to let UI render with existing data first
                 if (fbAccounts.length > 0 && !signal.aborted) {
-                    setTimeout(async () => {
+                    initialBackgroundTasksTimeoutRef.current = setTimeout(async () => {
+                        initialBackgroundTasksTimeoutRef.current = null;
                         if (signal.aborted) {
                             return;
                         }
@@ -509,6 +569,10 @@ export const useDataSync = ({
         // Cleanup: abort when component unmounts or user changes
         return () => {
             controller.abort();
+            if (initialBackgroundTasksTimeoutRef.current) {
+                clearTimeout(initialBackgroundTasksTimeoutRef.current);
+                initialBackgroundTasksTimeoutRef.current = null;
+            }
         };
     }, [user, teamId]); // Only depend on user/team, not date ranges
 
@@ -544,6 +608,7 @@ export const useDataSync = ({
 
         // STEP 3: Abort previous date range fetch controller
         dateRangeFetchAbortControllerRef.current?.abort();
+        clearRangeFetchSafetyTimeout();
 
         // STEP 4: Create new controller for this specific range fetch
         const controller = new AbortController();
@@ -553,14 +618,35 @@ export const useDataSync = ({
         // STEP 5: Increment Request ID to track this specific request
         const requestId = fetchRequestIdRef.current + 1;
         fetchRequestIdRef.current = requestId;
+        rangeFetchUiOwnerRef.current = requestId;
+        setIsFetchingNewRange(true);
+        setSyncState('Fetching...');
 
         const fetchDataForRange = async () => {
-            setIsFetchingNewRange(true);
-            setSyncState('Fetching...');
-
+            const startedAt = Date.now();
             const { from, to } = filterDateRange;
-
             const diffDays = Math.round(Math.abs(new Date(to).getTime() - new Date(from).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            const rangeFetchTimeoutMs = getRangeFetchTimeoutMs(diffDays);
+            const uiSafetyTimeoutMs = Math.max(RANGE_FETCH_UI_SAFETY_TIMEOUT_MS, rangeFetchTimeoutMs + 5000);
+
+            let didSafetyTimeout = false;
+            rangeFetchSafetyTimeoutRef.current = setTimeout(() => {
+                if (rangeFetchUiOwnerRef.current !== requestId || requestId !== fetchRequestIdRef.current) return;
+                didSafetyTimeout = true;
+                controller.abort();
+                fetchRequestIdRef.current += 1;
+                console.warn('[rangeFetch] UI safety timeout; keeping previous data visible.', {
+                    requestId,
+                    from: filterDateRange.from,
+                    to: filterDateRange.to,
+                    timeZone,
+                    diffDays,
+                    rangeFetchTimeoutMs,
+                    elapsedMs: Date.now() - startedAt,
+                });
+                clearOwnedRangeFetchState(requestId);
+            }, uiSafetyTimeoutMs);
+
             const shouldFetchPrevious = diffDays <= 7;
             let previousRange: { from: string; to: string } | null = null;
             if (shouldFetchPrevious) {
@@ -570,61 +656,34 @@ export const useDataSync = ({
             }
 
             try {
-                // Helper: Get timezone offset string
-                const getTimezoneOffsetString = (tz: string, dateStr: string): string => {
-                    try {
-                        const d = new Date(dateStr + "T12:00:00Z");
-                        const formatter = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longOffset' });
-                        const parts = formatter.formatToParts(d);
-                        const gmtPart = parts.find(p => p.type === 'timeZoneName');
-                        return gmtPart ? gmtPart.value.replace('GMT', '') : '+00:00';
-                    } catch { return '+00:00'; }
-                };
+                logRangeFetch('start', {
+                    requestId,
+                    from,
+                    to,
+                    timeZone,
+                    diffDays,
+                    rangeFetchTimeoutMs,
+                    previousRange,
+                    shouldFetchPrevious,
+                });
 
-                // Helper: Fetch records in parallel chunks
-                const fetchParallel = async (startStr: string, endStr: string, tz: string): Promise<Record[]> => {
-                    if (signal.aborted) return [];
+                const recordsPromise = signal.aborted
+                    ? Promise.resolve([])
+                    : getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
+                const previousPromise = shouldFetchPrevious && previousRange
+                    ? getRecordsForDateRange(teamId, previousRange.from, previousRange.to, timeZone)
+                    : Promise.resolve(null);
+                const reviewsPromise = getEtsyReviewsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
 
-                    const sOffset = getTimezoneOffsetString(tz, startStr);
-                    const eOffset = getTimezoneOffsetString(tz, endStr);
-
-                    const startDate = new Date(`${startStr}T00:00:00.000${sOffset}`);
-                    const endDate = new Date(`${endStr}T23:59:59.999${eOffset}`);
-
-                    const chunks = splitDateRange(startDate, endDate);
-
-                    const merged: Record[] = [];
-                    for (const chunk of chunks) {
-                        if (signal.aborted) return [];
-
-                        const q = query(
-                            collection(db, 'user', teamId, 'records'),
-                            where('dt_local', '>=', chunk.start.toISOString()),
-                            where('dt_local', '<', chunk.end.toISOString())
-                        );
-                        const snapshot = await getDocs(q);
-                        snapshot.forEach(doc => merged.push({ ...(doc.data() as object), id: doc.id } as Record));
-                    }
-
-                    if (signal.aborted) return [];
-
-                    // Merge and sort
-                    return merged.sort((a, b) => {
-                        if (b.dt_local < a.dt_local) return -1;
-                        if (b.dt_local > a.dt_local) return 1;
-                        return 0;
-                    });
-                };
-
-                const fbRecords = await fetchParallel(filterDateRange.from, filterDateRange.to, timeZone);
-                const prevRecords = shouldFetchPrevious && previousRange
-                    ? await fetchParallel(previousRange.from, previousRange.to, timeZone)
-                    : null;
-                const fetchedReviews = await getEtsyReviewsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
+                const [fbRecords, prevRecords, fetchedReviews] = await Promise.all([
+                    withTimeout(recordsPromise, rangeFetchTimeoutMs, 'records range fetch'),
+                    withTimeout(previousPromise, rangeFetchTimeoutMs, 'previous range fetch'),
+                    withTimeout(reviewsPromise, rangeFetchTimeoutMs, 'reviews range fetch'),
+                ]);
 
                 // RACE CONDITION CHECK: Verify this is still the latest request
                 if (signal.aborted || requestId !== fetchRequestIdRef.current) {
-                    console.log(`[fetchDataForRange] Ignoring stale request #${requestId} (current: #${fetchRequestIdRef.current})`);
+                    logRangeFetch('stale', { requestId, currentRequestId: fetchRequestIdRef.current });
                     return;
                 }
 
@@ -635,9 +694,15 @@ export const useDataSync = ({
                     .map(r => r.order_id!);
 
                 if (orderIdsToCrossCheck.length > 0) {
-                    setSyncState('Cross-checking refunds...');
+                    if (rangeFetchUiOwnerRef.current === requestId) {
+                        setSyncState('Cross-checking refunds...');
+                    }
                     try {
-                        const crossCheckRefunds = await getRefundRecordsForOrderIds(teamId, orderIdsToCrossCheck, filterDateRange.from, filterDateRange.to);
+                        const crossCheckRefunds = await withTimeout(
+                            getRefundRecordsForOrderIds(teamId, orderIdsToCrossCheck, filterDateRange.from, filterDateRange.to),
+                            REFUND_CROSS_CHECK_TIMEOUT_MS,
+                            'refund cross-check'
+                        );
                         if (crossCheckRefunds.length > 0 && !signal.aborted) {
                             const existingIds = new Set(fbRecords.map(r => r.id));
                             let added = false;
@@ -656,6 +721,14 @@ export const useDataSync = ({
                     }
                 }
 
+                logRangeFetch('done', {
+                    requestId,
+                    records: finalRecords.length,
+                    previousRecords: prevRecords?.length || 0,
+                    reviews: fetchedReviews.length,
+                    elapsedMs: Date.now() - startedAt,
+                });
+
                 // Update state with new data
                 setRecords(finalRecords);
                 setPreviousPeriodRecords(prevRecords);
@@ -664,13 +737,19 @@ export const useDataSync = ({
                 // Schedule realtime sync after data stabilizes (10 second delay)
                 scheduleRealtimeSync();
             } catch (error) {
-                if (signal.aborted || requestId !== fetchRequestIdRef.current) return;
+                if (didSafetyTimeout || signal.aborted || requestId !== fetchRequestIdRef.current) return;
                 console.error("Failed to fetch records for range:", error);
                 addNotification('Error loading records for this range.', "error");
             } finally {
-                if (requestId === fetchRequestIdRef.current) {
-                    setIsFetchingNewRange(false);
-                    setSyncState(null);
+                if (rangeFetchUiOwnerRef.current === requestId) {
+                    clearRangeFetchSafetyTimeout();
+                }
+                if (!signal.aborted && requestId === fetchRequestIdRef.current) {
+                    logRangeFetch('clear-ui-state', {
+                        requestId,
+                        elapsedMs: Date.now() - startedAt,
+                    });
+                    clearOwnedRangeFetchState(requestId);
                 }
             }
         };
@@ -680,8 +759,9 @@ export const useDataSync = ({
         // Cleanup: abort if range changes before fetch completes
         return () => {
             controller.abort();
+            clearRangeFetchSafetyTimeout();
         };
-    }, [filterDateRange, user, timeZone, teamId]); // Only depend on actual data values, not functions
+    }, [filterDateRange, user, timeZone, teamId, abortAllOperations, clearOwnedRangeFetchState, clearRangeFetchSafetyTimeout, scheduleRealtimeSync, addNotification]); // Only depend on actual data values and stable helpers
 
     // --- Effect: Listen for New Records (Realtime) ---
     useEffect(() => {
@@ -718,7 +798,7 @@ export const useDataSync = ({
                         addNotification(`New ${newRecord.kind} received.`, "info");
                     }
 
-                    return [newRecord, ...prevRecords].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
+                    return insertRecordByDateDesc(prevRecords, newRecord);
                 });
             }
         });

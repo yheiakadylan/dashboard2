@@ -1,6 +1,8 @@
 import { collection, getDocs, query, where, type DocumentData, type QueryDocumentSnapshot } from 'firebase/firestore';
-import { db } from './firebaseService';
+import { db, getEtsyReviewsForDateRange, getRecordsForDateRange } from './firebaseService';
 import type { EtsyReview, Record as OrderRecord } from '../types';
+import { getValueFromDB, saveValueToDB, STORE_OPERATION_REPORT_CACHE } from '../utils/indexedDB';
+import { startMeasure } from '../utils/perfMarks';
 
 type DateValue = string | number | Date | { seconds?: number; toDate?: () => Date } | null | undefined;
 
@@ -26,6 +28,10 @@ export interface ReportOrderRecord {
   fulfill_provider?: string;
   status?: OrderRecord['status'];
   refundAmount?: number;
+  financials?: {
+    discount?: number;
+    shipping?: number;
+  };
   items: ReportOrderItem[];
 }
 
@@ -92,11 +98,32 @@ const MAX_OPERATION_REPORT_DAYS = 45;
 const REPORT_QUERY_CHUNK_DAYS = 7;
 const TEAM_DOCS_CACHE_LIMIT = 24;
 const OPERATION_CACHE_LIMIT = 12;
+const OPERATION_PERSISTENT_CACHE_ENABLED = false;
+const OPERATION_PERSISTENT_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
+
+const isReportVerboseLogEnabled = () => {
+  try {
+    return import.meta.env.DEV && typeof localStorage !== 'undefined' && localStorage.getItem('reportVerbose') === '1';
+  } catch {
+    return false;
+  }
+};
+
+const logReportVerbose = (message: string, details: globalThis.Record<string, unknown>) => {
+  if (isReportVerboseLogEnabled()) {
+    console.info('[Report]', message, details);
+  }
+};
 
 const teamDocsCache = new Map<string, { createdAt: number; data: unknown[] }>();
 const operationCache = new Map<string, { createdAt: number; data: OperationReportData }>();
 const teamDocsInflight = new Map<string, Promise<unknown[]>>();
 const operationInflight = new Map<string, Promise<OperationReportData>>();
+
+interface OperationReportCacheEntry {
+  createdAt: number;
+  data: OperationReportData;
+}
 
 const getFreshCache = <T,>(cache: Map<string, { createdAt: number; data: T }>, key: string, ttlMs: number): T | null => {
   const cached = cache.get(key);
@@ -159,6 +186,69 @@ export const buildIsoRangeForTimezone = (range: DateRangeInput, timeZone: string
   };
 };
 
+const toISODateValue = (value: DateValue): string | undefined => {
+  if (!value) return undefined;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  if (typeof value === 'string') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toISOString();
+  }
+  if (typeof value === 'number') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  }
+  if (typeof value.toDate === 'function') {
+    const date = value.toDate();
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  }
+  if (typeof value.seconds === 'number') {
+    return new Date(value.seconds * 1000).toISOString();
+  }
+  return undefined;
+};
+
+const getTodayKeyInTimezone = (timeZone: string) => {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
+};
+
+const isHistoricalRange = (range: DateRangeInput, timeZone: string) => {
+  return range.to < getTodayKeyInTimezone(timeZone);
+};
+
+const getPersistentOperationCacheKey = (range: DateRangeInput, timeZone: string) => {
+  return `operation-report:v2:${range.from}:${range.to}:${timeZone}`;
+};
+
+const readPersistentOperationCache = async (range: DateRangeInput, timeZone: string): Promise<OperationReportData | null> => {
+  try {
+    const entry = await getValueFromDB<OperationReportCacheEntry>(STORE_OPERATION_REPORT_CACHE, getPersistentOperationCacheKey(range, timeZone));
+    if (!entry) return null;
+    if (Date.now() - entry.createdAt > OPERATION_PERSISTENT_CACHE_MS) return null;
+    logReportVerbose('operation-cache:persistent-hit', { range, timeZone });
+    return entry.data;
+  } catch (error) {
+    logReportVerbose('operation-cache:persistent-read-failed', { error });
+    return null;
+  }
+};
+
+const writePersistentOperationCache = async (range: DateRangeInput, timeZone: string, data: OperationReportData) => {
+  try {
+    await saveValueToDB(STORE_OPERATION_REPORT_CACHE, getPersistentOperationCacheKey(range, timeZone), {
+      createdAt: Date.now(),
+      data
+    } satisfies OperationReportCacheEntry);
+    logReportVerbose('operation-cache:persistent-write', { range, timeZone });
+  } catch (error) {
+    logReportVerbose('operation-cache:persistent-write-failed', { error });
+  }
+};
+
 const compactTaskDoc = (docSnap: QueryDocumentSnapshot<DocumentData>, collectionName: 'tasks' | 'ideas'): OperationTask => {
   const data = docSnap.data();
   return {
@@ -178,19 +268,23 @@ const compactTaskDoc = (docSnap: QueryDocumentSnapshot<DocumentData>, collection
     supplier: data.supplier,
     fulfillment_id: data.fulfillment_id,
     rejection_count: data.rejection_count,
-    created_at: data.created_at,
-    updatedAt: data.updatedAt,
-    fulfilled_at: data.fulfilled_at,
-    design_submitted_at: data.design_submitted_at,
+    created_at: toISODateValue(data.created_at),
+    updatedAt: toISODateValue(data.updatedAt),
+    fulfilled_at: toISODateValue(data.fulfilled_at),
+    design_submitted_at: toISODateValue(data.design_submitted_at),
     collectionName
   };
 };
 
 const compactOrderRecordDoc = (docSnap: QueryDocumentSnapshot<DocumentData>): ReportOrderRecord => {
   const data = docSnap.data() as OrderRecord;
+  return compactOrderRecord(data, docSnap.id);
+};
+
+const compactOrderRecord = (data: OrderRecord, id?: string): ReportOrderRecord => {
   return {
-    id: docSnap.id,
-    dt_local: data.dt_local,
+    id,
+    dt_local: toISODateValue(data.dt_local) || '',
     amount: Number(data.amount || 0),
     order_id: data.order_id || null,
     currency: data.currency || null,
@@ -202,6 +296,12 @@ const compactOrderRecordDoc = (docSnap: QueryDocumentSnapshot<DocumentData>): Re
     fulfill_provider: data.fulfill_provider,
     status: data.status,
     refundAmount: data.refund_details?.refundAmount,
+    financials: data.details?.financials
+      ? {
+        discount: Number(data.details.financials.discount || 0),
+        shipping: Number(data.details.financials.shipping || 0)
+      }
+      : undefined,
     items: Array.isArray(data.details?.items)
       ? data.details.items.map(item => ({
         sku: item.sku,
@@ -216,11 +316,15 @@ const compactOrderRecordDoc = (docSnap: QueryDocumentSnapshot<DocumentData>): Re
 
 const compactReviewDoc = (docSnap: QueryDocumentSnapshot<DocumentData>): ReportReview => {
   const data = docSnap.data() as EtsyReview;
+  return compactReview(data, docSnap.id);
+};
+
+const compactReview = (data: EtsyReview, id?: string): ReportReview => {
   return {
-    id: docSnap.id,
+    id,
     shop_id: String(data.shop_id || 'Unknown'),
     rating: typeof data.rating === 'number' ? data.rating : null,
-    create_date: data.create_date
+    create_date: toISODateValue(data.create_date) || ''
   };
 };
 
@@ -230,12 +334,14 @@ const fetchTasksByDateField = async (
   fromISO: string,
   toISO: string
 ): Promise<OperationTask[]> => {
+  logReportVerbose('task-query:start', { collectionName, field, fromISO, toISO });
   const q = query(
     collection(db, collectionName),
     where(field, '>=', fromISO),
     where(field, '<=', toISO)
   );
   const snap = await getDocs(q);
+  logReportVerbose('task-query:done', { collectionName, field, count: snap.size });
   return snap.docs.map(docSnap => compactTaskDoc(docSnap, collectionName));
 };
 
@@ -291,11 +397,23 @@ const fetchTeamDocsByDateField = async <T,>(
   }
 };
 
-export const fetchReportRecords = (teamId: string, dateRange: DateRangeInput, timeZone: string, forceRefresh = false): Promise<ReportOrderRecord[]> =>
-  fetchTeamDocsByDateField<ReportOrderRecord>(teamId, 'records', 'dt_local', dateRange, timeZone, compactOrderRecordDoc, forceRefresh);
+export const fetchReportRecords = async (teamId: string, dateRange: DateRangeInput, timeZone: string, forceRefresh = false): Promise<ReportOrderRecord[]> => {
+  if (forceRefresh) {
+    return fetchTeamDocsByDateField<ReportOrderRecord>(teamId, 'records', 'dt_local', dateRange, timeZone, compactOrderRecordDoc, true);
+  }
+  assertReportRangeSupported(dateRange);
+  const records = await getRecordsForDateRange(teamId, dateRange.from, dateRange.to, timeZone);
+  return records.map(record => compactOrderRecord(record, record.id));
+};
 
-export const fetchReportReviews = (teamId: string, dateRange: DateRangeInput, timeZone: string, forceRefresh = false): Promise<ReportReview[]> =>
-  fetchTeamDocsByDateField<ReportReview>(teamId, 'reviews', 'create_date', dateRange, timeZone, compactReviewDoc, forceRefresh);
+export const fetchReportReviews = async (teamId: string, dateRange: DateRangeInput, timeZone: string, forceRefresh = false): Promise<ReportReview[]> => {
+  if (forceRefresh) {
+    return fetchTeamDocsByDateField<ReportReview>(teamId, 'reviews', 'create_date', dateRange, timeZone, compactReviewDoc, true);
+  }
+  assertReportRangeSupported(dateRange);
+  const reviews = await getEtsyReviewsForDateRange(teamId, dateRange.from, dateRange.to, timeZone);
+  return reviews.map(review => compactReview(review, review.id));
+};
 
 const fetchOperationUsers = async (forceRefresh = false): Promise<OperationUser[]> => {
   const now = Date.now();
@@ -331,15 +449,30 @@ export const fetchOperationReportData = async (
 ): Promise<OperationReportData> => {
   assertReportRangeSupported(dateRange);
   const cacheKey = `${dateRange.from}:${dateRange.to}:${timeZone}`;
+  const canUsePersistentCache = OPERATION_PERSISTENT_CACHE_ENABLED && !forceRefresh && isHistoricalRange(dateRange, timeZone);
   if (!forceRefresh) {
     const cached = getFreshCache(operationCache, cacheKey, REPORT_CACHE_MS);
     if (cached) return cached;
 
     const inflight = operationInflight.get(cacheKey);
     if (inflight) return inflight;
+
+    if (canUsePersistentCache) {
+      const persistentCached = await readPersistentOperationCache(dateRange, timeZone);
+      if (persistentCached) {
+        setLimitedCache(operationCache, cacheKey, persistentCached, OPERATION_CACHE_LIMIT);
+        return persistentCached;
+      }
+    }
   }
 
   const request = (async () => {
+    const endMeasure = startMeasure('report:operation-fetch', {
+      from: dateRange.from,
+      to: dateRange.to,
+      timeZone,
+      forceRefresh
+    });
     const { fromISO, toISO } = buildIsoRangeForTimezone(dateRange, timeZone);
     const users = await fetchOperationUsers(forceRefresh);
 
@@ -360,6 +493,15 @@ export const fetchOperationReportData = async (
     };
 
     setLimitedCache(operationCache, cacheKey, data, OPERATION_CACHE_LIMIT);
+    endMeasure({
+      tasksDesignSubmitted: tasksDesignSubmitted.length,
+      tasksFulfilled: data.tasksFulfilled.length,
+      ideasCreated: ideasCreated.length,
+      ideasDesignSubmitted: ideasDesignSubmitted.length
+    });
+    if (OPERATION_PERSISTENT_CACHE_ENABLED && isHistoricalRange(dateRange, timeZone)) {
+      writePersistentOperationCache(dateRange, timeZone, data);
+    }
     return data;
   })();
 

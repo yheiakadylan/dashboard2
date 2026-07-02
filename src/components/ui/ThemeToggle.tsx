@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useUI } from '../../contexts/UIContext';
+import React from 'react';
+import { useUITheme } from '../../contexts/UIContext';
 
 interface ThemeToggleProps {
   className?: string;
@@ -7,7 +7,7 @@ interface ThemeToggleProps {
 
 const ThemeToggle: React.FC<ThemeToggleProps> = ({ className }) => {
   // Use global theme state from UIContext
-  const { theme, toggleTheme } = useUI();
+  const { theme, toggleTheme } = useUITheme();
 
   return (
     <button

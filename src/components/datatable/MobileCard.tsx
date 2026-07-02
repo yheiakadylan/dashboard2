@@ -218,7 +218,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             <div className="flex items-center gap-2">
                                 {isRefunded && (
                                     <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-red-600 dark:text-red-400">
-                                        <span>↩</span><span>Refunded</span>
+                                        <span>Refunded</span>
                                     </span>
                                 )}
                             </div>

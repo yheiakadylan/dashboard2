@@ -296,10 +296,11 @@ const ManualCostImporter: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     };
 
     const handleApply = async () => {
+        const importedRowsById = new Map(importedRows.map(row => [row.id, row]));
         const toUpdate = matchResults
             .filter(r => r.selected && r.recordId)
             .map(r => {
-                const row = importedRows.find(ir => ir.id === r.rowId)!;
+                const row = importedRowsById.get(r.rowId)!;
                 return {
                     id: r.recordId!,
                     cost_total: row.cost,
@@ -321,8 +322,9 @@ const ManualCostImporter: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             await updateRecordsInFirebase(teamId, toUpdate);
 
             // Immediate optimistic update
+            const updatesById = new Map(toUpdate.map(update => [update.id, update]));
             setRecords(prevRecords => prevRecords.map(r => {
-                const update = toUpdate.find(u => u.id === r.id);
+                const update = r.id ? updatesById.get(r.id) : undefined;
                 if (update) {
                     return {
                         ...r,

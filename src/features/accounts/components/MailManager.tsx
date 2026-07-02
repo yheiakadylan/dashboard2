@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Account } from '../../../types';
 import { signInWithGoogle, signInWithMicrosoft } from '../../auth/services/authService';
 import { useDashboard } from '../../../contexts/DashboardContext';
-import { useUI } from '../../../contexts/UIContext';
+import { useUIFilters } from '../../../contexts/UIContext';
 import { useNotification } from '../../../contexts/NotificationContext';
 import { RULES } from '../../../services/rules'; // Import RULES
 
@@ -28,7 +28,7 @@ export const MailManager: React.FC = () => {
     handleQuickSync // Add new handler
   } = useDashboard();
 
-  const { timeZone } = useUI();
+  const { timeZone } = useUIFilters();
 
 
   const { addNotification } = useNotification();

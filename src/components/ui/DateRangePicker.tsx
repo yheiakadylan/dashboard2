@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { useUI } from '../../contexts/UIContext';
+import { useUIFilters } from '../../contexts/UIContext';
 
 
 
@@ -45,7 +45,7 @@ interface DateRangePickerProps {
 }
 
 const DateRangePicker: React.FC<DateRangePickerProps> = ({ align = 'left', value, onChange, timeZone: timeZoneOverride }) => {
-    const { filterDateRange, setFilterDateRange, timeZone: uiTimeZone } = useUI();
+    const { filterDateRange, setFilterDateRange, timeZone: uiTimeZone } = useUIFilters();
     const selectedRange = value || filterDateRange;
     const activeTimeZone = timeZoneOverride || uiTimeZone;
 

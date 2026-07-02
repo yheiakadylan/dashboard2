@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useUI } from '../../contexts/UIContext';
+import { useUISettings } from '../../contexts/UIContext';
 
 interface SummaryChartProps {
   data: any[];
@@ -91,7 +91,7 @@ import EmptyState from '../ui/EmptyState';
 
 const SummaryChart: React.FC<SummaryChartProps> = ({ data, hideTitle = false, hideFunds = false, exchangeRates }) => {
   const [page, setPage] = useState(0);
-  const { globalUsdMode: usdMode } = useUI();
+  const { globalUsdMode: usdMode } = useUISettings();
 
   const { revenueKeys, fundsKeys } = React.useMemo(() => {
     const keys = new Set<string>();

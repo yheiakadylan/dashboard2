@@ -6,9 +6,17 @@ import { parseMessage, RULES } from '../src/services/rules.js';
 import { getHtmlFromGmailPayload, getPlainTextFromGmailPayload } from './_lib/gmailHelper.js';
 import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
-import { processTeamSync } from './_lib/syncService.js';
 import { applyCategoryMappings } from './_lib/mappingHelper.js';
-import { processNewOrder } from './_lib/orderService.js';
+import { createBatchWriter, estimateRecordWrites, processNewOrder } from './_lib/orderService.js';
+import { markDailyCacheDirtyForISOValues } from './_lib/dailyCacheAdmin.js';
+
+const chunkArray = <T>(array: T[], size: number): T[][] => {
+  const chunks: T[][] = [];
+  for (let index = 0; index < array.length; index += size) {
+    chunks.push(array.slice(index, index + size));
+  }
+  return chunks;
+};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -158,38 +166,57 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 🟢 APPLY CATEGORY MAPPING
-    const mappedRecords = await applyCategoryMappings(effectiveUserId, newRecords);
+    const emailIdsToCheck = newRecords.map(record => record.email_id).filter(Boolean);
+    const existingEmailIds = new Set<string>();
+    if (emailIdsToCheck.length > 0) {
+      const recordsCollection = db.collection('user').doc(effectiveUserId).collection('records');
+      for (const chunk of chunkArray(emailIdsToCheck, 30)) {
+        const snapshot = await recordsCollection.where('email_id', 'in', chunk).get();
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.email_id) existingEmailIds.add(data.email_id);
+        });
+      }
+    }
+
+    const recordsToSave = newRecords.filter(record => !record.email_id || !existingEmailIds.has(record.email_id));
+    const mappedRecords = await applyCategoryMappings(effectiveUserId, recordsToSave);
 
     // Lưu vào DB (logic cũ giữ nguyên)
     const recordsCollection = db.collection('user').doc(effectiveUserId).collection('records');
-    const batch = db.batch();
+    const batchWriter = createBatchWriter(db);
 
     if (mappedRecords.length > 0) {
       const accountId = accountDoc.id;
       const infoMap = new Map([[userEmail, { id: accountId, label: shopName }]]);
       let saveCount = 0;
       for (const record of mappedRecords) {
+        await batchWriter.ensureCapacity(estimateRecordWrites(record));
         const docRef = record.email_id
           ? recordsCollection.doc(record.email_id)
           : recordsCollection.doc();
         const { id, ...recordData } = record;
-        batch.set(docRef, recordData);
+        batchWriter.set(docRef, recordData);
 
         // --- TRIGGER SKU JOB & TASK CREATION ---
-        // --- TRIGGER SKU JOB & TASK CREATION ---
-        await processNewOrder(db, batch, effectiveUserId, record, infoMap);
+        await processNewOrder(db, batchWriter, effectiveUserId, record, infoMap);
 
         saveCount++;
       }
       if (saveCount > 0) {
-        await batch.commit();
-        console.log(`[Webhook] Processed ${saveCount} records.`);
+        await batchWriter.commit();
+        console.log(`[Webhook] Processed ${saveCount} records in ${batchWriter.getCommitCount()} batch(es).`);
+        await markDailyCacheDirtyForISOValues(
+          db,
+          effectiveUserId,
+          ['records'],
+          mappedRecords.map(record => record.dt_local),
+          'gmail-webhook'
+        ).catch(error => console.warn('[gmail-webhook] Failed to mark daily cache dirty:', error));
 
-        // 🟢 TRIGGER SHEET SYNC IMMEDIATELY
-        processTeamSync(effectiveUserId).catch(err => console.error('[Webhook] Sheet sync failed:', err));
       }
     } else {
-      await batch.commit();
+      console.log(`[Webhook] No new records to save. Parsed=${newRecords.length}, existing=${existingEmailIds.size}.`);
     }
 
     // Cập nhật history ID

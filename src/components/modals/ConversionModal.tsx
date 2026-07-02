@@ -40,6 +40,29 @@ export const ConversionModal: React.FC<ConversionModalProps> = ({
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isResetting, setIsResetting] = useState(false);
     const modalRef = useRef<HTMLDivElement>(null);
+    const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+            if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (isOpen) return;
+        if (refreshTimeoutRef.current) {
+            clearTimeout(refreshTimeoutRef.current);
+            refreshTimeoutRef.current = null;
+        }
+        if (resetTimeoutRef.current) {
+            clearTimeout(resetTimeoutRef.current);
+            resetTimeoutRef.current = null;
+        }
+        setIsRefreshing(false);
+        setIsResetting(false);
+    }, [isOpen]);
 
     // Countdown timer
     useEffect(() => {
@@ -142,7 +165,11 @@ export const ConversionModal: React.FC<ConversionModalProps> = ({
             setEditingRates({});
             setPendingChanges(new Set());
         } finally {
-            setTimeout(() => setIsRefreshing(false), 500); // Small delay for visual feedback
+            if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+            refreshTimeoutRef.current = setTimeout(() => {
+                setIsRefreshing(false);
+                refreshTimeoutRef.current = null;
+            }, 500); // Small delay for visual feedback
         }
     };
 
@@ -153,7 +180,11 @@ export const ConversionModal: React.FC<ConversionModalProps> = ({
         setEditingRates({});
         setPendingChanges(new Set());
         onReset();
-        setTimeout(() => setIsResetting(false), 500);
+        if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+        resetTimeoutRef.current = setTimeout(() => {
+            setIsResetting(false);
+            resetTimeoutRef.current = null;
+        }, 500);
     };
 
     return createPortal(

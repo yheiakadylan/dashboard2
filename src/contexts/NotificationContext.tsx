@@ -35,7 +35,12 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     lastNotificationRef.current = { message, time: now };
 
     const id = Math.random().toString(36).substring(2, 9);
-    setNotifications((prev) => [...prev, { id, message, type }]);
+    const enqueue = typeof queueMicrotask === 'function'
+      ? queueMicrotask
+      : (callback: () => void) => setTimeout(callback, 0);
+    enqueue(() => {
+      setNotifications((prev) => [...prev, { id, message, type }]);
+    });
   }, []);
 
   // 1. Dùng useCallback cho hàm remove luôn

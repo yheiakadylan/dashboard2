@@ -33,8 +33,8 @@ const representativeZones: { [key: string]: string } = {
     "UTC-11:00": "Pacific/Pago_Pago",
     "UTC-10:00": "Pacific/Honolulu",
     "UTC-09:00": "America/Anchorage",
-    "UTC-08:00": "America/Los_Angeles", // PST
-    "UTC-07:00": "America/Phoenix",      // MST (No DST preferred for stability, or Denver)
+    "UTC-08:00": "Etc/GMT+8",            // Fixed UTC-8
+    "UTC-07:00": "Etc/GMT+7",            // Fixed UTC-7
     "UTC-06:00": "America/Chicago",      // CST
     "UTC-05:00": "America/New_York",     // EST
     "UTC-04:00": "America/Halifax",

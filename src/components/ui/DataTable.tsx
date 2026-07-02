@@ -2,7 +2,7 @@ import React, { useState, useMemo, useLayoutEffect, useCallback } from 'react';
 import { compareValues, SortDirection } from '../../utils/sortUtils';
 import { FixedSizeList as List, VariableSizeList } from 'react-window';
 import { HIDDEN_MOBILE_HEADERS } from '../../constants';
-import { getColumnStyle } from '../../constants/columnConfigs';
+import { getColumnStyle, resolveFlexBasis } from '../../constants/columnConfigs';
 import EmptyState from './EmptyState';
 import DesktopRow from '../datatable/DesktopRow';
 import MobileCard from '../datatable/MobileCard';
@@ -83,6 +83,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
     const varListRef = React.useRef<VariableSizeList>(null);
     const containerRef = React.useRef<HTMLDivElement>(null);
     const headerRef = React.useRef<HTMLDivElement>(null);
+    const mobileHeightCacheRef = React.useRef<Map<number, number>>(new Map());
 
     // Use custom size tracker instead of AutoSizer
     const { width, height } = useContainerSize(containerRef);
@@ -131,6 +132,46 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         });
     }, [data, sortColumn, sortDirection]);
 
+    const headerIndexes = useMemo(() => {
+        const normalized = headers.map(header => header.toLowerCase());
+        const find = (name: string) => {
+            const needle = name.toLowerCase();
+            return normalized.findIndex(header => header.includes(needle));
+        };
+
+        return {
+            normalized,
+            message: find('message'),
+            helpKind: find('help kind'),
+            orderNumber: find('order number'),
+            orderId: find('order id'),
+            image: find('image'),
+            productName: find('product name'),
+            action: find('action'),
+            details: find('details'),
+            dateTime: headers.indexOf('DateTime'),
+            currency: find('currency'),
+            curren: find('curren'),
+            source: find('source'),
+            account: find('account'),
+            date: find('date')
+        };
+    }, [headers]);
+
+    const productSpecialIndices = useMemo(() => new Set(
+        [
+            headerIndexes.image,
+            headerIndexes.productName,
+            headerIndexes.orderNumber !== -1 ? headerIndexes.orderNumber : headerIndexes.orderId,
+            headerIndexes.action !== -1 ? headerIndexes.action : headerIndexes.details,
+            headerIndexes.dateTime,
+            headerIndexes.currency !== -1 ? headerIndexes.currency : headerIndexes.curren,
+            headerIndexes.source,
+            headerIndexes.account,
+            headerIndexes.date
+        ].filter(index => index !== -1)
+    ), [headerIndexes]);
+
     // isMobile detection: more robust by checking both container and window width
     // Initialize with a safe guess to avoid flickering
     const [isMobile, setIsMobile] = useState(() => {
@@ -145,9 +186,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
             const currentWidth = (width > 0) ? width : (typeof window !== 'undefined' ? window.innerWidth : 0);
             if (currentWidth > 0) {
                 const nextIsMobile = currentWidth < mobileBreakpoint || forceCardView;
-                if (nextIsMobile !== isMobile) {
-                    setIsMobile(nextIsMobile);
-                }
+                setIsMobile(prev => (prev === nextIsMobile ? prev : nextIsMobile));
             }
         };
 
@@ -158,15 +197,16 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
             window.addEventListener('resize', updateDeviceType);
             return () => window.removeEventListener('resize', updateDeviceType);
         }
-    }, [width, mobileBreakpoint, forceCardView, isMobile]);
+    }, [width, mobileBreakpoint, forceCardView]);
 
     // Reset VariableSizeList cache khi data/sort/width thay đổi
     // (VariableSizeList cache item sizes — phải reset khi data hoặc width đổi)
     React.useEffect(() => {
+        mobileHeightCacheRef.current.clear();
         if (varListRef.current) {
             varListRef.current.resetAfterIndex(0);
         }
-    }, [sortedData, width, isMobile]);
+    }, [sortedData, width, isMobile, mobileRowHeight, headers]);
 
     // Measure table absolute position once (and on resize) - Simpler version just for tooltip/modal pos if needed
     React.useLayoutEffect(() => {
@@ -190,8 +230,16 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
 
         if (!isMobile) return 92;
 
+        const cachedHeight = mobileHeightCacheRef.current.get(index);
+        if (cachedHeight !== undefined) return cachedHeight;
+
+        const cacheAndReturn = (height: number) => {
+            mobileHeightCacheRef.current.set(index, height);
+            return height;
+        };
+
         const row = sortedData[index];
-        if (!row) return FALLBACK_H;
+        if (!row) return cacheAndReturn(FALLBACK_H);
 
         // --- Helper: Count lines including subtitles ---
         const getExtraHeight = (val: any, charsPerLine: number, lineH: number) => {
@@ -208,11 +256,9 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
             return (Math.max(0, lines - 1) * lineH) + subtitleExtra;
         };
 
-        const findH = (name: string) => headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
-
         // === SUPPORT LAYOUT (Message / Help Kind) ===
-        const msgIdx = findH('message') !== -1 ? findH('message') : findH('help kind');
-        const hasSupportLayout = msgIdx !== -1 && (findH('order number') !== -1 || findH('order id') !== -1);
+        const msgIdx = headerIndexes.message !== -1 ? headerIndexes.message : headerIndexes.helpKind;
+        const hasSupportLayout = msgIdx !== -1 && (headerIndexes.orderNumber !== -1 || headerIndexes.orderId !== -1);
 
         if (hasSupportLayout) {
             const SUPPORT_BASE = 124; // header + footer + padding
@@ -224,11 +270,11 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                 return acc + Math.max(1, Math.ceil((line.length || 1) / CHARS_PER_LINE));
             }, 0);
 
-            return SUPPORT_BASE + estimatedLines * LINE_H + 8;
+            return cacheAndReturn(SUPPORT_BASE + estimatedLines * LINE_H + 8);
         }
 
         // === PRODUCT ORDER LAYOUT (Image) ===
-        const imageIdx = findH('image');
+        const imageIdx = headerIndexes.image;
         const hasImage = imageIdx !== -1;
 
         if (!hasImage) {
@@ -249,7 +295,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                 else if (vw >= 640) GRID_COLS = 3;
             }
 
-            const actionIdx2 = findH('action') !== -1 ? findH('action') : findH('details');
+            const actionIdx2 = headerIndexes.action !== -1 ? headerIndexes.action : headerIndexes.details;
             const hasAction = actionIdx2 !== -1;
             let genericBodyCount = 0;
             let extraWrapHeight = 0;
@@ -257,8 +303,9 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
             headers.forEach((h, i) => {
                 if (i === 0 || i === actionIdx2 || h === 'DateTime') return;
                 const val = row[i];
-                const isFunds = h.toLowerCase().includes('funds');
-                if (!isFunds && (val === null || val === '-' || val === '' || (val === 0 && !h.toLowerCase().includes('count')))) return;
+                const normalizedHeader = headerIndexes.normalized[i];
+                const isFunds = normalizedHeader.includes('funds');
+                if (!isFunds && (val === null || val === '-' || val === '' || (val === 0 && !normalizedHeader.includes('count')))) return;
                 
                 genericBodyCount++;
                 extraWrapHeight += getExtraHeight(val, CHARS_PER_CELL, EXTRA_LINE_H);
@@ -266,32 +313,20 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
 
             const genericRows = Math.max(1, Math.ceil(genericBodyCount / GRID_COLS));
             const actionExtra = hasAction ? 48 : 0;
-            return genericBase + genericRows * GENERIC_ROW_H + extraWrapHeight + actionExtra + 12;
+            return cacheAndReturn(genericBase + genericRows * GENERIC_ROW_H + extraWrapHeight + actionExtra + 12);
         }
 
-
-
-        const productIdx = findH('product name');
-        const orderIdIdx = findH('order number') !== -1 ? findH('order number') : findH('order id');
-        const actionIdx = findH('action') !== -1 ? findH('action') : findH('details');
-        const dateTimeIdx = headers.indexOf('DateTime');
-        const currencyIdx = findH('currency') !== -1 ? findH('currency') : findH('curren');
-        const sourceIdx = findH('source');
-        const accountIdx = findH('account');
-        const dateIdx = findH('date');
-
-        const specialSet = new Set(
-            [imageIdx, productIdx, orderIdIdx, actionIdx, dateTimeIdx, currencyIdx, sourceIdx, accountIdx, dateIdx]
-                .filter(i => i !== -1)
-        );
+        const productIdx = headerIndexes.productName;
+        const accountIdx = headerIndexes.account;
+        const dateIdx = headerIndexes.date;
 
         let bodyCount = 0;
         headers.forEach((h, i) => {
-            if (specialSet.has(i) || h === 'DateTime' || h === 'Status') return;
+            if (productSpecialIndices.has(i) || h === 'DateTime' || h === 'Status') return;
             const val = row[i];
             if (h === 'Cost' && (val === null || val === '-' || val === '')) { bodyCount++; return; }
             if (val === null || val === '-' || val === '' || val === 'No') return;
-            if (val === 0 && !h.toLowerCase().includes('count') && h !== 'Cost') return;
+            if (val === 0 && !headerIndexes.normalized[i].includes('count') && h !== 'Cost') return;
             bodyCount++;
         });
 
@@ -314,14 +349,14 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         const hasFooter = accountIdx !== -1 || dateIdx !== -1;
         const effectiveBase = hasFooter ? BASE_HEIGHT : BASE_HEIGHT - FOOTER_H;
 
-        return effectiveBase + gridRows * GRID_ROW_H + extraWrapHeight + 8;
+        return cacheAndReturn(effectiveBase + gridRows * GRID_ROW_H + extraWrapHeight + 8);
 
-    }, [sortedData, headers, isMobile, mobileRowHeight, width]);
+    }, [sortedData, headers, headerIndexes, productSpecialIndices, isMobile, mobileRowHeight, width]);
 
     const totalMobileHeight = useMemo(() => {
-        if (!isMobile) return 0;
+        if (!isMobile || !autoHeight) return 0;
         return sortedData.reduce((sum, _, i) => sum + getMobileItemHeight(i), 0);
-    }, [sortedData, isMobile, getMobileItemHeight, width]);
+    }, [autoHeight, sortedData, isMobile, getMobileItemHeight, width]);
 
     const itemData = useMemo<RowData>(() => ({
         items: sortedData,
@@ -390,7 +425,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                         const customHeaderStyle = {
                             flexGrow: config.flexGrow ?? 1,
                             flexShrink: 0,
-                            flexBasis: config.basis.includes('/') ? `${(eval(config.basis) * 100)}%` : config.basis,
+                            flexBasis: resolveFlexBasis(config.basis),
                             ...(columnWidths && columnWidths[header] ? { minWidth: `${columnWidths[header]}px`, width: `${columnWidths[header]}px`, flexBasis: `${columnWidths[header]}px` } : {})
                         };
 

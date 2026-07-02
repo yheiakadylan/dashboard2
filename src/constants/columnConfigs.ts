@@ -38,3 +38,17 @@ export const COLUMN_CONFIGS: { [key: string]: ColumnConfig } = {
 export const getColumnStyle = (header: string): ColumnConfig => {
   return COLUMN_CONFIGS[header] || { basis: '120px', flexGrow: 1 };
 };
+
+export const resolveFlexBasis = (basis: string): string => {
+  if (!basis.includes('/')) return basis;
+
+  const [numeratorText, denominatorText] = basis.split('/');
+  const numerator = Number(numeratorText);
+  const denominator = Number(denominatorText);
+
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) {
+    return basis;
+  }
+
+  return `${(numerator / denominator) * 100}%`;
+};

@@ -1,21 +1,20 @@
 // components/AccountManager.tsx
-import React, { useState, useRef, useEffect } from 'react';
-import { Account } from '../../../types';
+import React, { Suspense, useState } from 'react';
 import { useDashboard } from '../../../contexts/DashboardContext';
-import { useUI } from '../../../contexts/UIContext';
-import { useNotification } from '../../../contexts/NotificationContext';
+import { useUIModals } from '../../../contexts/UIContext';
 
-import UserManager from '../../users/components/UserManager';
-import ManualCostManager from '../../costs/components/ManualCostManager';
-import NotificationSettings from '../../notifications/components/NotificationSettings';
-import { MailManager } from './MailManager';
 import UserProfileSettings from '../../users/components/UserProfileSettings';
-import WorkerStatusManager from './WorkerStatusManager';
+
+const MailManager = React.lazy(() => import('./MailManager').then(module => ({ default: module.MailManager })));
+const ManualCostManager = React.lazy(() => import('../../costs/components/ManualCostManager'));
+const NotificationSettings = React.lazy(() => import('../../notifications/components/NotificationSettings'));
+const UserManager = React.lazy(() => import('../../users/components/UserManager'));
+const WorkerStatusManager = React.lazy(() => import('./WorkerStatusManager'));
 
 
 const AccountManager: React.FC = () => {
   const { role, permissions } = useDashboard();
-  const { setIsAccountManagerOpen } = useUI();
+  const { setIsAccountManagerOpen } = useUIModals();
 
   // Permissions for specific tabs
   const canManageMail = role === 'owner' || permissions.canManageMailSettings;
@@ -94,12 +93,14 @@ const AccountManager: React.FC = () => {
 
         {/* Content */}
         <div className="p-3 md:p-6 flex-grow flex flex-col overflow-hidden bg-transparent">
-          {activeTab === 'profile' && <UserProfileSettings />}
-          {activeTab === 'mail' && <MailManager />}
-          {activeTab === 'users' && <UserManager />}
-          {activeTab === 'costs' && <ManualCostManager />}
-          {activeTab === 'notifications' && <NotificationSettings />}
-          {activeTab === 'workers' && <WorkerStatusManager />}
+          <Suspense fallback={<div className="p-4 text-sm text-gray-500 dark:text-gray-400">Loading...</div>}>
+            {activeTab === 'profile' && <UserProfileSettings />}
+            {activeTab === 'mail' && <MailManager />}
+            {activeTab === 'users' && <UserManager />}
+            {activeTab === 'costs' && <ManualCostManager />}
+            {activeTab === 'notifications' && <NotificationSettings />}
+            {activeTab === 'workers' && <WorkerStatusManager />}
+          </Suspense>
         </div>
 
       </div>

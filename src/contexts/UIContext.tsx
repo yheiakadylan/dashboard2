@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { Tab } from '../types';
 import { useNotification } from './NotificationContext';
@@ -27,10 +27,6 @@ interface UIContextType {
     setIsTabSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
     isNotificationDetailOpen: boolean;
     setIsNotificationDetailOpen: React.Dispatch<React.SetStateAction<boolean>>;
-    isOrderSelectorOpen: boolean;
-    setIsOrderSelectorOpen: React.Dispatch<React.SetStateAction<boolean>>;
-    isGoogleSheetModalOpen: boolean;
-    setIsGoogleSheetModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
     selectedNotificationId: string | null;
     setSelectedNotificationId: React.Dispatch<React.SetStateAction<string | null>>;
 
@@ -74,7 +70,39 @@ interface UIContextType {
     handleShopDetails: (accountId: string) => void;
 }
 
+type UIThemeContextType = Pick<UIContextType, 'theme' | 'toggleTheme'>;
+type UILayoutContextType = Pick<UIContextType, 'isSidebarCollapsed' | 'toggleSidebar' | 'isMobileMenuOpen' | 'setIsMobileMenuOpen' | 'toggleMobileMenu'>;
+type UIModalContextType = Pick<UIContextType,
+    'isAccountManagerOpen' | 'setIsAccountManagerOpen' |
+    'isTabSettingsOpen' | 'setIsTabSettingsOpen' |
+    'isNotificationDetailOpen' | 'setIsNotificationDetailOpen' |
+    'selectedNotificationId' | 'setSelectedNotificationId'
+>;
+type UITabContextType = Pick<UIContextType,
+    'activeTab' | 'setActiveTab' | 'tabOrder' | 'setTabOrder' | 'hiddenTabs' |
+    'reorderTabs' | 'toggleTabVisibility' | 'resetTabPreferences' | 'handleTabClick' |
+    'handleViewDayDetails' | 'handleShopDetails'
+>;
+type UIFilterContextType = Pick<UIContextType,
+    'searchTerm' | 'setSearchTerm' |
+    'selectedAccountId' | 'setSelectedAccountId' |
+    'timeZone' | 'setTimeZone' |
+    'filterDateRange' | 'setFilterDateRange' |
+    'dayFilter' | 'setDayFilter' |
+    'sourceFilter' | 'setSourceFilter' |
+    'statusFilter' | 'setStatusFilter' |
+    'supportFilter' | 'setSupportFilter' |
+    'reviewRatingFilter' | 'setReviewRatingFilter'
+>;
+type UISettingsContextType = Pick<UIContextType, 'globalUsdMode' | 'setGlobalUsdMode'>;
+
 const UIContext = createContext<UIContextType | undefined>(undefined);
+const UIThemeContext = createContext<UIThemeContextType | undefined>(undefined);
+const UILayoutContext = createContext<UILayoutContextType | undefined>(undefined);
+const UIModalContext = createContext<UIModalContextType | undefined>(undefined);
+const UITabContext = createContext<UITabContextType | undefined>(undefined);
+const UIFilterContext = createContext<UIFilterContextType | undefined>(undefined);
+const UISettingsContext = createContext<UISettingsContextType | undefined>(undefined);
 
 export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string; teamId?: string }> = ({ children, userUid, teamId }) => {
     const { addNotification } = useNotification();
@@ -169,8 +197,6 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const [isAccountManagerOpen, setIsAccountManagerOpen] = useState(false);
     const [isTabSettingsOpen, setIsTabSettingsOpen] = useState(false);
     const [isNotificationDetailOpen, setIsNotificationDetailOpen] = useState(false);
-    const [isOrderSelectorOpen, setIsOrderSelectorOpen] = useState(false);
-    const [isGoogleSheetModalOpen, setIsGoogleSheetModalOpen] = useState(false);
     const [selectedNotificationId, setSelectedNotificationId] = useState<string | null>(null);
 
 
@@ -178,25 +204,25 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
     const toggleSidebar = useCallback(() => setIsSidebarCollapsed(prev => !prev), [setIsSidebarCollapsed]);
     const toggleMobileMenu = useCallback(() => setIsMobileMenuOpen(prev => !prev), []);
 
-    const setActiveTab = (tab: Tab) => {
+    const setActiveTab = useCallback((tab: Tab) => {
         setActiveTabRaw(tab);
-    };
+    }, [setActiveTabRaw]);
 
-    const handleTabClick = (tab: Tab) => {
+    const handleTabClick = useCallback((tab: Tab) => {
         setActiveTabRaw(tab);
         setDayFilter(null);
-    };
+    }, [setActiveTabRaw]);
 
-    const handleViewDayDetails = (date: string) => {
+    const handleViewDayDetails = useCallback((date: string) => {
         setActiveTabRaw('Order List');
         setDayFilter(date);
-    };
+    }, [setActiveTabRaw]);
 
-    const handleShopDetails = (accountId: string) => {
+    const handleShopDetails = useCallback((accountId: string) => {
         setActiveTabRaw('Order List');
         setSelectedAccountId(accountId);
         setSearchTerm('');
-    };
+    }, [setActiveTabRaw]);
 
     const reorderTabs = useCallback((fromIndex: number, toIndex: number) => {
         setLocalTabOrder(prev => {
@@ -247,37 +273,122 @@ export const UIProvider: React.FC<{ children: React.ReactNode; userUid?: string;
         setTheme(prevTheme => (prevTheme === 'dark' ? 'light' : 'dark'));
     }, []);
 
-    return (
-        <UIContext.Provider value={{
-            // Theme
-            theme, toggleTheme,
+    const themeValue = useMemo<UIThemeContextType>(() => ({
+        theme,
+        toggleTheme
+    }), [theme, toggleTheme]);
 
-            isSidebarCollapsed, toggleSidebar,
-            isMobileMenuOpen, setIsMobileMenuOpen, toggleMobileMenu,
-            isAccountManagerOpen, setIsAccountManagerOpen,
-            isTabSettingsOpen, setIsTabSettingsOpen,
-            isNotificationDetailOpen, setIsNotificationDetailOpen,
-            isOrderSelectorOpen, setIsOrderSelectorOpen,
-            isGoogleSheetModalOpen, setIsGoogleSheetModalOpen,
-            selectedNotificationId, setSelectedNotificationId,
-            activeTab, setActiveTab,
-            tabOrder, setTabOrder: setLocalTabOrder,
-            hiddenTabs, reorderTabs, toggleTabVisibility, resetTabPreferences, handleTabClick,
-            searchTerm, setSearchTerm,
-            selectedAccountId, setSelectedAccountId,
-            timeZone, setTimeZone,
-            filterDateRange, setFilterDateRange,
-            dayFilter, setDayFilter,
-            sourceFilter, setSourceFilter,
-            statusFilter, setStatusFilter,
-            supportFilter, setSupportFilter,
-            reviewRatingFilter, setReviewRatingFilter,
-            globalUsdMode, setGlobalUsdMode,
-            handleViewDayDetails,
-            handleShopDetails
-        }}>
-            {children}
-        </UIContext.Provider>
+    const layoutValue = useMemo<UILayoutContextType>(() => ({
+        isSidebarCollapsed,
+        toggleSidebar,
+        isMobileMenuOpen,
+        setIsMobileMenuOpen,
+        toggleMobileMenu
+    }), [isSidebarCollapsed, toggleSidebar, isMobileMenuOpen, toggleMobileMenu]);
+
+    const modalValue = useMemo<UIModalContextType>(() => ({
+        isAccountManagerOpen,
+        setIsAccountManagerOpen,
+        isTabSettingsOpen,
+        setIsTabSettingsOpen,
+        isNotificationDetailOpen,
+        setIsNotificationDetailOpen,
+        selectedNotificationId,
+        setSelectedNotificationId
+    }), [
+        isAccountManagerOpen,
+        isTabSettingsOpen,
+        isNotificationDetailOpen,
+        selectedNotificationId
+    ]);
+
+    const tabValue = useMemo<UITabContextType>(() => ({
+        activeTab,
+        setActiveTab,
+        tabOrder,
+        setTabOrder: setLocalTabOrder,
+        hiddenTabs,
+        reorderTabs,
+        toggleTabVisibility,
+        resetTabPreferences,
+        handleTabClick,
+        handleViewDayDetails,
+        handleShopDetails
+    }), [
+        activeTab,
+        setActiveTab,
+        tabOrder,
+        hiddenTabs,
+        reorderTabs,
+        toggleTabVisibility,
+        resetTabPreferences,
+        handleTabClick,
+        handleViewDayDetails,
+        handleShopDetails
+    ]);
+
+    const filterValue = useMemo<UIFilterContextType>(() => ({
+        searchTerm,
+        setSearchTerm,
+        selectedAccountId,
+        setSelectedAccountId,
+        timeZone,
+        setTimeZone,
+        filterDateRange,
+        setFilterDateRange,
+        dayFilter,
+        setDayFilter,
+        sourceFilter,
+        setSourceFilter,
+        statusFilter,
+        setStatusFilter,
+        supportFilter,
+        setSupportFilter,
+        reviewRatingFilter,
+        setReviewRatingFilter
+    }), [
+        searchTerm,
+        selectedAccountId,
+        timeZone,
+        setTimeZone,
+        filterDateRange,
+        dayFilter,
+        sourceFilter,
+        statusFilter,
+        supportFilter,
+        reviewRatingFilter
+    ]);
+
+    const settingsValue = useMemo<UISettingsContextType>(() => ({
+        globalUsdMode,
+        setGlobalUsdMode
+    }), [globalUsdMode, setGlobalUsdMode]);
+
+    const contextValue = useMemo<UIContextType>(() => ({
+        ...themeValue,
+        ...layoutValue,
+        ...modalValue,
+        ...tabValue,
+        ...filterValue,
+        ...settingsValue
+    }), [themeValue, layoutValue, modalValue, tabValue, filterValue, settingsValue]);
+
+    return (
+        <UIThemeContext.Provider value={themeValue}>
+            <UILayoutContext.Provider value={layoutValue}>
+                <UIModalContext.Provider value={modalValue}>
+                    <UITabContext.Provider value={tabValue}>
+                        <UIFilterContext.Provider value={filterValue}>
+                            <UISettingsContext.Provider value={settingsValue}>
+                                <UIContext.Provider value={contextValue}>
+                                    {children}
+                                </UIContext.Provider>
+                            </UISettingsContext.Provider>
+                        </UIFilterContext.Provider>
+                    </UITabContext.Provider>
+                </UIModalContext.Provider>
+            </UILayoutContext.Provider>
+        </UIThemeContext.Provider>
     );
 };
 
@@ -285,6 +396,54 @@ export const useUI = () => {
     const context = useContext(UIContext);
     if (context === undefined) {
         throw new Error('useUI must be used within a UIProvider');
+    }
+    return context;
+};
+
+export const useUITheme = () => {
+    const context = useContext(UIThemeContext);
+    if (context === undefined) {
+        throw new Error('useUITheme must be used within a UIProvider');
+    }
+    return context;
+};
+
+export const useUILayout = () => {
+    const context = useContext(UILayoutContext);
+    if (context === undefined) {
+        throw new Error('useUILayout must be used within a UIProvider');
+    }
+    return context;
+};
+
+export const useUIModals = () => {
+    const context = useContext(UIModalContext);
+    if (context === undefined) {
+        throw new Error('useUIModals must be used within a UIProvider');
+    }
+    return context;
+};
+
+export const useUITabs = () => {
+    const context = useContext(UITabContext);
+    if (context === undefined) {
+        throw new Error('useUITabs must be used within a UIProvider');
+    }
+    return context;
+};
+
+export const useUIFilters = () => {
+    const context = useContext(UIFilterContext);
+    if (context === undefined) {
+        throw new Error('useUIFilters must be used within a UIProvider');
+    }
+    return context;
+};
+
+export const useUISettings = () => {
+    const context = useContext(UISettingsContext);
+    if (context === undefined) {
+        throw new Error('useUISettings must be used within a UIProvider');
     }
     return context;
 };

@@ -3,7 +3,7 @@ import { getCountryCode } from '../../utils/currencyUtils';
 
 import { KpiValue } from '../../types';
 import { ConversionModal } from '../modals/ConversionModal';
-import { useUI } from '../../contexts/UIContext';
+import { useUIFilters, useUISettings, useUITabs } from '../../contexts/UIContext';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { hasPermission } from '../../utils/permissionHelper';
@@ -117,7 +117,9 @@ const renderComparison = (kpiValue: KpiValue) => {
 const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdate, onRefresh, onReset }) => {
   const { icon, bg, text } = getIcon(title);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const { setActiveTab, setStatusFilter, globalUsdMode } = useUI();
+  const { setActiveTab } = useUITabs();
+  const { setStatusFilter } = useUIFilters();
+  const { globalUsdMode } = useUISettings();
   const { role, permissions } = useDashboard(); // Check role/permissions
   const { addNotification } = useNotification();
 
@@ -233,7 +235,7 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
                   onClick={handleRefundClick}
                   title="Click to view refunded orders"
                 >
-                  ↩ {displayRefundInfo}
+                  Refund: {displayRefundInfo}
                 </p>
               )}
             </div>
@@ -286,7 +288,7 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
                           onClick={handleRefundClick}
                           title="Click to view refunded orders"
                         >
-                          <span>↩</span>
+                          <span>Refund:</span>
                           {kpiVal.refundOriginal && kpiVal.refundUSD !== undefined ? (
                             <span>{currency} {formatCurrency(kpiVal.refundOriginal)}</span>
                           ) : (
@@ -332,7 +334,7 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
                         onClick={handleRefundClick}
                         title="Click to view refunded orders"
                       >
-                        ↩ {usdTotal.refundInfo}
+                        Refund: {usdTotal.refundInfo}
                       </p>
                     )}
 

@@ -8,12 +8,14 @@ import LoadingSpinner from '../ui/LoadingSpinner';
 import SkeletonLoader from '../ui/SkeletonLoader';
 import { ProcessedData } from '../../types';
 import DataTable from '../ui/DataTable';
-import { useUI } from '../../contexts/UIContext';
+import { useUISettings } from '../../contexts/UIContext';
 
 import { useNotification } from '../../contexts/NotificationContext';
 
 const OverviewChart = React.lazy(() => import('../charts/OverviewChart'));
 const SummaryChart = React.lazy(() => import('../charts/SummaryChart'));
+const SUMMARY_COLUMN_WIDTHS = { 'Revenue': 120, 'Orders': 80 };
+const DATE_COLUMN = 'Date';
 
 interface OverviewTabProps {
     processedData: ProcessedData;
@@ -23,10 +25,12 @@ interface OverviewTabProps {
 }
 
 const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, handleViewDayDetails, handleShopDetails }) => {
-    const { role, permissions, accounts, isLoading, isFetchingNewRange } = useDashboard();
-    const { globalUsdMode } = useUI();
+    const { role, permissions, accounts, filterDateRange, isLoading, isFetchingNewRange, isProcessing, processedDataKeys, currentDataKey } = useDashboard();
+    const { globalUsdMode } = useUISettings();
     const { addNotification } = useNotification();
     const hiddenValue: KpiValue = { value: '---', direction: 'neutral' };
+    const isOverviewDataStale = processedDataKeys.overview !== currentDataKey;
+    const showLoadingState = isLoading || isFetchingNewRange || isProcessing || isOverviewDataStale;
 
     // Permission helper - checks new permissions with fallback to legacy
     const can = (permission: keyof typeof permissions) => hasPermission(role, permissions, permission);
@@ -110,27 +114,167 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
         }
     }, [processedData.overview.table, globalUsdMode, exchangeRates, addNotification]);
 
+    const dailyBreakdownTable = React.useMemo(() => {
+        const rawHeaders = processedData.overview.table.headers;
+        const rawRows = processedData.overview.table.rows;
+
+        if (!globalUsdMode || !exchangeRates) {
+            const dateIndex = rawHeaders.indexOf(DATE_COLUMN);
+            const rows = dateIndex === -1
+                ? rawRows
+                : rawRows.filter(row => {
+                    const date = String(row[dateIndex] || '');
+                    return date >= filterDateRange.from && date <= filterDateRange.to;
+                });
+            return { headers: rawHeaders, rows };
+        }
+
+        const revIndices: { idx: number, curr: string }[] = [];
+        const fundsIndices: { idx: number, curr: string }[] = [];
+        const costIndices: { idx: number, curr: string }[] = [];
+        const otherIndices: number[] = [];
+
+        rawHeaders.forEach((h, i) => {
+            if (h.startsWith('Revenue (')) {
+                revIndices.push({ idx: i, curr: h.match(/\(([^)]+)\)/)?.[1] || 'USD' });
+            } else if (h.startsWith('Funds (')) {
+                fundsIndices.push({ idx: i, curr: h.match(/\(([^)]+)\)/)?.[1] || 'USD' });
+            } else if (h.startsWith('Cost (')) {
+                costIndices.push({ idx: i, curr: h.match(/\(([^)]+)\)/)?.[1] || 'USD' });
+            } else {
+                otherIndices.push(i);
+            }
+        });
+
+        const headers = otherIndices.map(i => rawHeaders[i]);
+        const detailsIdx = headers.indexOf('Details');
+        const insertAt = detailsIdx !== -1 ? detailsIdx : headers.length;
+        const usdCols: string[] = [];
+        if (revIndices.length > 0) usdCols.push('Revenue (USD)');
+        if (fundsIndices.length > 0) usdCols.push('Funds (USD)');
+        if (costIndices.length > 0) usdCols.push('Cost (USD)');
+        headers.splice(insertAt, 0, ...usdCols);
+
+        const rows = rawRows.filter(row => {
+            const dateIndex = rawHeaders.indexOf(DATE_COLUMN);
+            if (dateIndex === -1) return true;
+            const date = String(row[dateIndex] || '');
+            return date >= filterDateRange.from && date <= filterDateRange.to;
+        }).map(row => {
+            const baseRow = otherIndices.map(i => row[i]);
+            const calcUSD = (indices: { idx: number, curr: string }[]) => indices.reduce((sum, item) => {
+                const val = (row[item.idx] as number) || 0;
+                const rate = item.curr === 'USD' ? 1 : (exchangeRates[item.curr] || 0);
+                return sum + (val * rate);
+            }, 0);
+
+            const transformedVals: number[] = [];
+            if (revIndices.length > 0) transformedVals.push(calcUSD(revIndices));
+            if (fundsIndices.length > 0) transformedVals.push(calcUSD(fundsIndices));
+            if (costIndices.length > 0) transformedVals.push(calcUSD(costIndices));
+
+            const finalRow = [...baseRow];
+            finalRow.splice(insertAt, 0, ...transformedVals);
+            return finalRow;
+        });
+
+        return { headers, rows };
+    }, [processedData.overview.table, globalUsdMode, exchangeRates, filterDateRange]);
+
+    const summaryRows = React.useMemo(() => {
+        const rows = processedData.summary.table.rows;
+        if (!globalUsdMode || !exchangeRates) return rows;
+
+        const calcUsdVal = (amountMap?: { [c: string]: number }) => {
+            if (!amountMap) return 0;
+            return Object.entries(amountMap).reduce((sum, [curr, val]) => {
+                const rate = curr === 'USD' ? 1 : (exchangeRates[curr] || 0);
+                return sum + (val * rate);
+            }, 0);
+        };
+        const usdFormatter = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const formatUsd = (val: number) => `$${usdFormatter.format(val)}`;
+
+        return rows.map(row => row.map(cell => {
+            if (cell && typeof cell === 'object' && 'type' in cell && cell.type === 'text_with_subtitle') {
+                if (cell.mainAmountMap || cell.subtitleAmountMap) {
+                    const mainUsd = calcUsdVal(cell.mainAmountMap);
+                    const subUsd = calcUsdVal(cell.subtitleAmountMap);
+                    return {
+                        ...cell,
+                        main: formatUsd(mainUsd),
+                        subtitle: subUsd > 0 ? `Refund: ${formatUsd(subUsd)}` : cell.subtitle,
+                        value: mainUsd
+                    };
+                }
+                return cell;
+            }
+
+            if (cell && typeof cell === 'object' && 'type' in cell && cell.type === 'value_with_unit') {
+                if (cell.amountMap) {
+                    const usdVal = calcUsdVal(cell.amountMap);
+                    return {
+                        ...cell,
+                        value: usdVal,
+                        display: formatUsd(usdVal)
+                    };
+                }
+                return {
+                    ...cell,
+                    display: formatUsd(cell.value)
+                };
+            }
+            return cell;
+        }));
+    }, [processedData.summary.table.rows, globalUsdMode, exchangeRates]);
+
+    const handleSummaryRowClick = React.useCallback((row: any[]) => {
+        const shopIndex = processedData.summary.table.headers.indexOf('Shop');
+        if (shopIndex !== -1 && row && row[shopIndex]) {
+            const shopName = String(row[shopIndex]);
+            const account = accounts.find(a => a.label === shopName || a.email === shopName);
+            const accountId = account ? account.email : shopName;
+            handleShopDetails(accountId);
+        }
+    }, [accounts, handleShopDetails, processedData.summary.table.headers]);
+
     return (
         <div className="p-2 md:p-6 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
             {/* 1. KPIs Section - Conditionally render based on permissions */}
             <div className="grid grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-4 md:gap-6 mb-6">
-                {can('viewKpiOrders') && (
-                    <KpiCard title="Total Orders" value={kpiValues.orders} refundInfo={getRefundInfo(kpiValues.orders)} />
-                )}
-                {can('viewKpiShops') && (
-                    <KpiCard title="Shops" value={kpiValues.shops} />
-                )}
-                {can('viewKpiRevenue') && (
-                    <KpiCard title="Total Revenue" value={kpiValues.revenue} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
-                )}
-                {can('viewKpiFunds') && (
-                    <KpiCard title="Funds" value={kpiValues.funds} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
-                )}
-                {can('viewKpiCost') && (
-                    <KpiCard title="Cost" value={kpiValues.cost} />
-                )}
-                {can('viewKpiEarn') && (
-                    <KpiCard title="Earn" value={kpiValues.earn} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
+                {showLoadingState ? (
+                    <SkeletonLoader
+                        variant="kpi-card"
+                        count={[
+                            can('viewKpiOrders'),
+                            can('viewKpiShops'),
+                            can('viewKpiRevenue'),
+                            can('viewKpiFunds'),
+                            can('viewKpiCost'),
+                            can('viewKpiEarn')
+                        ].filter(Boolean).length || 1}
+                    />
+                ) : (
+                    <>
+                        {can('viewKpiOrders') && (
+                            <KpiCard title="Total Orders" value={kpiValues.orders} refundInfo={getRefundInfo(kpiValues.orders)} />
+                        )}
+                        {can('viewKpiShops') && (
+                            <KpiCard title="Shops" value={kpiValues.shops} />
+                        )}
+                        {can('viewKpiRevenue') && (
+                            <KpiCard title="Total Revenue" value={kpiValues.revenue} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
+                        )}
+                        {can('viewKpiFunds') && (
+                            <KpiCard title="Funds" value={kpiValues.funds} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
+                        )}
+                        {can('viewKpiCost') && (
+                            <KpiCard title="Cost" value={kpiValues.cost} />
+                        )}
+                        {can('viewKpiEarn') && (
+                            <KpiCard title="Earn" value={kpiValues.earn} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
+                        )}
+                    </>
                 )}
             </div>
 
@@ -138,7 +282,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
                 {/* Main Overview Chart - Takes 1/2 width */}
                 <ChartErrorBoundary>
-                    {isLoading || isFetchingNewRange ? (
+                    {showLoadingState ? (
                         <SkeletonLoader variant="chart" count={1} className="h-[200px] md:h-[450px]" />
                     ) : (
                         <Suspense fallback={<SkeletonLoader variant="chart" count={1} className="h-[200px] md:h-[450px]" />}>
@@ -149,7 +293,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
 
                 {/* Revenue Chart - Takes 1/2 width */}
                 <ChartErrorBoundary>
-                    {isLoading || isFetchingNewRange ? (
+                    {showLoadingState ? (
                         <SkeletonLoader variant="chart" count={1} className="h-[200px] md:h-[450px]" />
                     ) : (
                         <Suspense fallback={<SkeletonLoader variant="chart" count={1} className="h-[200px] md:h-[450px]" />}>
@@ -164,10 +308,8 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                 </ChartErrorBoundary>
             </div>
 
-            {/* 3. Detailed Tables - Tabbed Interface */}
             {/* 3. Detailed Tables - Split View */}
             <div className={`grid grid-cols-1 ${isSingleDay ? '' : 'xl:grid-cols-2'} gap-6 items-start`}>
-                {/* Left: Daily Breakdown (Card View) - Hide if single day */}
                 {/* Left: Daily Breakdown (Card View) - Hide if single day */}
                 {!isSingleDay && (
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
@@ -188,84 +330,17 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                             )}
                         </div>
                         <div className="">
-                            {isLoading || isFetchingNewRange ? (
+                            {showLoadingState ? (
                                 <div className="p-4"><SkeletonLoader variant="table-row" count={5} /></div>
                             ) : (
                             <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
-                                {(() => {
-                                    const rawHeaders = processedData.overview.table.headers;
-                                    const rawRows = processedData.overview.table.rows;
-
-                                    let headers = rawHeaders;
-                                    let rows = rawRows;
-
-                                    if (globalUsdMode && exchangeRates) {
-                                        // 1. Identify indices for Revenue, Funds, Cost
-                                        const revIndices: { idx: number, curr: string }[] = [];
-                                        const fundsIndices: { idx: number, curr: string }[] = [];
-                                        const costIndices: { idx: number, curr: string }[] = [];
-                                        const otherIndices: number[] = [];
-
-                                        rawHeaders.forEach((h, i) => {
-                                            if (h.startsWith('Revenue (')) {
-                                                revIndices.push({ idx: i, curr: h.match(/\(([^)]+)\)/)?.[1] || 'USD' });
-                                            } else if (h.startsWith('Funds (')) {
-                                                fundsIndices.push({ idx: i, curr: h.match(/\(([^)]+)\)/)?.[1] || 'USD' });
-                                            } else if (h.startsWith('Cost (')) {
-                                                costIndices.push({ idx: i, curr: h.match(/\(([^)]+)\)/)?.[1] || 'USD' });
-                                            } else {
-                                                otherIndices.push(i);
-                                            }
-                                        });
-
-                                        // 2. Build New Headers
-                                        const baseHeaders = otherIndices.map(i => rawHeaders[i]);
-                                        // Insert USD columns before the last item ("Details")
-                                        const finalHeaders = [...baseHeaders];
-                                        const detailsIdx = finalHeaders.indexOf('Details');
-                                        const insertAt = detailsIdx !== -1 ? detailsIdx : finalHeaders.length;
-
-                                        const usdCols: string[] = [];
-                                        if (revIndices.length > 0) usdCols.push('Revenue (USD)');
-                                        if (fundsIndices.length > 0) usdCols.push('Funds (USD)');
-                                        if (costIndices.length > 0) usdCols.push('Cost (USD)');
-
-                                        finalHeaders.splice(insertAt, 0, ...usdCols);
-                                        headers = finalHeaders;
-
-                                        // 3. Transform Rows
-                                        rows = rawRows.map(row => {
-                                            const baseRow = otherIndices.map(i => row[i]);
-
-                                            const calcUSD = (indices: { idx: number, curr: string }[]) => {
-                                                return indices.reduce((sum, item) => {
-                                                    const val = (row[item.idx] as number) || 0;
-                                                    const rate = item.curr === 'USD' ? 1 : (exchangeRates[item.curr] || 0);
-                                                    return sum + (val * rate);
-                                                }, 0);
-                                            };
-
-                                            const transformedVals: number[] = [];
-                                            if (revIndices.length > 0) transformedVals.push(calcUSD(revIndices));
-                                            if (fundsIndices.length > 0) transformedVals.push(calcUSD(fundsIndices));
-                                            if (costIndices.length > 0) transformedVals.push(calcUSD(costIndices));
-
-                                            const finalRow = [...baseRow];
-                                            finalRow.splice(insertAt, 0, ...transformedVals);
-                                            return finalRow;
-                                        });
-                                    }
-
-                                    return (
-                                        <DataTable
-                                            headers={headers}
-                                            data={rows}
-                                            onViewDayDetails={handleViewDayDetails}
-                                            autoHeight={true}
-                                            forceCardView={true}
-                                        />
-                                    );
-                                })()}
+                                <DataTable
+                                    headers={dailyBreakdownTable.headers}
+                                    data={dailyBreakdownTable.rows}
+                                    onViewDayDetails={handleViewDayDetails}
+                                    autoHeight={true}
+                                    forceCardView={true}
+                                />
                             </Suspense>
                             )}
                         </div>
@@ -278,81 +353,17 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Shop Summary</h3>
                     </div>
                     <div className="min-h-[400px]">
-                        {isLoading || isFetchingNewRange ? (
+                        {showLoadingState ? (
                             <div className="p-4"><SkeletonLoader variant="table-row" count={5} /></div>
                         ) : (
                         <Suspense fallback={<LoadingSpinner variant="table-row" count={5} />}>
-                            {(() => {
-                                let rows = processedData.summary.table.rows;
-                                const headers = processedData.summary.table.headers;
-
-                                if (globalUsdMode && exchangeRates) {
-                                    const calcUsdVal = (amountMap?: { [c: string]: number }) => {
-                                        if (!amountMap) return 0;
-                                        return Object.entries(amountMap).reduce((sum, [curr, val]) => {
-                                            const rate = curr === 'USD' ? 1 : (exchangeRates[curr] || 0);
-                                            return sum + (val * rate);
-                                        }, 0);
-                                    };
-                                    const formatUsd = (val: number) => `$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val)}`;
-
-                                    rows = rows.map(row => {
-                                        return row.map(cell => {
-                                            if (cell && typeof cell === 'object' && 'type' in cell && cell.type === 'text_with_subtitle') {
-                                                if (cell.mainAmountMap || cell.subtitleAmountMap) {
-                                                    const mainUsd = calcUsdVal(cell.mainAmountMap);
-                                                    const subUsd = calcUsdVal(cell.subtitleAmountMap);
-                                                    return {
-                                                        ...cell,
-                                                        main: formatUsd(mainUsd),
-                                                        subtitle: subUsd > 0 ? `↩ ${formatUsd(subUsd)}` : cell.subtitle,
-                                                        value: mainUsd // For sorting if applied
-                                                    };
-                                                }
-                                                return cell; // Fallback
-                                            }
-
-                                            if (cell && typeof cell === 'object' && 'type' in cell && cell.type === 'value_with_unit') {
-                                                if (cell.amountMap) {
-                                                    const usdVal = calcUsdVal(cell.amountMap);
-                                                    return {
-                                                        ...cell,
-                                                        value: usdVal,
-                                                        display: formatUsd(usdVal)
-                                                    };
-                                                }
-                                                // Fallback to original value if no amount map
-                                                return {
-                                                    ...cell,
-                                                    display: formatUsd(cell.value)
-                                                };
-                                            }
-                                            return cell;
-                                        });
-                                    });
-                                }
-
-                                return (
-                                    <DataTable
-                                        headers={headers}
-                                        data={rows}
-                                        autoHeight={true}
-                                        columnWidths={{ 'Revenue': 120, 'Orders': 80 }}
-                                        onRowClick={(row) => {
-                                            // Find the index of 'Shop' header
-                                            const shopIndex = processedData.summary.table.headers.indexOf('Shop');
-                                            if (shopIndex !== -1 && row && row[shopIndex]) {
-                                                const shopName = String(row[shopIndex]);
-                                                // Find corresponding accountId (email)
-                                                const account = accounts.find(a => a.label === shopName || a.email === shopName);
-                                                const accountId = account ? account.email : shopName;
-                                                // Use the handleShopDetails function to switch tab and filter using the accountId
-                                                handleShopDetails(accountId);
-                                            }
-                                        }}
-                                    />
-                                );
-                            })()}
+                            <DataTable
+                                headers={processedData.summary.table.headers}
+                                data={summaryRows}
+                                autoHeight={true}
+                                columnWidths={SUMMARY_COLUMN_WIDTHS}
+                                onRowClick={handleSummaryRowClick}
+                            />
                         </Suspense>
                         )}
                     </div>

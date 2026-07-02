@@ -1,9 +1,10 @@
 // components/ManualCostManager.tsx
-import React, { useState } from 'react';
+import React, { Suspense, useMemo, useState } from 'react';
 import { useDashboard } from '../../../contexts/DashboardContext';
-import { useUI } from '../../../contexts/UIContext';
+import { useUIFilters } from '../../../contexts/UIContext';
 import { addManualCost, updateManualCost, deleteManualCost } from '../../../services/firebaseService';
-import ManualCostImporter from './ManualCostImporter';
+
+const ManualCostImporter = React.lazy(() => import('./ManualCostImporter'));
 
 interface ManualCostEntry {
   id: string;
@@ -16,7 +17,7 @@ interface ManualCostEntry {
 
 const ManualCostManager: React.FC = () => {
   const { teamId, manualCosts, setManualCosts } = useDashboard();
-  const { timeZone } = useUI();
+  const { timeZone } = useUIFilters();
   const [showImporter, setShowImporter] = useState(false);
 
 
@@ -35,6 +36,10 @@ const ManualCostManager: React.FC = () => {
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState({ providerName: '', cost: '', date: '' });
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const sortedManualCosts = useMemo(
+    () => [...manualCosts].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [manualCosts]
+  );
 
   if (showImporter) {
     return (
@@ -44,9 +49,9 @@ const ManualCostManager: React.FC = () => {
           <button onClick={() => setShowImporter(false)} className="text-gray-500 hover:text-gray-700">Close</button>
         </div>
         <div className="flex-1 overflow-hidden">
-          <React.Suspense fallback={<div className="p-10 text-center">Loading Importer...</div>}>
+          <Suspense fallback={<div className="p-10 text-center">Loading Importer...</div>}>
             <ManualCostImporter onClose={() => setShowImporter(false)} />
-          </React.Suspense>
+          </Suspense>
         </div>
       </div>
     )
@@ -189,7 +194,7 @@ const ManualCostManager: React.FC = () => {
         <h3 className="text-lg font-semibold mb-3 border-b pb-2">Recent Manual Entries</h3>
         <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
           {manualCosts.length === 0 && <p className="text-gray-500">No manual entries found.</p>}
-          {[...manualCosts].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((entry) => (
+          {sortedManualCosts.map((entry) => (
             <div key={entry.id} className="bg-gray-100 dark:bg-gray-700 p-3 rounded">
               {editingCostId === entry.id ? (
                 <div className="space-y-2">

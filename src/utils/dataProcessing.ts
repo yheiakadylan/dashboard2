@@ -7,25 +7,58 @@ import {
     cleanVariantForAggregation,
     removeAccents 
 } from './variantHelpers';
+import { calculateItemNetRevenue, getItemQuantity, getOrderItemRevenueContext } from './revenueUtils';
 
-const isDev = import.meta.env.DEV;
+export type ProcessingScope = 'all' | 'overview' | 'orders' | 'products' | 'fulfill' | 'support';
+
+const moneyFormatter = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+
+const dateFormatterCache = new Map<string, {
+    date: Intl.DateTimeFormat;
+    hour: Intl.DateTimeFormat;
+    dateTime: Intl.DateTimeFormat;
+}>();
+
+const getDateFormatters = (timeZone: string) => {
+    const cached = dateFormatterCache.get(timeZone);
+    if (cached) return cached;
+
+    const formatters = {
+        date: new Intl.DateTimeFormat('en-CA', {
+            timeZone,
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        }),
+        hour: new Intl.DateTimeFormat('en-US', {
+            timeZone, hour: '2-digit', hour12: false
+        }),
+        dateTime: new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            year: '2-digit', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hour12: false
+        }),
+    };
+
+    dateFormatterCache.set(timeZone, formatters);
+    return formatters;
+};
 
 // --- Pure Utility Functions (Hoisted) ---
 function formatCurrency(value: number): string {
-    return '$' + new Intl.NumberFormat('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    }).format(value);
+    return '$' + moneyFormatter.format(value);
+}
+
+function formatNumber(value: number): string {
+    return moneyFormatter.format(value);
 }
 
 function formatDate(dateStr: string, timeZone: string): string {
     try {
         const date = new Date(dateStr);
         if (isNaN(date.getTime())) return 'Invalid Date';
-        return new Intl.DateTimeFormat('en-CA', {
-            timeZone,
-            year: 'numeric', month: '2-digit', day: '2-digit'
-        }).format(date);
+        return getDateFormatters(timeZone).date.format(date);
     } catch (e) { return 'Invalid Date'; }
 }
 
@@ -33,9 +66,7 @@ function formatHour(dateStr: string, timeZone: string): string {
     try {
         const date = new Date(dateStr);
         if (isNaN(date.getTime())) return 'Invalid Hour';
-        const hour = new Intl.DateTimeFormat('en-US', {
-            timeZone, hour: '2-digit', hour12: false
-        }).format(date);
+        const hour = getDateFormatters(timeZone).hour.format(date);
         return `${hour === '24' ? '00' : hour}:00`;
     } catch (e) { return 'Invalid Hour'; }
 }
@@ -44,11 +75,7 @@ function formatDateTime(dateStr: string, timeZone: string): string {
     try {
         const date = new Date(dateStr);
         if (isNaN(date.getTime())) return 'Invalid Date';
-        return new Intl.DateTimeFormat('en-US', {
-            timeZone,
-            year: '2-digit', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', hour12: false
-        }).format(date).replace(',', '');
+        return getDateFormatters(timeZone).dateTime.format(date).replace(',', '');
     } catch (e) { return 'Invalid Date'; }
 }
 
@@ -59,6 +86,80 @@ function formatSource(source: string): string {
     if (source === 'Etsy_Case') return 'Etsy Case';
     if (source === 'Etsy_Help') return 'Etsy Help';
     return source.replace(/_/g, ' ');
+}
+
+const UNCATEGORIZED_CATEGORY_CODE = 'NO_SKU';
+const UNCATEGORIZED_CATEGORY_LABEL = 'No SKU';
+const INVALID_PRODUCT_SKUS = new Set(['', '-', 'NULL', 'NULL_RATE_LIMIT']);
+
+function normalizeProductSku(sku: string | undefined | null): string {
+    const cleanSku = decodeHTMLEntities(String(sku || '').trim()).toUpperCase();
+    return INVALID_PRODUCT_SKUS.has(cleanSku) ? '' : cleanSku;
+}
+
+function normalizeCategoryCode(code: string | undefined | null): string {
+    const cleanCode = decodeHTMLEntities(String(code || '').trim()).toUpperCase().replace(/[\s\u00A0]+/g, '');
+    return cleanCode || UNCATEGORIZED_CATEGORY_CODE;
+}
+
+function getCategoryCodeFromSku(sku: string): string {
+    if (!sku) return UNCATEGORIZED_CATEGORY_CODE;
+    return normalizeCategoryCode(sku.split('-')[0]);
+}
+
+function normalizeProductNameKey(name: string): string {
+    return removeAccents(name).toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function getProductIdentity(sku: string, name: string): { key: string; label: string } {
+    if (sku) return { key: `sku:${sku}`, label: sku };
+
+    const nameKey = normalizeProductNameKey(name);
+    return {
+        key: `name:${nameKey || 'unknown'}`,
+        label: name || 'Unknown',
+    };
+}
+
+function updateProductDisplayMeta(target: any, name: string, image: string | undefined | null, dtLocal: string): void {
+    const updatedAt = Date.parse(dtLocal) || 0;
+
+    if (!target.name || updatedAt >= (target.nameUpdatedAt || 0)) {
+        target.name = name;
+        target.nameUpdatedAt = updatedAt;
+    }
+
+    if (image && (!target.image || updatedAt >= (target.imageUpdatedAt || 0))) {
+        target.image = image;
+        target.imageUpdatedAt = updatedAt;
+    }
+}
+
+function sortTopProductsByNameGroup<T extends { name: string; quantity: number; sku?: string; revenue?: number }>(products: T[]): T[] {
+    const groupQuantity = new Map<string, number>();
+
+    products.forEach(product => {
+        const nameKey = normalizeProductNameKey(product.name);
+        groupQuantity.set(nameKey, (groupQuantity.get(nameKey) || 0) + product.quantity);
+    });
+
+    return products.sort((a, b) => {
+        const aNameKey = normalizeProductNameKey(a.name);
+        const bNameKey = normalizeProductNameKey(b.name);
+        const groupDiff = (groupQuantity.get(bNameKey) || 0) - (groupQuantity.get(aNameKey) || 0);
+        if (groupDiff !== 0) return groupDiff;
+
+        const nameDiff = aNameKey.localeCompare(bNameKey);
+        if (nameDiff !== 0) return nameDiff;
+
+        const quantityDiff = b.quantity - a.quantity;
+        if (quantityDiff !== 0) return quantityDiff;
+
+        const revenueDiff = (b.revenue || 0) - (a.revenue || 0);
+        if (revenueDiff !== 0) return revenueDiff;
+
+        return (a.sku || '').localeCompare(b.sku || '');
+    });
 }
 
 function getOptimizedImageProps(src: string | undefined | null): { src: string | null, fullSrc?: string } {
@@ -107,14 +208,19 @@ export function processData(
     manualCosts: any[],
     exchangeRates: { [currency: string]: number } | null,
     categories: any[] = [],
-    etsyReviews: any[] = []
+    etsyReviews: any[] = [],
+    scope: ProcessingScope = 'all'
 ): ProcessedData {
-    if (isDev) {
-        console.log('[Worker] ProcessData called with', records.length, 'records.');
-    }
-
+    const needsAll = scope === 'all';
+    const needsOverview = needsAll || scope === 'overview';
+    const needsKpiSummary = needsAll || scope === 'overview';
+    const needsProductStats = needsAll || scope === 'products';
+    const needsOrderRows = needsAll || scope === 'orders';
+    const needsFulfill = needsAll || scope === 'fulfill';
+    const needsSupport = needsAll || scope === 'support';
     const accountLabelMap = new Map(accounts.map(acc => [acc.email, acc.label || acc.email]));
-    const categoryNameMap = new Map(categories.map(c => [c.code, c.name]));
+    const categoryNameMap = new Map(categories.map(c => [normalizeCategoryCode(c.code), c.name]));
+    categoryNameMap.set(UNCATEGORIZED_CATEGORY_CODE, UNCATEGORIZED_CATEGORY_LABEL);
 
 
 
@@ -173,7 +279,7 @@ export function processData(
     const overviewAllCurrs = { rev: new Set<string>(), funds: new Set<string>(), cost: new Set<string>(), chart: new Set<string>() };
 
     // --- Pre-fill overviewDaily to ensure all dates in range are shown even if 0 ---
-    try {
+    if (needsOverview) try {
         let currentDate = new Date(filterDateRange.from + "T00:00:00Z");
         const endDate = new Date(filterDateRange.to + "T00:00:00Z");
         if (!isNaN(currentDate.getTime()) && !isNaN(endDate.getTime()) && currentDate <= endDate) {
@@ -213,16 +319,16 @@ export function processData(
 
     uniqueRecords.forEach(r => {
         const currency = r.currency || 'USD';
-        const dKey = formatDate(r.dt_local, timeZone);
-        const cKey = isHourly ? formatHour(r.dt_local, timeZone) : dKey;
+        const dKey = needsOverview ? formatDate(r.dt_local, timeZone) : '';
+        const cKey = needsOverview ? (isHourly ? formatHour(r.dt_local, timeZone) : dKey) : '';
         const shopEmail = r.account;
         const shopLabel = accountLabelMap.get(shopEmail) || shopEmail;
         
         // -- Overview Accumulation --
-        if (!overviewDaily.has(dKey)) overviewDaily.set(dKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
-        const od = overviewDaily.get(dKey)!;
-        if (!overviewChart.has(cKey)) overviewChart.set(cKey, { orders: new Set(), rev: new Map() });
-        const oc = overviewChart.get(cKey)!;
+        if (needsOverview && !overviewDaily.has(dKey)) overviewDaily.set(dKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
+        const od = needsOverview ? overviewDaily.get(dKey)! : null;
+        if (needsOverview && !overviewChart.has(cKey)) overviewChart.set(cKey, { orders: new Set(), rev: new Map() });
+        const oc = needsOverview ? overviewChart.get(cKey)! : null;
 
         // -- Record Kind Router --
         if (r.kind === 'order') {
@@ -233,41 +339,49 @@ export function processData(
             if (!isEtsyRefundedSource) {
                 // KPIs & Summary
                 if (r.order_id) {
-                    kpiRaw.orderIds.add(r.order_id);
-                    kpiRaw.shops.add(shopEmail);
-                    od.orders.add(r.order_id);
-                    oc.orders.add(r.order_id);
+                    if (needsKpiSummary) {
+                        kpiRaw.orderIds.add(r.order_id);
+                        kpiRaw.shops.add(shopEmail);
+                    }
+                    if (needsOverview) {
+                        od!.orders.add(r.order_id);
+                        oc!.orders.add(r.order_id);
+                    }
                 }
                 if (r.amount > 0) {
-                    od.rev.set(currency, (od.rev.get(currency) || 0) + r.amount);
-                    oc.rev.set(currency, (oc.rev.get(currency) || 0) + r.amount);
-                    kpiRaw.revenue.set(currency, (kpiRaw.revenue.get(currency) || 0) + r.amount);
-                    overviewAllCurrs.rev.add(currency);
-                    overviewAllCurrs.chart.add(currency);
+                    if (needsOverview) {
+                        od!.rev.set(currency, (od!.rev.get(currency) || 0) + r.amount);
+                        oc!.rev.set(currency, (oc!.rev.get(currency) || 0) + r.amount);
+                        overviewAllCurrs.rev.add(currency);
+                        overviewAllCurrs.chart.add(currency);
+                    }
+                    if (needsKpiSummary) {
+                        kpiRaw.revenue.set(currency, (kpiRaw.revenue.get(currency) || 0) + r.amount);
+                    }
                 }
                 if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) {
-                    od.cost.set('USD', (od.cost.get('USD') || 0) + r.cost_total);
-                    kpiRaw.cost.set('USD', (kpiRaw.cost.get('USD') || 0) + r.cost_total);
-                    overviewAllCurrs.cost.add('USD');
+                    if (needsOverview) {
+                        od!.cost.set('USD', (od!.cost.get('USD') || 0) + r.cost_total);
+                        overviewAllCurrs.cost.add('USD');
+                    }
+                    if (needsKpiSummary) {
+                        kpiRaw.cost.set('USD', (kpiRaw.cost.get('USD') || 0) + r.cost_total);
+                    }
                 }
 
                 // Shop Summary Meta data
-                if (!shopSummaryData.has(shopEmail)) shopSummaryData.set(shopEmail, { revenue: new Map(), orders: new Set(), funds: new Map(), cost: new Map(), refund: new Map(), refOrderIds: new Set() });
-                const sd = shopSummaryData.get(shopEmail)!;
-                if (r.order_id) sd.orders.add(r.order_id);
-                if (r.amount > 0) sd.revenue.set(currency, (sd.revenue.get(currency) || 0) + r.amount);
-                if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) sd.cost.set('USD', (sd.cost.get('USD') || 0) + r.cost_total);
+                if (needsKpiSummary) {
+                    if (!shopSummaryData.has(shopEmail)) shopSummaryData.set(shopEmail, { revenue: new Map(), orders: new Set(), funds: new Map(), cost: new Map(), refund: new Map(), refOrderIds: new Set() });
+                    const sd = shopSummaryData.get(shopEmail)!;
+                    if (r.order_id) sd.orders.add(r.order_id);
+                    if (r.amount > 0) sd.revenue.set(currency, (sd.revenue.get(currency) || 0) + r.amount);
+                    if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) sd.cost.set('USD', (sd.cost.get('USD') || 0) + r.cost_total);
+                }
 
                 // Product Statistics (Summary & Products Tab)
-                if (r.details?.items?.length) {
+                if (needsProductStats && r.details?.items?.length) {
                     const financials = r.details.financials;
-                    const totalListValue = r.details.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-                    const totalQuantity = r.details.items.reduce((sum, item) => sum + item.quantity, 0);
-                    
-                    const totalDiscount = financials?.discount || 0;
-                    const totalShipping = financials?.shipping || 0;
-
-                    const shippingPerItem = totalQuantity > 0 ? totalShipping / totalQuantity : 0;
+                    const revenueContext = getOrderItemRevenueContext(r.details.items, financials);
 
                     r.details.items.forEach(item => {
                         const name = decodeHTMLEntities(item.name.trim());
@@ -276,25 +390,19 @@ export function processData(
                         const displayedVariant = formatVariantForDisplay(cleaned);
                         const groupedKey = normalizeVariantForKey(cleaned);
                         
-                        // Multi-level mapping lookup
-                        const nameLower = name.toLowerCase();
-                        const sku = decodeHTMLEntities(item.sku?.trim() || '');
-                        const groupingKey = sku || name;
+                        // SKU is the canonical product identity. Product name is only the display label.
+                        const sku = normalizeProductSku(item.sku);
+                        const productIdentity = getProductIdentity(sku, name);
+                        const groupingKey = productIdentity.key;
                         const groupingKeyLower = groupingKey.toLowerCase();
                         
-                        let catCode = 'Unknown';
-                        if (sku) {
-                            catCode = sku.split('-')[0];
-                        }
+                        const catCode = getCategoryCodeFromSku(sku);
 
                         const catName = categoryNameMap.get(catCode) || catCode;
                         
-                        const weight = totalListValue > 0 ? (item.price * item.quantity) / totalListValue : (1 / r.details!.items.length);
-                        const proportionalDiscount = totalDiscount * weight;
-                        const proportionalShipping = shippingPerItem * item.quantity;
-                        
+                        const itemQuantity = getItemQuantity(item);
                         // Tax is ignored since it's remitted by Etsy and doesn't affect seller's net revenue
-                        const itemRevenue = (item.price * item.quantity) - proportionalDiscount + proportionalShipping;
+                        const itemRevenue = calculateItemNetRevenue(item, revenueContext);
                         
                         const itemRevenueUSD = (currency === 'USD' ? itemRevenue : (exchangeRates?.[currency] ? itemRevenue * exchangeRates[currency] : itemRevenue));
                         const size = extractSize(variant);
@@ -302,13 +410,17 @@ export function processData(
                         // Summary Stats
                         if (!pByShop.has(shopLabel)) pByShop.set(shopLabel, new Map());
                         const ps = pByShop.get(shopLabel)!;
-                        if (!ps.has(groupingKey)) ps.set(groupingKey, { name, qty: 0, rev: 0, revUSD: 0, image: item.image, cat: catCode, classification: variant, size, currency });
-                        const s = ps.get(groupingKey); s.qty += item.quantity; s.rev += item.quantity * item.price; s.revUSD += itemRevenueUSD;
+                        if (!ps.has(groupingKey)) ps.set(groupingKey, { name, sku, qty: 0, rev: 0, revUSD: 0, image: item.image, cat: catCode, classification: variant, size, currency });
+                        const s = ps.get(groupingKey);
+                        updateProductDisplayMeta(s, name, item.image, r.dt_local);
+                        s.qty += itemQuantity; s.rev += itemRevenue; s.revUSD += itemRevenueUSD;
 
                         if (!pByCat.has(catCode)) pByCat.set(catCode, new Map());
                         const pc = pByCat.get(catCode)!;
-                        if (!pc.has(groupingKey)) pc.set(groupingKey, { name, qty: 0, rev: 0, revUSD: 0, image: item.image, shop: shopLabel, classification: variant, size, currency });
-                        const c = pc.get(groupingKey); c.qty += item.quantity; c.rev += item.quantity * item.price; c.revUSD += itemRevenueUSD;
+                        if (!pc.has(groupingKey)) pc.set(groupingKey, { name, sku, qty: 0, rev: 0, revUSD: 0, image: item.image, shop: shopLabel, classification: variant, size, currency });
+                        const c = pc.get(groupingKey);
+                        updateProductDisplayMeta(c, name, item.image, r.dt_local);
+                        c.qty += itemQuantity; c.rev += itemRevenue; c.revUSD += itemRevenueUSD;
 
                         // Detailed Products Tab Map
                         const prodKey = `${groupingKeyLower}|${displayedVariant}|${shopEmail.toLowerCase()}`;
@@ -318,7 +430,7 @@ export function processData(
                                 image: item.image, 
                                 name, 
                                 sku,
-                                groupingKey,
+                                groupingKey: productIdentity.label,
                                 variant: displayedVariant, 
                                 category: catName, 
                                 categoryCode: catCode, 
@@ -330,7 +442,8 @@ export function processData(
                             });
                         }
                         const pt = productStatsTableMap.get(prodKey);
-                        pt.quantity += item.quantity; pt.revenue += itemRevenue; pt.revenueUSD += itemRevenueUSD;
+                        updateProductDisplayMeta(pt, name, item.image, r.dt_local);
+                        pt.quantity += itemQuantity; pt.revenue += itemRevenue; pt.revenueUSD += itemRevenueUSD;
 
                         // Variant aggregation - smarter grouping (no spaces)
                         const varKey = `${catName}|${displayedVariant}`;
@@ -347,7 +460,7 @@ export function processData(
                             });
                         }
                         const vt = variantStatsTableMap.get(varKey);
-                        vt.quantity += item.quantity; vt.revenue += itemRevenue; vt.revenueUSD += itemRevenueUSD;
+                        vt.quantity += itemQuantity; vt.revenue += itemRevenue; vt.revenueUSD += itemRevenueUSD;
 
 
 
@@ -355,13 +468,14 @@ export function processData(
                 }
 
                 // Tab Specific Rows (Orders, Etsy, eBay)
+                if (needsOrderRows) {
                 const shopPName = (r.details?.items?.length ? r.details.items.map(i => decodeHTMLEntities(i.name)).join(', ') : '') || r.product_name || 'N/A';
                 const pImg = r.details?.items?.[0]?.image || null;
                 const pVars = r.details?.items?.length ? r.details.items.map(i => decodeHTMLEntities(i.variant)).filter(v => v).join('; ') : '-';
                 const finalStatus = sInfo?.status || r.status || (isRef ? 'Refunded' : 'New'); // Đảm bảo trạng thái refund đồng nhất
                 const refundDtStr = sInfo?.refund_dt ? formatDateTime(sInfo.refund_dt, timeZone) : '';
                 const dateDisplay = formatDateTime(r.dt_local, timeZone);
-                const finalDateCell = (isRef && refundDtStr) ? { type: 'text_with_subtitle' as const, main: dateDisplay, subtitle: `↩ ${refundDtStr}`, subtitleClass: 'text-red-600 font-bold bg-red-100 rounded px-1' } : dateDisplay;
+                const finalDateCell = (isRef && refundDtStr) ? { type: 'text_with_subtitle' as const, main: dateDisplay, subtitle: `Refund: ${refundDtStr}`, subtitleClass: 'text-red-600 font-bold bg-red-100 rounded px-1' } : dateDisplay;
 
                 const reviewData = r.order_id ? reviewMap.get(r.order_id) : null;
                 const rating = reviewData?.rating || '-';
@@ -379,9 +493,10 @@ export function processData(
                 } else if (r.source === 'Ebay_Sales') {
                     ebayRows.push([{ type: 'image' as const, ...getOptimizedImageProps(pImg), alt: shopPName }, shopPName, r.order_id || 'N/A', r.amount, currency, shopLabel, finalDateCell, { type: 'action_group', actions: r.id ? [{ type: 'view', label: 'View', id: r.id }] : [] }, finalStatus === 'Refunded', r.dt_local]);
                 }
+                }
 
                 // Fulfillment logic
-                if (r.ff_code || r.cost_total || r.product_name) {
+                if (needsFulfill && (r.ff_code || r.cost_total || r.product_name)) {
                     fulfillStats.totalCount++;
                     if (isRef) fulfillStats.refCount++; // Chỉ đếm refund cho các record có dữ liệu fulfillment
 
@@ -392,11 +507,11 @@ export function processData(
                     
                     const ffDateVal = formatDate(r.fulfill_date || r.dt_local, timeZone);
                     const refDateOnlyStr = sInfo?.refund_dt ? formatDate(sInfo.refund_dt, timeZone) : '';
-                    const finalFfDateCell = (isRef && refDateOnlyStr) ? { type: 'text_with_subtitle' as const, main: ffDateVal, subtitle: `↩ ${refDateOnlyStr}`, subtitleClass: 'text-red-600 font-bold bg-red-100 rounded px-1' } : ffDateVal;
+                    const finalFfDateCell = (isRef && refDateOnlyStr) ? { type: 'text_with_subtitle' as const, main: ffDateVal, subtitle: `Refund: ${refDateOnlyStr}`, subtitleClass: 'text-red-600 font-bold bg-red-100 rounded px-1' } : ffDateVal;
 
                     fulfillRows.push([
                         finalFfDateCell, r.order_id || 'N/A',
-                        isRef ? { type: 'text_with_subtitle' as const, main: r.product_name || '-', subtitle: `↩ ${r.refund_details?.reason || sInfo?.refund_details?.reason || 'Refunded'}`, subtitleClass: 'text-red-500 font-medium' } : (r.product_name || '-'),
+                        isRef ? { type: 'text_with_subtitle' as const, main: r.product_name || '-', subtitle: `Refund: ${r.refund_details?.reason || sInfo?.refund_details?.reason || 'Refunded'}`, subtitleClass: 'text-red-500 font-medium' } : (r.product_name || '-'),
                         provider, ffCode, r.cost_total ?? null, shopLabel, isRef, r.fulfill_date || r.dt_local
                     ]);
 
@@ -412,6 +527,7 @@ export function processData(
                 }
             } else if (r.order_id && validOrderIds.has(r.order_id)) {
                 // Etsy Refunded Record
+                if (needsKpiSummary) {
                 const refundCurr = r.refund_details?.refundCurrency || currency;
                 const refundAmt = r.refund_details?.refundAmount || Math.abs(r.amount);
                 kpiRaw.refOrderIds.add(r.order_id);
@@ -421,46 +537,55 @@ export function processData(
                 const sd = shopSummaryData.get(shopEmail)!;
                 sd.refOrderIds.add(r.order_id);
                 sd.refund.set(refundCurr, (sd.refund.get(refundCurr) || 0) + refundAmt);
+                }
             }
 
         } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewKpiFunds)) {
-            od.funds.set(currency, (od.funds.get(currency) || 0) + r.amount);
+            if (needsOverview) {
+            od!.funds.set(currency, (od!.funds.get(currency) || 0) + r.amount);
             overviewAllCurrs.funds.add(currency);
+            }
+            if (needsKpiSummary) {
             kpiRaw.funds.set(currency, (kpiRaw.funds.get(currency) || 0) + r.amount);
             
             if (!shopSummaryData.has(shopEmail)) shopSummaryData.set(shopEmail, { revenue: new Map(), orders: new Set(), funds: new Map(), cost: new Map(), refund: new Map(), refOrderIds: new Set() });
             const sd = shopSummaryData.get(shopEmail)!;
             sd.funds.set(currency, (sd.funds.get(currency) || 0) + r.amount);
+            }
 
-        } else if (r.kind === 'case') {
+        } else if (needsSupport && r.kind === 'case') {
             caseRows.push([r.order_id || 'N/A', decodeHTMLEntities(r.case_msg || 'N/A'), formatSource(r.source), shopLabel, formatDateTime(r.dt_local, timeZone), r.dt_local]);
-        } else if (r.kind === 'help') {
+        } else if (needsSupport && r.kind === 'help') {
             helpRows.push([r.order_id || 'N/A', decodeHTMLEntities(r.help_kind || 'N/A'), formatSource(r.source), shopLabel, formatDateTime(r.dt_local, timeZone), r.dt_local]);
         }
     });
 
     // -- Add Manual Costs to KPI & Daily --
-    if (role === 'owner' || permissions.viewKpiCost) {
+    if ((needsOverview || needsKpiSummary || needsFulfill) && (role === 'owner' || permissions.viewKpiCost)) {
         manualCosts.filter(c => c.date >= filterDateRange.from && c.date <= filterDateRange.to).forEach(c => {
             const cur = c.currency || 'USD';
             const costUSD = (cur === 'USD' ? c.cost : (exchangeRates?.[cur] ? c.cost * exchangeRates[cur] : c.cost));
-            kpiRaw.cost.set('USD', (kpiRaw.cost.get('USD') || 0) + costUSD);
+            if (needsKpiSummary) kpiRaw.cost.set('USD', (kpiRaw.cost.get('USD') || 0) + costUSD);
             
             const dKey = c.date;
-            if (!overviewDaily.has(dKey)) overviewDaily.set(dKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
-            overviewDaily.get(dKey)!.cost.set('USD', (overviewDaily.get(dKey)!.cost.get('USD') || 0) + costUSD);
-            overviewAllCurrs.cost.add('USD');
+            if (needsOverview) {
+                if (!overviewDaily.has(dKey)) overviewDaily.set(dKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
+                overviewDaily.get(dKey)!.cost.set('USD', (overviewDaily.get(dKey)!.cost.get('USD') || 0) + costUSD);
+                overviewAllCurrs.cost.add('USD');
+            }
 
             // Add manual fulfill rows
+            if (needsFulfill) {
             fulfillRows.push([c.date, "N/A (Manual)", "N/A (Manual)", c.providerName, "owner", costUSD, "Manual Entry", false, c.date]);
             fulfillTotalCost += costUSD;
             fulfillStats.totalCount++; // Tăng count để refund rate chính xác
+            }
         });
     }
 
     // --- 4. Previous Period KPIs Loop ---
     const pKpiRaw = { orderIds: new Set<string>(), revenue: new Map<string, number>(), funds: new Map<string, number>(), cost: new Map<string, number>() };
-    uniquePrevRecords.forEach(r => {
+    if (needsKpiSummary) uniquePrevRecords.forEach(r => {
         const cur = r.currency || 'USD';
         if (r.kind === 'order' && r.source !== 'Etsy_Refunded') {
             if (r.order_id) pKpiRaw.orderIds.add(r.order_id);
@@ -624,8 +749,8 @@ export function processData(
         const rev = formatMix(data.revenue), ref = formatMix(data.refund), funds = formatMix(data.funds);
         return [
             accountLabelMap.get(acc) || acc,
-            data.refOrderIds.size > 0 ? { type: 'text_with_subtitle' as const, main: data.orders.size.toString(), subtitle: `↩ ${data.refOrderIds.size}`, subtitleClass: 'text-red-500 font-medium' } : data.orders.size,
-            ref.value > 0 ? { type: 'text_with_subtitle' as const, main: rev.display, subtitle: `↩ ${ref.display}`, subtitleClass: 'text-red-500 font-medium', mainAmountMap: rev.map, subtitleAmountMap: ref.map } : { type: 'value_with_unit' as const, value: rev.value, display: rev.display, amountMap: rev.map },
+            data.refOrderIds.size > 0 ? { type: 'text_with_subtitle' as const, main: data.orders.size.toString(), subtitle: `Refund: ${data.refOrderIds.size}`, subtitleClass: 'text-red-500 font-medium' } : data.orders.size,
+            ref.value > 0 ? { type: 'text_with_subtitle' as const, main: rev.display, subtitle: `Refund: ${ref.display}`, subtitleClass: 'text-red-500 font-medium', mainAmountMap: rev.map, subtitleAmountMap: ref.map } : { type: 'value_with_unit' as const, value: rev.value, display: rev.display, amountMap: rev.map },
             ...((role === 'owner' || permissions.viewKpiFunds) ? [{ type: 'value_with_unit' as const, value: funds.value, display: funds.display, amountMap: funds.map }] : []),
             ...((role === 'owner' || permissions.viewKpiCost) ? [Object.values(Object.fromEntries(data.cost)).reduce((a: any, b: any) => a + b, 0)] : []),
             ...((role === 'owner' || permissions.viewKpiEarn) ? [{ 
@@ -651,10 +776,10 @@ export function processData(
     const transformStats = (stats: Map<string, Map<string, any>>) => {
         const res: any = {};
         stats.forEach((map, key) => {
-            res[key] = Array.from(map.entries()).map(([n, s]: [any, any]) => ({
-                name: n, quantity: s.qty, revenue: s.rev, revenueUSD: s.revUSD, image: s.image,
+            res[key] = sortTopProductsByNameGroup(Array.from(map.entries()).map(([n, s]: [any, any]) => ({
+                sku: s.sku || '', name: s.name || (String(n).startsWith('name:') ? String(n).slice(5) : String(n)), quantity: s.qty, revenue: s.rev, revenueUSD: s.revUSD, image: s.image,
                 category: s.cat || key, shop: s.shop || key, classification: s.classification, size: s.size, currency: s.currency
-            })).sort((a: any, b: any) => b.quantity - a.quantity).slice(0, 500);
+            })));
         });
         return res;
     };
@@ -676,15 +801,15 @@ export function processData(
         const catCmp = a.categoryCode.localeCompare(b.categoryCode);
         if (catCmp !== 0) return catCmp;
         return b.revenue - a.revenue;
-    }).slice(0, 3000).map(p => [
-        { type: 'image', ...getOptimizedImageProps(p.image), alt: p.name }, p.sku || '-', p.name, p.category, p.variant, p.shop, p.quantity,
-        { type: 'value_with_unit', value: p.revenue, display: `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(p.revenue)} ${p.currency}` },
+    }).map(p => [
+        { type: 'image', ...getOptimizedImageProps(p.image), alt: p.name }, p.sku || '', p.name, p.category, p.variant, p.shop, p.quantity,
+        { type: 'value_with_unit', value: p.revenue, display: `${formatNumber(p.revenue)} ${p.currency}` },
         p.currency, p.revenue, p.categoryCode, p.groupingKey
     ]);
 
-    const finalVariantRows = Array.from(variantStatsTableMap.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 3000).map(v => [
+    const finalVariantRows = Array.from(variantStatsTableMap.values()).sort((a, b) => b.revenue - a.revenue).map(v => [
         v.category, v.variant, v.quantity,
-        { type: 'value_with_unit', value: v.revenue, display: `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v.revenue)} ${v.currency}` },
+        { type: 'value_with_unit', value: v.revenue, display: `${formatNumber(v.revenue)} ${v.currency}` },
         v.currency, v.revenue, v.categoryCode
     ]);
 

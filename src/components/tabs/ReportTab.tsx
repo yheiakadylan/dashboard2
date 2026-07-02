@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, BarChart3, CheckCircle2, ClipboardCheck, DollarSign, FileImage, Package, RefreshCw, Star, Truck, Users } from 'lucide-react';
 import { useDashboard } from '../../contexts/DashboardContext';
-import { useUI } from '../../contexts/UIContext';
+import { useUIFilters } from '../../contexts/UIContext';
 import DateRangePicker from '../ui/DateRangePicker';
 import { fetchOperationReportData, fetchReportRecords, fetchReportReviews, normalizeDateValue, type OperationReportData, type OperationTask, type OperationUser, type ReportOrderRecord, type ReportReview } from '../../services/reportService';
 import { buildAccountLabelMap, resolveAccountLabel } from '../../utils/accountLabels';
+import { startMeasure } from '../../utils/perfMarks';
+import { calculateItemNetRevenue, getOrderItemRevenueContext } from '../../utils/revenueUtils';
 
 const ReportTrendChart = React.lazy(() => import('./report/ReportCharts').then(module => ({ default: module.ReportTrendChart })));
 const ReportSupplierPieChart = React.lazy(() => import('./report/ReportCharts').then(module => ({ default: module.ReportSupplierPieChart })));
@@ -27,6 +29,15 @@ type TopSkuAccumulator = Omit<TopSkuRow, 'orders' | 'shops'> & { orderIds: Set<s
 
 const formatMoney = (value: number) => `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatNumber = (value: number) => value.toLocaleString('en-US');
+const logReportInfo = (message: string, details: globalThis.Record<string, unknown>) => {
+  try {
+    if (import.meta.env.DEV && localStorage.getItem('reportVerbose') === '1') {
+      console.info('[Report]', message, details);
+    }
+  } catch {
+    // Ignore logging failures.
+  }
+};
 
 const getDateKey = (dateInput: string | Date | null | undefined, timeZone: string) => {
   if (!dateInput) return '';
@@ -53,10 +64,14 @@ const buildTrendMap = (from: string, to: string, timeZone: string) => {
 };
 
 const isRefundRecord = (record: ReportOrderRecord) => record.source === 'Etsy_Refunded' || record.status === 'Refunded' || Boolean(record.refundAmount);
-const isOrderSale = (record: ReportOrderRecord) => record.kind === 'order' && record.source !== 'Etsy_Refunded' && !isRefundRecord(record);
+const isRefundNoticeRecord = (record: ReportOrderRecord) => record.source === 'Etsy_Refunded';
+const isOrderSale = (record: ReportOrderRecord) => record.kind === 'order' && !isRefundNoticeRecord(record);
 const normalizeSku = (sku?: string | null, fallback?: string | null) => (sku || fallback || '').trim().toUpperCase() || 'UNKNOWN';
 const parseIdeaCodeFromSku = (sku: string) => sku.split('-').map(part => part.trim()).filter(Boolean)[1] || '';
 const getTaskDateKey = (task: OperationTask, field: 'created_at' | 'design_submitted_at' | 'fulfilled_at', timeZone: string) => getDateKey(normalizeDateValue(task[field]), timeZone);
+const getReportItemRevenue = (record: ReportOrderRecord, item: ReportOrderRecord['items'][number]) => {
+  return calculateItemNetRevenue(item, getOrderItemRevenueContext(record.items, record.financials));
+};
 const normalizeSupplierName = (supplier?: string | null) => {
   const key = String(supplier || '').trim().toLowerCase();
   if (!key) return 'Unknown';
@@ -125,6 +140,21 @@ const ChartSkeleton: React.FC<{ className?: string }> = ({ className = 'h-56' })
   <div className={`${className} animate-pulse rounded-lg bg-gray-100 dark:bg-gray-900/50`} />
 );
 
+const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
+    promise
+      .then(value => {
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      })
+      .catch(error => {
+        window.clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+};
+
 const formatDateISO = (date: Date) => date.toISOString().slice(0, 10);
 
 const getTodayInTimezoneDate = (timeZone: string): Date => {
@@ -156,10 +186,13 @@ const getReportDefaultRange = (timeZone: string) => {
   return { from: formatDateISO(thisWeekStart), to: formatDateISO(today) };
 };
 
-const Section: React.FC<{ title: string; icon: React.ReactNode; children: React.ReactNode; action?: React.ReactNode }> = ({ title, icon, children, action }) => (
+const Section: React.FC<{ title: string; icon: React.ReactNode; children: React.ReactNode; description?: string; action?: React.ReactNode }> = ({ title, icon, children, description, action }) => (
   <section className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm overflow-hidden">
     <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
-      <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">{icon}{title}</h2>
+      <div className="min-w-0">
+        <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">{icon}{title}</h2>
+        {description && <p className="mt-1 text-xs font-normal text-gray-500 dark:text-gray-400">{description}</p>}
+      </div>
       {action}
     </div>
     <div className="p-4">{children}</div>
@@ -168,7 +201,7 @@ const Section: React.FC<{ title: string; icon: React.ReactNode; children: React.
 
 const ReportTab: React.FC = () => {
   const { accounts, exchangeRates, role, permissions, teamId } = useDashboard();
-  const { timeZone } = useUI();
+  const { timeZone } = useUIFilters();
   const [reportRange, setReportRange] = useState(() => getReportDefaultRange(timeZone));
   const [reportRecords, setReportRecords] = useState<ReportOrderRecord[]>([]);
   const [reportReviews, setReportReviews] = useState<ReportReview[]>([]);
@@ -181,71 +214,86 @@ const ReportTab: React.FC = () => {
   const canViewCost = role === 'owner' || permissions.viewKpiCost;
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
     };
   }, []);
 
-  const fetchReportPayload = React.useCallback(async (forceRefresh = false) => {
-    if (!teamId) return { operation: EMPTY_OPERATION_DATA, records: [] as ReportOrderRecord[], reviews: [] as ReportReview[] };
+  const fetchReportRecordsPayload = React.useCallback(async (forceRefresh = false) => {
+    if (!teamId) return { records: [] as ReportOrderRecord[], reviews: [] as ReportReview[] };
 
-    const [operation, records, reviews] = await Promise.all([
-      fetchOperationReportData(reportRange, timeZone, forceRefresh),
+    const [records, reviews] = await Promise.all([
       fetchReportRecords(teamId, reportRange, timeZone, forceRefresh),
       fetchReportReviews(teamId, reportRange, timeZone, forceRefresh)
     ]);
-    return { operation, records, reviews };
+    logReportInfo('records-loaded', { records: records.length, reviews: reviews.length, range: reportRange, timeZone });
+    return { records, reviews };
   }, [reportRange, teamId, timeZone]);
 
-  const applyReportPayload = React.useCallback((payload: Awaited<ReturnType<typeof fetchReportPayload>>) => {
-    setOperationData(payload.operation);
+  const applyReportRecordsPayload = React.useCallback((payload: Awaited<ReturnType<typeof fetchReportRecordsPayload>>) => {
     setReportRecords(payload.records);
     setReportReviews(payload.reviews);
     setLastLoadedAt(new Date());
   }, []);
 
-  const loadOperationData = React.useCallback(async () => {
+  const loadReportData = React.useCallback(async (forceRefresh = false) => {
     const requestId = ++latestRequestRef.current;
+    const endMeasure = startMeasure('report:load', { range: reportRange, timeZone, forceRefresh });
     setIsLoadingOps(true);
     setOperationError(null);
-    try {
-      const payload = await fetchReportPayload(true);
-      if (!isMountedRef.current || latestRequestRef.current !== requestId) return;
-      applyReportPayload(payload);
-    } catch (error) {
-      if (!isMountedRef.current || latestRequestRef.current !== requestId) return;
-      console.error('[Report] Failed to fetch report:', error);
-      setOperationData(EMPTY_OPERATION_DATA);
+
+    const [recordsResult, operationResult] = await Promise.allSettled([
+      fetchReportRecordsPayload(forceRefresh),
+      withTimeout(fetchOperationReportData(reportRange, timeZone, forceRefresh), 30000, 'Operation report')
+    ]);
+
+    if (!isMountedRef.current || latestRequestRef.current !== requestId) {
+      endMeasure({ ignored: true });
+      return;
+    }
+
+    const errors: string[] = [];
+
+    if (recordsResult.status === 'fulfilled') {
+      applyReportRecordsPayload(recordsResult.value);
+    } else {
+      console.error('[Report] Failed to fetch records/reviews:', recordsResult.reason);
       setReportRecords([]);
       setReportReviews([]);
-      setOperationError(error instanceof Error ? error.message : 'Cannot load report data');
-    } finally {
-      if (isMountedRef.current && latestRequestRef.current === requestId) setIsLoadingOps(false);
+      errors.push(recordsResult.reason instanceof Error ? recordsResult.reason.message : 'Cannot load report records');
     }
-  }, [applyReportPayload, fetchReportPayload]);
+
+    if (operationResult.status === 'fulfilled') {
+      logReportInfo('operation-loaded', {
+        tasksDesignSubmitted: operationResult.value.tasksDesignSubmitted.length,
+        tasksFulfilled: operationResult.value.tasksFulfilled.length,
+        ideasCreated: operationResult.value.ideasCreated.length,
+        ideasDesignSubmitted: operationResult.value.ideasDesignSubmitted.length,
+      });
+      setOperationData(operationResult.value);
+    } else {
+      console.error('[Report] Failed to fetch operation data:', operationResult.reason);
+      setOperationData(EMPTY_OPERATION_DATA);
+      errors.push(operationResult.reason instanceof Error ? operationResult.reason.message : 'Cannot load operation data');
+    }
+
+    setOperationError(errors.length > 0 ? errors.join(' | ') : null);
+    setIsLoadingOps(false);
+    endMeasure({
+      records: recordsResult.status === 'fulfilled' ? recordsResult.value.records.length : 0,
+      reviews: recordsResult.status === 'fulfilled' ? recordsResult.value.reviews.length : 0,
+      hasError: errors.length > 0
+    });
+  }, [applyReportRecordsPayload, fetchReportRecordsPayload, reportRange, timeZone]);
+
+  const loadOperationData = React.useCallback(async () => {
+    loadReportData(true);
+  }, [loadReportData]);
 
   useEffect(() => {
-    const requestId = ++latestRequestRef.current;
-    setIsLoadingOps(true);
-    setOperationError(null);
-
-    fetchReportPayload()
-      .then(payload => {
-        if (!isMountedRef.current || latestRequestRef.current !== requestId) return;
-        applyReportPayload(payload);
-      })
-      .catch(error => {
-        if (!isMountedRef.current || latestRequestRef.current !== requestId) return;
-        console.error('[Report] Failed to fetch report:', error);
-        setOperationData(EMPTY_OPERATION_DATA);
-        setReportRecords([]);
-        setReportReviews([]);
-        setOperationError(error instanceof Error ? error.message : 'Cannot load report data');
-      })
-      .finally(() => {
-        if (isMountedRef.current && latestRequestRef.current === requestId) setIsLoadingOps(false);
-      });
-  }, [applyReportPayload, fetchReportPayload]);
+    loadReportData(false);
+  }, [loadReportData]);
 
   const reportData = useMemo(() => {
     const accountLabelMap = buildAccountLabelMap(accounts);
@@ -290,9 +338,9 @@ const ReportTab: React.FC = () => {
           row = { sku, name: item.name || sku, quantity: 0, revenueUSD: 0, image: item.image, orderIds: new Set<string>(), shopSet: new Set<string>() };
           skuMap.set(sku, row);
         }
-        const qty = Number(item.quantity || 1);
+        const qty = Number(item.quantity || 0);
         row.quantity += qty;
-        row.revenueUSD += currencyToUsd((item.price || 0) * qty, record.currency);
+        row.revenueUSD += currencyToUsd(getReportItemRevenue(record, item), record.currency);
         if (record.order_id) row.orderIds.add(record.order_id);
         row.shopSet.add(resolveAccountLabel(accountLabelMap, record.account));
         if (!row.image && item.image) row.image = item.image;
@@ -333,7 +381,7 @@ const ReportTab: React.FC = () => {
 
     const shopRatings = Array.from(shopRatingsMap.entries())
       .map(([shop, stats]) => ({ shop, avg: stats.total / stats.count, count: stats.count }))
-      .sort((a, b) => b.count - a.count);
+      .sort((a, b) => b.count - a.count || b.avg - a.avg || a.shop.localeCompare(b.shop));
 
     const ideaMap = new Map<string, LeaderRow>();
     const ensureIdeaRow = (key: string) => {
@@ -484,14 +532,14 @@ const ReportTab: React.FC = () => {
       </Section>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <Section title="Top 20 SKU dang ra don" icon={<Package className="h-4 w-4 text-emerald-600" />}>
+        <Section title="Top 20 SKU dang ra don" description="SKU ban chay trong range dang chon, xep theo qty ban." icon={<Package className="h-4 w-4 text-emerald-600" />}>
           <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="text-xs uppercase text-gray-500 dark:text-gray-400"><tr className="border-b border-gray-200 dark:border-gray-700"><th className="py-2 text-left">SKU</th><th className="py-2 text-right">Qty</th><th className="py-2 text-right">Orders</th><th className="py-2 text-right">Revenue</th></tr></thead><tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {reportData.topSkus.map((item, index) => <tr key={item.sku}><td className="py-3 pr-3"><div className="flex items-center gap-2 min-w-[220px]"><span className="w-5 text-xs text-gray-400">{index + 1}</span>{item.image ? <img src={item.image} alt="" className="h-9 w-9 rounded object-cover border border-gray-200 dark:border-gray-700" /> : <div className="h-9 w-9 rounded bg-gray-100 dark:bg-gray-700" />}<div className="min-w-0"><div className="font-semibold text-gray-900 dark:text-white truncate">{item.sku}</div><div className="text-xs text-gray-500 truncate">{item.shops.join(', ') || item.name}</div></div></div></td><td className="py-3 text-right font-semibold text-gray-900 dark:text-white">{formatNumber(item.quantity)}</td><td className="py-3 text-right">{formatNumber(item.orders)}</td><td className="py-3 text-right">{formatMoney(item.revenueUSD)}</td></tr>)}
             {reportData.topSkus.length === 0 && <tr><td colSpan={4} className="py-8 text-center text-gray-500">Chua co SKU trong range nay.</td></tr>}
           </tbody></table></div>
         </Section>
 
-        <Section title="Idea performance" icon={<Users className="h-4 w-4 text-violet-600" />} action={isLoadingOps ? <span className="text-xs text-gray-500">Loading...</span> : null}>
+        <Section title="Idea performance" description="Hieu suat nhan su idea dua tren Idea board va sale qty tu SKU." icon={<Users className="h-4 w-4 text-violet-600" />} action={isLoadingOps ? <span className="text-xs text-gray-500">Loading...</span> : null}>
           <div className="grid grid-cols-3 gap-2 mb-4">
             <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500">Created</p><p className="text-xl font-bold text-gray-900 dark:text-white">{formatNumber(reportData.ideaSummary.created)}</p></div>
             <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500">Complete</p><p className="text-xl font-bold text-gray-900 dark:text-white">{formatNumber(reportData.ideaSummary.completed)}</p></div>
@@ -503,7 +551,7 @@ const ReportTab: React.FC = () => {
           </tbody></table></div>
         </Section>
 
-        <Section title="Designer submit" icon={<FileImage className="h-4 w-4 text-indigo-600" />}>
+        <Section title="Designer submit" description="So file designer submit tu Fulfill va Idea board." icon={<FileImage className="h-4 w-4 text-indigo-600" />}>
           <div className="grid grid-cols-3 gap-2 mb-4">
             <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500">Total</p><p className="text-xl font-bold text-gray-900 dark:text-white">{formatNumber(reportData.designerSummary.totalSubmitted)}</p></div>
             <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500">FF</p><p className="text-xl font-bold text-gray-900 dark:text-white">{formatNumber(reportData.designerSummary.fulfillSubmitted)}</p></div>
@@ -526,11 +574,11 @@ const ReportTab: React.FC = () => {
           <div className="h-56"><React.Suspense fallback={<ChartSkeleton />}><ReportSupplierPieChart data={supplierPieData} /></React.Suspense></div>
         </Section>
 
-        <Section title="Rating theo shop" icon={<Star className="h-4 w-4 text-amber-600 fill-current" />}>
+        <Section title="Rating theo shop" description="Highest/Lowest tinh theo diem sao trung binh cua review trong range." icon={<Star className="h-4 w-4 text-amber-600 fill-current" />}>
           <div className="grid grid-cols-3 gap-2 mb-4">
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500">Avg all</p><p className="text-xl font-bold text-gray-900 dark:text-white">{reportData.avgRating ? reportData.avgRating.toFixed(2) : '-'}</p></div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Highest</p><p className="text-xl font-bold text-gray-900 dark:text-white">{reportData.highestRatingShop ? reportData.highestRatingShop.avg.toFixed(2) : '-'}</p><p className="text-xs text-gray-500 truncate">{reportData.highestRatingShop?.shop || '-'}</p></div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Lowest</p><p className="text-xl font-bold text-gray-900 dark:text-white">{reportData.lowestRatingShop ? reportData.lowestRatingShop.avg.toFixed(2) : '-'}</p><p className="text-xs text-gray-500 truncate">{reportData.lowestRatingShop?.shop || '-'}</p></div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500">Avg all</p><p className="text-xl font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{reportData.avgRating ? reportData.avgRating.toFixed(2) : '-'} {reportData.avgRating ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p></div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Highest</p><p className="text-xl font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{reportData.highestRatingShop ? reportData.highestRatingShop.avg.toFixed(2) : '-'} {reportData.highestRatingShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.highestRatingShop?.shop || '-'}</p></div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Lowest</p><p className="text-xl font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{reportData.lowestRatingShop ? reportData.lowestRatingShop.avg.toFixed(2) : '-'} {reportData.lowestRatingShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.lowestRatingShop?.shop || '-'}</p></div>
           </div>
           <div className="space-y-3">{reportData.shopRatings.map(shop => <div key={shop.shop} className="flex items-center justify-between gap-3 text-sm"><span className="font-medium text-gray-700 dark:text-gray-300 truncate">{shop.shop}</span><span className="flex items-center gap-2 flex-shrink-0"><span className="text-xs text-gray-500">{formatNumber(shop.count)} reviews</span><span className="font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{shop.avg.toFixed(2)} <Star className="h-3 w-3 text-amber-500 fill-current" /></span></span></div>)}{reportData.shopRatings.length === 0 && <p className="py-4 text-center text-sm text-gray-500">Chua co review trong range nay.</p>}</div>
         </Section>

@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      watch: {
+        ignored: ['**/extension-sku-worker/**'],
+      },
     },
     plugins: [
       react(),
@@ -173,8 +176,6 @@ export default defineConfig(({ mode }) => {
             // Virtualization
             'virtualization-vendor': ['react-window'],
 
-            // Google AI
-            'ai-vendor': ['@google/genai'],
           },
 
           // Optimize asset filenames
@@ -205,8 +206,8 @@ export default defineConfig(({ mode }) => {
 
     // Optimize dependencies
     optimizeDeps: {
+      entries: ['index.html'],
       include: ['react', 'react-dom', 'firebase/app', 'firebase/auth', 'firebase/firestore', 'recharts'],
-      exclude: ['@google/genai'],
     },
   };
 });

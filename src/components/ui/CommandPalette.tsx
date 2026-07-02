@@ -1,22 +1,24 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Record } from '../../types';
+import React, { useState, useEffect, useMemo } from 'react';
 
-import { Search, Command, Calendar, Box, Settings, LogOut, Sun, Moon, ArrowRight } from 'lucide-react';
-import { useUI } from '../../contexts/UIContext';
+import { Search, Calendar, Box, Settings, LogOut, Sun, ArrowRight } from 'lucide-react';
+import { useUIModals, useUITabs, useUITheme } from '../../contexts/UIContext';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useNotification } from '../../contexts/NotificationContext';
-import { fetchCostsForRecords } from '../../services/fulfillmentService';
+import { syncFulfillmentCosts } from '../../services/costSyncService';
 
 const CommandPalette: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
-    const { handleTabClick, setIsTabSettingsOpen, setIsAccountManagerOpen, toggleTheme } = useUI();
-    const { handleLogout, records, setRecords, teamId } = useDashboard();
+    const { handleTabClick } = useUITabs();
+    const { setIsAccountManagerOpen } = useUIModals();
+    const { toggleTheme } = useUITheme();
+    const { handleLogout, records, setRecords, setSyncState, teamId } = useDashboard();
     const { addNotification } = useNotification();
+    const quickFetchAbortControllerRef = React.useRef<AbortController | null>(null);
 
     // Commands configuration
-    const commands = [
+    const commands = useMemo(() => [
         { id: 'overview', icon: <Box size={18} />, label: 'Go to Overview', action: () => handleTabClick('Overview'), group: 'Navigation' },
         { id: 'orders', icon: <Calendar size={18} />, label: 'Go to Order List', action: () => handleTabClick('Order List'), group: 'Navigation' },
         { id: 'products', icon: <Box size={18} />, label: 'Go to Products', action: () => handleTabClick('Products'), group: 'Navigation' },
@@ -28,82 +30,68 @@ const CommandPalette: React.FC = () => {
             icon: <Box size={18} />,
             label: 'Quick Fetch Fulfillment Cost',
             action: async () => {
-                console.log('--- Quick Fetch Fulfill Start ---');
+                if (quickFetchAbortControllerRef.current) {
+                    quickFetchAbortControllerRef.current.abort();
+                    quickFetchAbortControllerRef.current = null;
+                    setSyncState(null);
+                    addNotification('Canceled fulfillment cost fetch.', 'info');
+                    return;
+                }
+
+                const controller = new AbortController();
+                quickFetchAbortControllerRef.current = controller;
                 addNotification('Fetching fulfillment costs...', 'info');
+                setSyncState('Preparing fulfillment cost fetch...');
                 try {
-                    // USER RULE: Fetch if no ff_code OR (has ff_code but cost is 0/missing)
-                    const orderRecords = records.filter(r => {
-                        if (r.kind !== 'order' || !r.order_id) return false;
-                        const hasCost = r.cost_total && r.cost_total > 0;
-                        const hasFfCode = !!r.ff_code;
-
-                        // Rule 1: No ff_code -> Fetch
-                        if (!hasFfCode) return true;
-                        // Rule 2: Has ff_code but no cost -> Fetch
-                        if (hasFfCode && !hasCost) return true;
-
-                        return false;
+                    const result = await syncFulfillmentCosts({
+                        teamId,
+                        recordsToScan: records,
+                        recordsToUpdate: records,
+                        signal: controller.signal,
+                        productNameFallback: 'existing',
+                        onProgress: progress => setSyncState(progress.message),
+                        onRecordsUpdated: updatedRecordsById => {
+                            setRecords(currentRecords => currentRecords.map(record => (
+                                record.id && updatedRecordsById.has(record.id)
+                                    ? updatedRecordsById.get(record.id)!
+                                    : record
+                            )));
+                        },
                     });
 
-                    if (orderRecords.length === 0) {
+                    if (result.eligibleOrders === 0) {
                         addNotification('No order gaps found to fetch.', 'info');
                         return;
                     }
 
-                    console.log(`Fetching costs for ${orderRecords.length} orders...`);
-                    const costMap = await fetchCostsForRecords(orderRecords);
-
-                    if (costMap.size === 0) {
-                        addNotification('No costs found from providers.', 'info');
-                        return;
-                    }
-
-                    // Prepare updates
-                    const updates: (Partial<Record> & { id: string })[] = [];
-                    const updatedRecords = records.map(record => {
-                        if (record.order_id && costMap.has(record.order_id)) {
-                            const costInfo = costMap.get(record.order_id)!;
-                            // Update if cost is different or new code found
-                            if (record.cost_total !== costInfo.cost_total || record.ff_code !== costInfo.ff_code) {
-                                updates.push({
-                                    id: record.id!,
-                                    cost_total: costInfo.cost_total,
-                                    ff_code: costInfo.ff_code,
-                                    product_name: costInfo.product_name || record.product_name
-                                });
-                                return {
-                                    ...record,
-                                    cost_total: costInfo.cost_total,
-                                    ff_code: costInfo.ff_code,
-                                    product_name: costInfo.product_name || record.product_name
-                                };
-                            }
-                        }
-                        return record;
-                    });
-
-                    if (updates.length > 0) {
-                        console.log(`Updating ${updates.length} records...`);
-                        const { updateRecordsInFirebase } = await import('../../services/firebaseService');
-                        await updateRecordsInFirebase(teamId, updates);
-                        setRecords(updatedRecords);
-                        addNotification(`Updated ${updates.length} records with new costs.`, 'success');
+                    const failedCostSuffix = result.failedChunks > 0 ? ` (${result.failedChunks} chunk${result.failedChunks > 1 ? 's' : ''} failed)` : '';
+                    if (result.updatedRecords > 0) {
+                        addNotification(`Updated ${result.updatedRecords} records with new costs.${failedCostSuffix}`, 'success');
+                    } else if (result.costsFound === 0) {
+                        addNotification(`No costs found from providers.${failedCostSuffix}`, 'info');
                     } else {
-                        addNotification('No new cost updates found for these orders.', 'info');
+                        addNotification(`No new cost updates found for these orders.${failedCostSuffix}`, 'info');
                     }
                 } catch (e) {
+                    if (controller.signal.aborted) return;
                     console.error('Quick Fetch Error:', e);
                     addNotification('Failed to fetch costs.', 'error');
+                } finally {
+                    if (quickFetchAbortControllerRef.current === controller) {
+                        quickFetchAbortControllerRef.current = null;
+                        setSyncState(null);
+                    }
                 }
             },
             group: 'Development'
         },
 
-    ];
+    ], [addNotification, handleLogout, handleTabClick, records, setIsAccountManagerOpen, setRecords, setSyncState, teamId, toggleTheme]);
 
-    const filteredCommands = commands.filter(cmd =>
-        cmd.label.toLowerCase().includes(query.toLowerCase())
-    );
+    const filteredCommands = useMemo(() => {
+        const normalizedQuery = query.toLowerCase();
+        return commands.filter(cmd => cmd.label.toLowerCase().includes(normalizedQuery));
+    }, [commands, query]);
 
     // Keyboard shortcut listener
     useEffect(() => {

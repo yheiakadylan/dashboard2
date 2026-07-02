@@ -102,11 +102,22 @@ const resizeAndCompressImage = async (blob: Blob, maxSize: number = 75): Promise
     });
 };
 
+type ExcelImagePayload = {
+    buffer: ArrayBuffer;
+    extension: 'jpeg' | 'png' | 'gif';
+};
+
 // Cache for image buffers to avoid redundant fetches/processing
-const imageBufferCache = new Map<string, ArrayBuffer>();
+const imageBufferCache = new Map<string, ExcelImagePayload>();
+
+const getExcelImageExtension = (mimeType: string): ExcelImagePayload['extension'] => {
+    if (mimeType.includes('png')) return 'png';
+    if (mimeType.includes('gif')) return 'gif';
+    return 'jpeg';
+};
 
 // Helper to fetch image as buffer (using cache)
-const fetchImage = async (url: string): Promise<ArrayBuffer | null> => {
+const fetchImage = async (url: string): Promise<ExcelImagePayload | null> => {
     if (imageBufferCache.has(url)) return imageBufferCache.get(url)!;
 
     try {
@@ -117,10 +128,13 @@ const fetchImage = async (url: string): Promise<ArrayBuffer | null> => {
         const blob = await response.blob();
         // Resize to 150px for Excel optimization
         const optimizedBlob = await resizeAndCompressImage(blob, 150);
-        const buffer = await optimizedBlob.arrayBuffer();
+        const imagePayload: ExcelImagePayload = {
+            buffer: await optimizedBlob.arrayBuffer(),
+            extension: getExcelImageExtension(optimizedBlob.type)
+        };
 
-        imageBufferCache.set(url, buffer);
-        return buffer;
+        imageBufferCache.set(url, imagePayload);
+        return imagePayload;
     } catch (error) {
         // Silent fail for export to continue
         return null;
@@ -137,10 +151,66 @@ const decodeHTMLEntities = (text: string): string => {
         .replace(/&gt;/g, '>');
 };
 
+const splitSkuParts = (sku: string | undefined | null): [string, string, string] => {
+    const cleanSku = String(sku || '').trim();
+    if (!cleanSku) return ['', '', ''];
+
+    const [productType = '', staffCode = '', ...restParts] = cleanSku.split('-');
+    return [productType.trim(), staffCode.trim(), restParts.join('-').trim()];
+};
+
+const roundMoney = (value: number | undefined | null): number => {
+    return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+};
+
+const getUniqueSheetName = (rawName: string, usedNames: Set<string>) => {
+    const baseName = (rawName.replace(/[:\\/?*[\]]/g, '').slice(0, 31) || 'Sheet').trim() || 'Sheet';
+    let sheetName = baseName;
+    let suffix = 1;
+
+    while (usedNames.has(sheetName.toLowerCase())) {
+        const suffixText = ` ${suffix}`;
+        sheetName = `${baseName.slice(0, 31 - suffixText.length)}${suffixText}`;
+        suffix++;
+    }
+
+    usedNames.add(sheetName.toLowerCase());
+    return sheetName;
+};
+
+const quoteSheetNameForFormula = (sheetName: string) => `'${sheetName.replace(/'/g, "''")}'`;
+
+const isTextLikeColumn = (header?: string) => {
+    const normalized = String(header || '').toLowerCase();
+    return [
+        'sku',
+        'name',
+        'product',
+        'shop',
+        'account',
+        'variant',
+        'source',
+        'order',
+        'image',
+        'currency',
+        'curren',
+        'ff code',
+        'category',
+        'date',
+        'time',
+        'case',
+        'help',
+        'provider',
+        'fulfillment',
+    ].some(token => normalized.includes(token));
+};
+
 // Helper to clean row data for Excel text
-const cleanCellData = (cell: any, useUsdMode: boolean = false, exchangeRates: { [key: string]: number } | null = null, returnSplit: boolean = false): any => {
-    if (cell === null || cell === undefined) return 0;
-    if (typeof cell === 'string' && (cell === '---' || cell === '--' || cell.trim() === '')) return 0;
+const cleanCellData = (cell: any, useUsdMode: boolean = false, exchangeRates: { [key: string]: number } | null = null, returnSplit: boolean = false, header?: string): any => {
+    if (cell === null || cell === undefined) return isTextLikeColumn(header) ? '' : 0;
+    if (typeof cell === 'string' && (cell === '---' || cell === '--' || cell.trim() === '')) {
+        return isTextLikeColumn(header) ? '' : 0;
+    }
     if (typeof cell === 'object') {
         if (cell.type === 'value_with_unit') {
             if (useUsdMode && cell.value !== undefined) {
@@ -177,7 +247,7 @@ const cleanCellData = (cell: any, useUsdMode: boolean = false, exchangeRates: { 
                 }
             } else {
                 totalMain = decodeHTMLEntities(cell.main || '');
-                totalSub = decodeHTMLEntities(cell.subtitle || '').replace(/[↩\s]/g, '');
+                totalSub = decodeHTMLEntities(cell.subtitle || '').replace(/^Refund:\s*/i, '').replace(/[↩\s]/g, '');
             }
 
             if (returnSplit) {
@@ -218,7 +288,7 @@ const remapTableDataForOrders = (originalData: TableData): TableData => {
         else if (lowerH.includes('product') || lowerH.includes('item')) headerMapping['Product Name'] = index;
         else if (lowerH.includes('variant') || lowerH.includes('sku')) headerMapping['Variants'] = index;
         else if (lowerH.includes('revenue') || lowerH.includes('amount') || lowerH.includes('total')) headerMapping['Revenue'] = index;
-        else if (lowerH.includes('currency')) headerMapping['Currency'] = index;
+        else if (lowerH.includes('currency') || lowerH.includes('curren')) headerMapping['Currency'] = index;
         else if (lowerH.includes('cost')) headerMapping['Cost'] = index;
         else if (lowerH.includes('ff code') || lowerH.includes('fulfillment')) headerMapping['FF Code'] = index;
         else if (lowerH.includes('case')) headerMapping['Case'] = index;
@@ -339,7 +409,7 @@ const addTableToSheet = async (
         const isRefunded = isOrderList && row[row.length - 1] === true;
         
         const trimmedRow = row.slice(0, tableData.headers.length);
-        const cleanRow = trimmedRow.map(cell => cleanCellData(cell, useUsdMode, exchangeRates));
+        const cleanRow = trimmedRow.map((cell, cellIndex) => cleanCellData(cell, useUsdMode, exchangeRates, false, tableData.headers[cellIndex]));
         currentRow.values = cleanRow;
         currentRow.height = (includeImages && imageColIndex !== -1) ? 75 : 25;
         currentRow.alignment = { vertical: 'middle', horizontal: 'left' };
@@ -373,16 +443,16 @@ const addTableToSheet = async (
         for (let i = 0; i < imageUrls.length; i += CHUNK_SIZE) {
             const chunk = imageUrls.slice(i, i + CHUNK_SIZE);
             const chunkStartIndex = i;
-            const buffers = await Promise.all(
+            const images = await Promise.all(
                 chunk.map(url => url ? fetchImage(url) : Promise.resolve(null))
             );
 
-            buffers.forEach((buffer, idxInChunk) => {
+            images.forEach((image, idxInChunk) => {
                 const globalIdx = chunkStartIndex + idxInChunk;
-                if (buffer) {
+                if (image) {
                     const imageId = sheet.workbook.addImage({
-                        buffer: buffer,
-                        extension: 'png',
+                        buffer: image.buffer,
+                        extension: image.extension,
                     });
                     sheet.addImage(imageId, {
                         tl: { col: imageColIndex, row: startRow + globalIdx } as any,
@@ -716,47 +786,98 @@ export const exportTopProductsToExcel = async (
     summaryTitle: string = 'Summary'
 ) => {
     const workbook = new ExcelJS.Workbook();
+    workbook.calcProperties.fullCalcOnLoad = true;
+    const usedSheetNames = new Set<string>();
+    const exportRowForProduct = (product: TopProduct) => {
+        const [productType, staffCode, remainingSku] = splitSkuParts(product.sku);
+        return [
+            productType,
+            staffCode,
+            remainingSku,
+            product.name,
+            product.quantity,
+            roundMoney(product.revenue),
+            product.currency || 'USD',
+            product.shop || ''
+        ];
+    };
     
     // Add Summary Sheet
-    const summarySheet = workbook.addWorksheet(summaryTitle);
-    const headers = ['Product Name', 'Quantity Sold', 'Revenue', 'Currency', 'Shop'];
+    const summarySheet = workbook.addWorksheet(getUniqueSheetName(summaryTitle, usedSheetNames));
+    const headers = ['Product Type', 'Staff Code', 'SKU', 'Product Name', 'Quantity Sold', 'Revenue', 'Currency', 'Shop'];
+    const formulaSourceRows = summaryData.map(exportRowForProduct);
     
     const headerRow = summarySheet.addRow(headers);
     styleHeaderRow(headerRow);
     
-    summaryData.forEach(p => {
-        summarySheet.addRow([
-            p.name,
-            p.quantity,
-            p.revenue,
-            p.currency || 'USD',
-            p.shop || ''
-        ]);
+    formulaSourceRows.forEach(row => {
+        summarySheet.addRow(row);
     });
     
     setColumnWidths(summarySheet, headers);
+    summarySheet.getColumn(2).numFmt = '@';
+    summarySheet.getColumn(6).numFmt = '#,##0.00';
     
     // Add Detail Sheets
     Object.entries(sheetData).forEach(([sheetName, items]) => {
-        // Excel sheet naming limits
-        const safeName = sheetName.replace(/[:\\/?*[\]]/g, '').slice(0, 31) || 'Sheet';
+        const safeName = getUniqueSheetName(sheetName, usedSheetNames);
         const sheet = workbook.addWorksheet(safeName);
         
         const detailHeaderRow = sheet.addRow(headers);
         styleHeaderRow(detailHeaderRow);
-        
+
         items.forEach(p => {
-            sheet.addRow([
-                p.name,
-                p.quantity,
-                p.revenue,
-                p.currency || 'USD',
-                p.shop || ''
-            ]);
+            const row = exportRowForProduct(p);
+            sheet.addRow(row);
         });
         
         setColumnWidths(sheet, headers);
+        sheet.getColumn(2).numFmt = '@';
+        sheet.getColumn(6).numFmt = '#,##0.00';
     });
+
+    const formulaSourceSheetName = summarySheet.name;
+    const staffQuantityResults = new Map<string, number>();
+    const staffRevenueResults = new Map<string, number>();
+
+    formulaSourceRows.forEach(row => {
+        const staffCode = String(row[1] || '').trim();
+        if (!staffCode) return;
+        staffQuantityResults.set(staffCode, (staffQuantityResults.get(staffCode) || 0) + Number(row[4] || 0));
+        staffRevenueResults.set(staffCode, roundMoney((staffRevenueResults.get(staffCode) || 0) + Number(row[5] || 0)));
+    });
+
+    if (staffQuantityResults.size > 0) {
+        const staffSheet = workbook.addWorksheet(getUniqueSheetName('Staff Summary', usedSheetNames));
+        const staffHeaders = ['Staff Code', 'Quantity Sold', 'Revenue'];
+        styleHeaderRow(staffSheet.addRow(staffHeaders));
+        const sourceSheetRef = quoteSheetNameForFormula(formulaSourceSheetName);
+        const lastSummaryRow = Math.max(2, formulaSourceRows.length + 1);
+        const staffCodeRange = `${sourceSheetRef}!$B$2:$B$${lastSummaryRow}`;
+        const quantityRange = `${sourceSheetRef}!$E$2:$E$${lastSummaryRow}`;
+        const revenueRange = `${sourceSheetRef}!$F$2:$F$${lastSummaryRow}`;
+
+        Array.from(staffQuantityResults.keys()).sort().forEach((staffCode, index) => {
+            const rowNumber = index + 2;
+            staffSheet.addRow([
+                staffCode,
+                {
+                    formula: `SUMPRODUCT(--(TRIM(${staffCodeRange})=TRIM($A${rowNumber})),${quantityRange})`,
+                    result: staffQuantityResults.get(staffCode) || 0
+                },
+                {
+                    formula: `SUMPRODUCT(--(TRIM(${staffCodeRange})=TRIM($A${rowNumber})),${revenueRange})`,
+                    result: staffRevenueResults.get(staffCode) || 0
+                }
+            ]);
+        });
+
+        staffSheet.getColumn(1).width = 18;
+        staffSheet.getColumn(1).numFmt = '@';
+        staffSheet.getColumn(2).width = 18;
+        staffSheet.getColumn(3).width = 18;
+        staffSheet.getColumn(3).numFmt = '#,##0.00';
+    }
     
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Record, OrderItem } from '../../types';
 import { useDashboard } from '../../contexts/DashboardContext';
-import { useUI } from '../../contexts/UIContext';
+import { useUIFilters, useUISettings } from '../../contexts/UIContext';
 import ImagePreviewModal from './ImagePreviewModal';
 import { addSkuJob, listenToSkuJob } from '../../services/skuQueueService';
 import { listenToRecord } from '../../services/firebaseService';
@@ -14,9 +14,24 @@ interface OrderDetailModalProps {
   allRecords?: Record[]; // To find refund details
 }
 
+const EMPTY_ORDER_DETAILS: NonNullable<Record['details']> = {
+  customerName: '',
+  customerEmail: '',
+  shippingAddress: {
+    name: '',
+    address1: '',
+    city: '',
+    state: '',
+    zip: '',
+    country: ''
+  },
+  items: []
+};
+
 const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, onResync, allRecords = [] }) => {
   const { accounts, exchangeRates, teamId } = useDashboard();
-  const { timeZone, globalUsdMode } = useUI();
+  const { timeZone } = useUIFilters();
+  const { globalUsdMode } = useUISettings();
   const { addNotification } = useNotification();
 
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -25,7 +40,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
   const [skuJobStatus, setSkuJobStatus] = useState<any>(null);
   const [isFetchingSku, setIsFetchingSku] = useState(false);
   const [localFetchedSku, setLocalFetchedSku] = useState<string | null>(null);
-  const [localFetchedCustomerFiles, setLocalFetchedCustomerFiles] = useState<string[] | null>(null);
   // Live record driven by Firestore onSnapshot — reflects SKU + listing_id updates in real-time
   const [liveRecord, setLiveRecord] = useState<Record>(record);
 
@@ -77,9 +91,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
               } else {
                 addNotification(`Warning: SKU not found for this order`, 'warning');
               }
-              if (job.customerFiles && job.customerFiles.length > 0) {
-                setLocalFetchedCustomerFiles(job.customerFiles);
-              }
             } else {
               addNotification(`Error: Failed to fetch SKU ( ${job.error || 'Unknown'} )`, 'error');
             }
@@ -119,9 +130,8 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
     }
   };
 
-  if (!record.details) return null;
+  const hasRecordDetails = Boolean(record.details);
 
-  // ✅ Find and Aggregate refund details
   const refundDetails = React.useMemo(() => {
     if (record.refund_details) return record.refund_details;
 
@@ -162,30 +172,25 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
       feeCurrency: currency,
       reason: reasons.length > 0 ? reasons.join('; ') : 'N/A'
     };
-  }, [allRecords, record, exchangeRates]);
-
-  // Find Unique SKUs to display in header
-  const uniqueSkus = React.useMemo(() => {
-    if (!record.details?.items) return [];
-    const skus = new Set<string>();
-    record.details.items.forEach(i => {
-      if (i.sku && i.sku !== 'NULL' && i.sku !== 'NULL_RATE_LIMIT') skus.add(i.sku);
-    });
-    return Array.from(skus);
-  }, [record.details?.items]);
+  }, [allRecords, record]);
 
   const { details: liveDetails, order_id, dt_local, account } = liveRecord;
-  const { customerName, customerEmail, shippingAddress, items, financials } = liveDetails || record.details!;
+  const { customerName, customerEmail, shippingAddress, items, financials } = liveDetails || record.details || EMPTY_ORDER_DETAILS;
 
   const displayItems = React.useMemo(() => {
     const baseItems = liveRecord.details?.items || items;
     if (!localFetchedSku) return baseItems;
-    return baseItems.map((item: OrderItem) => ({ ...item, sku: item.sku || localFetchedSku }));
+    let nextItems: OrderItem[] | null = null;
+    baseItems.forEach((item, index) => {
+      if (item.sku) {
+        nextItems?.push(item);
+        return;
+      }
+      if (!nextItems) nextItems = baseItems.slice(0, index);
+      nextItems.push({ ...item, sku: localFetchedSku });
+    });
+    return nextItems || baseItems;
   }, [liveRecord.details?.items, items, localFetchedSku]);
-
-  const displayCustomerFiles = React.useMemo(() => {
-    return localFetchedCustomerFiles || liveDetails?.customerFiles || [];
-  }, [liveDetails?.customerFiles, localFetchedCustomerFiles]);
 
   // Helper to format prices with USD conversion
   const formatPrice = (amount: number | undefined | null, currency: string = 'USD') => {
@@ -206,19 +211,25 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
     return `${symbol}${displayAmount.toFixed(2)}`;
   };
 
-  const matchedAccount = accounts.find(acc => acc.email === account);
+  const matchedAccount = React.useMemo(
+    () => accounts.find(acc => acc.email === account),
+    [account, accounts]
+  );
   const shopName = matchedAccount?.label || account;
 
-  const formattedDate = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true
-  }).format(new Date(dt_local));
+  const formattedDate = React.useMemo(
+    () => new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    }).format(new Date(dt_local)),
+    [dt_local, timeZone]
+  );
 
   const handleResyncClick = async () => {
     if (onResync && record.id && record.email_id) {
@@ -228,6 +239,8 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
       setIsResyncing(false);
     }
   };
+
+  if (!hasRecordDetails) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[70] p-4 animate-modal-backdrop" onClick={onClose}>
