@@ -232,25 +232,38 @@ const Header: React.FC = () => {
   }, []);
 
   const [localPhotoURL, setLocalPhotoURL] = useState(user?.photoURL || '');
+  const activeObjectUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    let objectUrl: string | null = null;
     let cancelled = false;
 
     if (user) {
-      setLocalPhotoURL(user.photoURL || '');
+      if (user.photoURL && !localPhotoURL) {
+        setLocalPhotoURL(user.photoURL);
+      }
       getImageFromDB(user.uid).then((blob) => {
         if (cancelled || !blob) return;
-        objectUrl = URL.createObjectURL(blob);
+        const objectUrl = URL.createObjectURL(blob);
+        if (activeObjectUrlRef.current) {
+          URL.revokeObjectURL(activeObjectUrlRef.current);
+        }
+        activeObjectUrlRef.current = objectUrl;
         setLocalPhotoURL(objectUrl);
       }).catch(e => console.error("Header avatar load failed", e));
     }
 
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [user]);
+
+  useEffect(() => {
+    return () => {
+      if (activeObjectUrlRef.current) {
+        URL.revokeObjectURL(activeObjectUrlRef.current);
+      }
+    };
+  }, []);
 
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -602,6 +615,7 @@ const Header: React.FC = () => {
                           src={localPhotoURL}
                           alt="User"
                           className="w-8 h-8 rounded-full object-cover border border-gray-200 dark:border-gray-600 hover:ring-2 hover:ring-blue-500 transition-all"
+                          onError={() => setLocalPhotoURL('')}
                       />
                   ) : (
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold hover:ring-2 hover:ring-blue-500 transition-all">

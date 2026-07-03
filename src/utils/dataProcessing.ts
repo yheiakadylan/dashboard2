@@ -8,6 +8,7 @@ import {
     removeAccents 
 } from './variantHelpers';
 import { calculateItemNetRevenue, getItemQuantity, getOrderItemRevenueContext } from './revenueUtils';
+import { getPreviousPeriodLabel } from './periodComparison';
 
 export type ProcessingScope = 'all' | 'overview' | 'orders' | 'products' | 'fulfill' | 'support';
 
@@ -241,6 +242,7 @@ export function processData(
 
 
     const uniqueRecords = deduplicate(records);
+    const hasPreviousPeriod = previousRecords !== null;
     const uniquePrevRecords = previousRecords ? deduplicate(previousRecords) : [];
 
     // --- 2. Preparatory Maps (Status, Cases, Helps) ---
@@ -620,13 +622,27 @@ export function processData(
     });
 
     // -- Summary KPIs --
+    const previousPeriodLabel = getPreviousPeriodLabel(filterDateRange);
+
     const transformKpiMap = (curr: Map<string, number>, prev: Map<string, number>) => {
         const res: any = {};
-        const all = new Set([...Array.from(curr.keys()), ...Array.from(prev.keys())]);
+        const all = hasPreviousPeriod
+            ? new Set([...Array.from(curr.keys()), ...Array.from(prev.keys())])
+            : new Set(Array.from(curr.keys()));
         all.forEach(c => {
             const v = curr.get(c) || 0;
-            if (v < 0.01 && (prev.get(c) || 0) < 0.01) return;
-            res[c] = { value: formatCurrency(v), ...calculatePercentageChange(v, prev.get(c) || 0) };
+            const p = prev.get(c) || 0;
+            if (v < 0.01 && p < 0.01) return;
+            res[c] = {
+                value: formatCurrency(v),
+                ...(hasPreviousPeriod
+                    ? {
+                        previousValue: formatCurrency(p),
+                        previousLabel: previousPeriodLabel,
+                        ...calculatePercentageChange(v, p)
+                    }
+                    : {})
+            };
         });
         return res;
     };
@@ -638,11 +654,13 @@ export function processData(
     const addUSDToKpi = (
         kpiMap: { [currency: string]: KpiValue },
         rawMap: Map<string, number>,
+        previousRawMap?: Map<string, number>,
         refundMap?: Map<string, number>
     ): { [currency: string]: KpiValue } => {
         if (!exchangeRates) return kpiMap;
 
         let totalUSD = 0;
+        let previousTotalUSD = 0;
         let totalRefundUSD = 0;
         const result: { [currency: string]: KpiValue } = {};
 
@@ -650,7 +668,9 @@ export function processData(
         Object.entries(kpiMap).forEach(([currency, val]) => {
             const rate = exchangeRates[currency] || (currency === 'USD' ? 1 : 0);
             const usd = (rawMap.get(currency) || 0) * rate;
+            const previousUSD = (previousRawMap?.get(currency) || 0) * rate;
             totalUSD += usd;
+            previousTotalUSD += previousUSD;
 
             const refundOriginal = refundMap?.get(currency) || 0;
             const refundUSD = refundOriginal * rate;
@@ -674,6 +694,13 @@ export function processData(
         // 3. Add USD_TOTAL entry
         result['USD_TOTAL'] = {
             value: formatCurrency(totalUSD),
+            ...(hasPreviousPeriod
+                ? {
+                    previousValue: formatCurrency(previousTotalUSD),
+                    previousLabel: previousPeriodLabel,
+                    ...calculatePercentageChange(totalUSD, previousTotalUSD)
+                }
+                : {}),
             conversionDetails: { 
                 originalAmounts: Object.fromEntries(rawMap), 
                 rates: exchangeRates 
@@ -690,13 +717,19 @@ export function processData(
     const kpis: KpiData = {
         'Total Orders': { 
             value: kpiRaw.orderIds.size.toString(), 
-            ...calculatePercentageChange(kpiRaw.orderIds.size, pKpiRaw.orderIds.size), 
+            ...(hasPreviousPeriod
+                ? {
+                    previousValue: pKpiRaw.orderIds.size.toString(),
+                    previousLabel: previousPeriodLabel,
+                    ...calculatePercentageChange(kpiRaw.orderIds.size, pKpiRaw.orderIds.size)
+                }
+                : {}),
             refundInfo: kpiRaw.refOrderIds.size > 0 ? `${kpiRaw.refOrderIds.size} refunded` : undefined 
         },
         'Shops': { value: kpiRaw.shops.size.toString() },
-        'Revenue': addUSDToKpi(transformKpiMap(kpiRaw.revenue, pKpiRaw.revenue), kpiRaw.revenue, kpiRaw.refund)
+        'Revenue': addUSDToKpi(transformKpiMap(kpiRaw.revenue, pKpiRaw.revenue), kpiRaw.revenue, pKpiRaw.revenue, kpiRaw.refund)
     };
-    if (role === 'owner' || permissions.viewKpiFunds) kpis['Funds'] = addUSDToKpi(transformKpiMap(kpiRaw.funds, pKpiRaw.funds), kpiRaw.funds);
+    if (role === 'owner' || permissions.viewKpiFunds) kpis['Funds'] = addUSDToKpi(transformKpiMap(kpiRaw.funds, pKpiRaw.funds), kpiRaw.funds, pKpiRaw.funds);
     if (role === 'owner' || permissions.viewKpiCost) kpis['Cost'] = transformKpiMap(kpiRaw.cost, pKpiRaw.cost);
 
     // -- Earn KPI (Funds - Cost) --
@@ -723,7 +756,13 @@ export function processData(
 
         kpis['Earn'] = {
             value: formatCurrency(earnUSD),
-            ...calculatePercentageChange(earnUSD, pEarnUSD),
+            ...(hasPreviousPeriod
+                ? {
+                    previousValue: formatCurrency(pEarnUSD),
+                    previousLabel: previousPeriodLabel,
+                    ...calculatePercentageChange(earnUSD, pEarnUSD)
+                }
+                : {}),
             usdValue: earnUSD,
             conversionDetails: exchangeRates ? {
                 originalAmounts: earnOriginalAmounts,

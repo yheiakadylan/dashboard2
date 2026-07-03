@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Record, Account, CostData, ManualCost, EtsyReview } from '../types';
+import { getPreviousDateRange } from '../utils/periodComparison';
 import {
     fetchAllRecords,
     checkEmailsExistInRange,
@@ -501,9 +502,17 @@ export const useDataSync = ({
             setIsLoading(true);
             setSyncState('Loading data...');
             try {
-                const [fbAccounts, initialDisplayRecords, manualCostEntries, initialReviews] = await Promise.all([
+                const { from, to } = filterDateRange;
+                const diffDays = Math.round(Math.abs(new Date(to).getTime() - new Date(from).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                const shouldFetchPrevious = diffDays <= 7;
+                const previousRange = shouldFetchPrevious ? getPreviousDateRange(filterDateRange) : null;
+
+                const [fbAccounts, initialDisplayRecords, initialPreviousRecords, manualCostEntries, initialReviews] = await Promise.all([
                     getAccountsFromFirebase(teamId),
                     getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone),
+                    previousRange
+                        ? getRecordsForDateRange(teamId, previousRange.from, previousRange.to, timeZone)
+                        : Promise.resolve(null),
                     getManualCosts(teamId),
                     getEtsyReviewsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone)
                 ]);
@@ -517,6 +526,7 @@ export const useDataSync = ({
                 // But we still update to ensure we have the absolute latest from server
                 setAllAccounts(fbAccounts);
                 setRecords(initialDisplayRecords);
+                setPreviousPeriodRecords(initialPreviousRecords);
                 setManualCosts(manualCostEntries);
                 setEtsyReviews(initialReviews);
 
@@ -648,12 +658,7 @@ export const useDataSync = ({
             }, uiSafetyTimeoutMs);
 
             const shouldFetchPrevious = diffDays <= 7;
-            let previousRange: { from: string; to: string } | null = null;
-            if (shouldFetchPrevious) {
-                const prevToDate = new Date(from); prevToDate.setUTCDate(prevToDate.getUTCDate() - 1);
-                const prevFromDate = new Date(prevToDate); prevFromDate.setUTCDate(prevFromDate.getUTCDate() - (diffDays - 1));
-                previousRange = { from: prevFromDate.toISOString().split('T')[0], to: prevToDate.toISOString().split('T')[0] };
-            }
+            const previousRange = shouldFetchPrevious ? getPreviousDateRange(filterDateRange) : null;
 
             try {
                 logRangeFetch('start', {

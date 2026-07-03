@@ -139,6 +139,8 @@ export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%
   direction?: 'up' | 'down' | 'neutral';
+  previousValue?: string;
+  previousLabel?: string;
   refundInfo?: string;
   conversionDetails?: {
     originalAmounts: { [currency: string]: number };
@@ -149,6 +151,8 @@ export interface KpiValue {
   usdValue?: number; // Converted value in USD
   refundOriginal?: number; // Refund amount in original currency
   refundUSD?: number; // Refund amount in USD
+  shopBreakdown?: Array<{ shopName: string; count: number }>;
+  detailLines?: Array<{ label: string; value: string; tone?: 'default' | 'good' | 'bad' | 'muted' }>;
 }
 
 export interface KpiData {
