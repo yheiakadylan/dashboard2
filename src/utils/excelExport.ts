@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { ProcessedData, TableData, KpiData } from '../types';
+import { decodeHTMLEntities } from './htmlDecode';
 
 export interface ExportProgress {
     stage: 'collecting' | 'downloading' | 'generating' | 'saving';
@@ -127,16 +128,6 @@ const fetchImage = async (url: string): Promise<ArrayBuffer | null> => {
     }
 };
 
-// Helper to decode HTML entities
-const decodeHTMLEntities = (text: string): string => {
-    return text
-        .replace(/&#39;/g, "'")
-        .replace(/&quot;/g, '"')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>');
-};
-
 // Helper to clean row data for Excel text text
 const cleanCellData = (cell: any): string | number | null => {
     if (cell === null || cell === undefined) return 0;
@@ -158,6 +149,15 @@ const cleanCellData = (cell: any): string | number | null => {
             const mainText = decodeHTMLEntities(cell.main || '');
             const subText = decodeHTMLEntities(cell.subtitle || '').replace(/[↩\s]/g, '');
             return subText ? `${mainText} (Refund: ${subText})` : mainText;
+        }
+        if (cell.type === 'editable_cost') {
+            return cell.value !== null && cell.value !== undefined ? cell.value : '';
+        }
+        if (cell.type === 'editable_provider') {
+            return cell.value !== null && cell.value !== undefined ? decodeHTMLEntities(cell.value) : '';
+        }
+        if (cell.type === 'editable_ffcode') {
+            return cell.value !== null && cell.value !== undefined ? decodeHTMLEntities(cell.value) : '';
         }
         // Fallback for other objects
         return JSON.stringify(cell);
