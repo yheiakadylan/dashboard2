@@ -1,643 +1,641 @@
-// Background Service Worker - Manages communication and pagination
+const DEFAULT_APP_URL = 'https://dashboardvikcom.vercel.app';
+const CONFIG_KEY = 'config';
+const STATS_KEY = 'shopHealthStats';
+const EXTENSION_API_PATH = '/api/extension-shop-health';
+const SHOP_DELAY_MIN_MS = 1200;
+const SHOP_DELAY_MAX_MS = 2600;
+const HEALTH_ALARM_NAME = 'etsy_shop_health_cron';
+const TAB_LOAD_TIMEOUT_MS = 45000;
+const TAB_PARSE_DELAY_MS = 2500;
 
-let pendingCrawls = new Map(); // shopName -> { tabId, resolve, reject, accumulatedListings, page, pageRetries }
+let healthRunInProgress = false;
+let stopRequested = false;
+let currentHealthTabId = null;
 
-// Unified handler for both Internal (Popup) and External (Web) messages
-const handleMessage = (request, sender, sendResponse) => {
-    // 0. FORCE SNAPSHOT
-    if (request.type === 'FORCE_SNAPSHOT') {
-        console.log('[Background] Force snapshot requested.');
-        triggerDailySnapshot(request.config, true);
-        sendResponse({ success: true, message: 'Daily Snapshot check started.' });
-        return true;
-    }
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name !== HEALTH_ALARM_NAME) return;
+    runShopHealthCheck(false).catch(error => {
+        console.warn('[Background] Scheduled shop health check failed:', error);
+    });
+});
 
-    // 0.5 RUN BACKFILL
-    if (request.type === 'RUN_BACKFILL') {
-        console.log(`[Background] RUN_BACKFILL requested from ${request.startDate} to ${request.endDate}`);
-        (async () => {
-            try {
-                const start = new Date(request.startDate + 'T00:00:00Z');
-                const end = new Date(request.endDate + 'T00:00:00Z');
-                let cur = new Date(start);
-
-                while (cur <= end) {
-                    const dateStr = cur.toISOString().split('T')[0];
-                    console.log(`[Background] Backfilling... ${dateStr}`);
-                    await triggerDailySnapshot(request.config, true, dateStr);
-                    cur.setDate(cur.getDate() + 1);
-                }
-                console.log(`[Background] Backfill complete.`);
-                sendResponse({ success: true, message: 'Backfill complete.' });
-            } catch (err) {
-                sendResponse({ success: false, error: err.message });
-            }
-        })();
-        return true; // Keep channel open for async sendResponse
-    }
-
-    // 1. PING
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'PING') {
-        sendResponse({ status: 'ok', version: '1.1.0' });
+        sendResponse({ status: 'ok', version: '2.0.0' });
         return true;
     }
 
-    // 2. CRAWL REQUEST (Direct)
-    if (request.type === 'CRAWL_REQUEST') {
-        handleCrawlRequest(request.shopName, request.startPage)
-            .then(listings => sendResponse({ success: true, listings }))
+    if (request.type === 'SET_CONFIG') {
+        setConfig(request.config)
+            .then(() => sendResponse({ success: true }))
             .catch(error => sendResponse({ success: false, error: error.message }));
         return true;
     }
 
-    // 3. TRIGGER RUN NOW (From Popup or Web)
-    if (request.type === 'TRIGGER_CRAWL_NOW') {
-        console.log('[Background] Manual trigger received. Initiating crawl immediately...');
-
-        // Use a small timeout to allow response to send back first
-        setTimeout(() => {
-            performAutoCrawl(true); // Force run
-        }, 100);
-
-        sendResponse({ success: true, message: 'Triggered' });
-        return true;
-    }
-
-    // 4. CRAWL RESULT (From Content Script)
-    if (request.type === 'CRAWL_RESULT') {
-        handleCrawlResult(request, sender);
-        sendResponse({ received: true });
-        return true;
-    }
-
-    // 5. CRAWL ERROR (From Content Script)
-    if (request.type === 'CRAWL_ERROR') {
-        handleCrawlError(request, sender);
-        sendResponse({ received: true });
-        return true;
-    }
-
-    // 6. SET CONFIG (From Popup or Web)
-    if (request.type === 'SET_CONFIG') {
-        // Handle logout (null config)
-        if (!request.config || request.config === null) {
-            chrome.storage.local.remove(['config'], () => {
-                chrome.alarms.clear('auto_crawl');
-                console.log('[Background] Config cleared (logout)');
+    if (request.type === 'GET_SHOP_HEALTH_STATUS') {
+        chrome.storage.local.get([STATS_KEY, CONFIG_KEY], (result) => {
+            sendResponse({
+                success: true,
+                stats: result[STATS_KEY] || null,
+                config: result[CONFIG_KEY] || null
             });
-            sendResponse({ success: true });
+        });
+        return true;
+    }
+
+    if (request.type === 'TRIGGER_SHOP_HEALTH_CHECK') {
+        if (healthRunInProgress) {
+            sendResponse({ success: false, error: 'Shop health check already running.' });
             return true;
         }
-
-        chrome.storage.local.get(['config'], (result) => {
-            const oldConfig = result.config || {};
-            // Merge to preserve existing auth if missing in request
-            const newConfig = { ...oldConfig, ...request.config };
-
-            // Explicitly preserve critical fields
-            if (!request.config.token && oldConfig.token) newConfig.token = oldConfig.token;
-            if (!request.config.email && oldConfig.email) newConfig.email = oldConfig.email;
-            if (!request.config.appUrl && oldConfig.appUrl) newConfig.appUrl = oldConfig.appUrl;
-
-            chrome.storage.local.set({ config: newConfig }, () => {
-                if (newConfig.autoCrawlEnabled) {
-                    setupAlarm(newConfig);
-                } else {
-                    chrome.alarms.clear('auto_crawl');
-                }
-                console.log('[Background] Config updated:', { teamId: newConfig.teamId, autoCrawl: newConfig.autoCrawlEnabled });
-            });
+        runShopHealthCheck(Boolean(request.force)).catch(error => {
+            console.warn('[Background] Manual shop health check failed:', error);
         });
-        sendResponse({ success: true });
+        sendResponse({ success: true, started: true });
         return true;
     }
 
-    // 5. STOP CRAWL (Abort All)
-    if (request.type === 'STOP_CRAWL') {
-        console.log('[Background] Stop signal received - aborting all crawls');
-
-        // Reject and clean up all pending crawls
-        for (const [shopName, task] of pendingCrawls.entries()) {
-            task.reject(new Error('Stopped by user'));
-            if (task.tabId) {
-                try {
-                    chrome.tabs.remove(task.tabId);
-                } catch (e) { /* Tab may already be closed */ }
-            }
-        }
-        pendingCrawls.clear();
-
-        // Update stats to STOPPED (direct set for immediate effect)
-        chrome.storage.local.set({
-            stats: {
-                status: 'IDLE',
-                currentShopName: 'Stopped by user',
-                totalShops: 0,
-                currentShopIndex: 0,
-                totalListings: 0,
-                lastRun: new Date().toISOString()
-            }
-        });
-
-        sendResponse({ success: true, message: 'All crawls stopped' });
+    if (request.type === 'STOP_SHOP_HEALTH_CHECK') {
+        stopShopHealthCheck()
+            .then(stats => sendResponse({ success: true, stats }))
+            .catch(error => sendResponse({ success: false, error: error.message }));
         return true;
     }
 
-    // Default: No handler match
     return false;
-};
-
-// Listeners
-chrome.runtime.onMessage.addListener(handleMessage);
-chrome.runtime.onMessageExternal.addListener(handleMessage);
-
-
-// Handle Alarms (Scheduled Crawls)
-chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === 'auto_crawl') {
-        console.log('[Background] Alarm triggered. Starting auto-crawl...');
-        performAutoCrawl();
-    }
 });
 
-function setupAlarm(config) {
-    chrome.alarms.clear('auto_crawl', (wasCleared) => {
-        if (!config || !config.autoCrawlEnabled) {
-            console.log('[Background] Auto-crawl disabled.');
-            return;
+chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
+    if (request.type === 'TRIGGER_SHOP_HEALTH_CHECK') {
+        if (healthRunInProgress) {
+            sendResponse({ success: false, error: 'Shop health check already running.' });
+            return true;
+        }
+        runShopHealthCheck(Boolean(request.force)).catch(error => {
+            console.warn('[Background] External shop health check failed:', error);
+        });
+        sendResponse({ success: true, started: true });
+        return true;
+    }
+    return false;
+});
+
+async function setConfig(config) {
+    if (!config) {
+        await chrome.storage.local.remove([CONFIG_KEY, STATS_KEY]);
+        await chrome.alarms.clear(HEALTH_ALARM_NAME);
+        return;
+    }
+
+    const existing = await chrome.storage.local.get(CONFIG_KEY);
+    const oldConfig = existing[CONFIG_KEY] || {};
+    const merged = {
+        ...oldConfig,
+        ...config,
+        token: config.token || oldConfig.token,
+        refreshToken: config.refreshToken || oldConfig.refreshToken,
+        email: config.email || oldConfig.email,
+        appUrl: config.appUrl || oldConfig.appUrl || DEFAULT_APP_URL,
+        updatedAt: new Date().toISOString()
+    };
+    delete merged.password;
+
+    await chrome.storage.local.set({ [CONFIG_KEY]: merged });
+    await setupHealthAlarm(merged);
+}
+
+async function setupHealthAlarm(config) {
+    await chrome.alarms.clear(HEALTH_ALARM_NAME);
+
+    if (!config?.autoCheckEnabled) return;
+
+    const hours = Math.max(1, Number(config.healthIntervalHours || 24));
+    chrome.alarms.create(HEALTH_ALARM_NAME, {
+        delayInMinutes: 1,
+        periodInMinutes: hours * 60
+    });
+}
+
+async function runShopHealthCheck(force = false) {
+    if (healthRunInProgress) {
+        throw new Error('Shop health check already running.');
+    }
+
+    healthRunInProgress = true;
+    stopRequested = false;
+
+    try {
+        let { config } = await chrome.storage.local.get(CONFIG_KEY);
+        if (!config || !Array.isArray(config.shops)) {
+            throw new Error('Missing shop configuration.');
         }
 
-        const mode = config.autoCrawlMode || 'interval';
-
-        if (mode === 'interval') {
-            const hours = config.intervalHours || 6;
-            const intervalMinutes = hours * 60;
-            console.log(`[Background] Scheduler: Interval Mode (${hours}h)`);
-
-            // Fetch last run to calculate delay
-            chrome.storage.local.get(['stats'], (result) => {
-                const lastRunStr = result.stats?.lastRun;
-                const lastRun = lastRunStr ? new Date(lastRunStr).getTime() : 0;
-                const now = Date.now();
-                const intervalMs = hours * 60 * 60 * 1000;
-
-                let nextRun = lastRun + intervalMs;
-
-                // If never ran or overdue, schedule soon (1 min)
-                if (nextRun <= now) {
-                    // But if it was just cleared, we don't want to spam.
-                    // If no lastRun (0), run soon.
-                    // If overdue, run soon.
-                    nextRun = now + 1000 * 60;
-                }
-
-                console.log(`[Background] Next Interval Run: ${new Date(nextRun).toLocaleString()}`);
-
-                chrome.alarms.create('auto_crawl', {
-                    when: nextRun,
-                    periodInMinutes: intervalMinutes
-                });
-            });
+        const activeShops = config.shops.filter(shop => shop.selected !== false && shop.label && supportsEtsy(shop));
+        if (activeShops.length === 0) {
+            throw new Error('No selected Etsy shops to check.');
         }
-        else if (mode === 'daily') {
-            const timeStr = config.dailyTime || '06:00'; // HH:mm
-            const [h, m] = timeStr.split(':').map(Number);
 
-            const now = new Date();
-            const nextRun = new Date();
-            nextRun.setHours(h, m, 0, 0);
+        const stats = {
+            status: 'RUNNING',
+            totalShops: activeShops.length,
+            checkedShops: 0,
+            suspendedCount: 0,
+            errorCount: 0,
+            currentShopName: '',
+            lastRun: new Date().toISOString(),
+            results: []
+        };
 
-            // If time passed today, schedule for tomorrow
-            if (nextRun <= now) {
-                nextRun.setDate(nextRun.getDate() + 1);
+        await chrome.storage.local.set({ [STATS_KEY]: stats });
+        await notifyDashboard('EXTENSION_SHOP_HEALTH_START', { totalShops: activeShops.length });
+
+        const results = [];
+
+        for (let i = 0; i < activeShops.length; i++) {
+            if (stopRequested) {
+                stats.status = 'IDLE';
+                stats.currentShopName = 'Stopped';
+                stats.finishedAt = new Date().toISOString();
+                await chrome.storage.local.set({ [STATS_KEY]: stats });
+                return stats;
             }
 
-            console.log(`[Background] Scheduler: Daily Mode at ${timeStr}. Next run: ${nextRun.toLocaleString()}`);
+            const shop = activeShops[i];
+            stats.currentShopName = shop.label;
+            stats.checkedShops = i;
+            await chrome.storage.local.set({ [STATS_KEY]: stats });
+            await notifyDashboard('EXTENSION_SHOP_HEALTH_PROGRESS', {
+                current: i + 1,
+                total: activeShops.length,
+                shopName: shop.label
+            }, 1);
 
-            // 'periodInMinutes: 1440' makes it repeat daily after the first run
-            // Note: 'when' expects Milliseconds
-            chrome.alarms.create('auto_crawl', {
-                when: nextRun.getTime(),
-                periodInMinutes: 1440 // 24 Hours
-            });
+            const result = await checkSingleShop(shop);
+            if (stopRequested) {
+                stats.status = 'IDLE';
+                stats.currentShopName = 'Stopped';
+                stats.finishedAt = new Date().toISOString();
+                await chrome.storage.local.set({ [STATS_KEY]: stats });
+                return stats;
+            }
+            results.push(result);
+
+            stats.checkedShops = i + 1;
+            stats.suspendedCount = results.filter(item => item.suspended).length;
+            stats.errorCount = results.filter(item => item.status === 'error').length;
+            stats.results = results;
+            await chrome.storage.local.set({ [STATS_KEY]: stats });
+            await mergeHealthResultIntoConfig(result);
+            config = await saveHealthResultToDashboard(config, result);
+
+            if (result.status === 'captcha_required') {
+                stats.status = 'CAPTCHA_REQUIRED';
+                stats.currentShopName = result.label;
+                stats.errorCount = results.filter(item => item.status === 'error' || item.status === 'captcha_required').length;
+                stats.finishedAt = new Date().toISOString();
+                await chrome.storage.local.set({ [STATS_KEY]: stats });
+                await notifyDashboard('EXTENSION_SHOP_HEALTH_COMPLETE', {
+                    stats,
+                    suspendedShops: results.filter(item => item.suspended)
+                });
+                return stats;
+            }
+
+            if (i < activeShops.length - 1) {
+                await wait(randomDelay());
+            }
+        }
+
+        stats.status = 'IDLE';
+        stats.currentShopName = 'Done';
+        stats.finishedAt = new Date().toISOString();
+        await chrome.storage.local.set({ [STATS_KEY]: stats });
+
+        await notifyDashboard('EXTENSION_SHOP_HEALTH_COMPLETE', {
+            stats,
+            suspendedShops: results.filter(item => item.suspended)
+        });
+
+        return stats;
+    } finally {
+        healthRunInProgress = false;
+        currentHealthTabId = null;
+    }
+}
+
+async function stopShopHealthCheck() {
+    stopRequested = true;
+    healthRunInProgress = false;
+
+    if (currentHealthTabId) {
+        try {
+            await chrome.tabs.remove(currentHealthTabId);
+        } catch (error) {
+            // Tab may already be closed.
+        }
+        currentHealthTabId = null;
+    }
+
+    const stored = await chrome.storage.local.get(STATS_KEY);
+    const oldStats = stored[STATS_KEY] || {};
+    const stats = {
+        ...oldStats,
+        status: 'IDLE',
+        currentShopName: 'Stopped',
+        finishedAt: new Date().toISOString()
+    };
+    await chrome.storage.local.set({ [STATS_KEY]: stats });
+    return stats;
+}
+
+async function saveHealthResultToDashboard(config, result) {
+    if (!config?.token || !config?.teamId) return config;
+
+    try {
+        const { response, data, config: nextConfig } = await callExtensionApi(config, {
+            action: 'save-health',
+            teamId: config.teamId,
+            result
+        });
+
+        if (!response.ok || data?.success === false) {
+            console.warn(`[Background] Failed to save shop health for ${result.label}: ${response.status} ${data?.message || 'Unknown error'}`);
+        }
+
+        return nextConfig;
+    } catch (error) {
+        console.warn(`[Background] Failed to save shop health for ${result.label}:`, error);
+        if (/sign in again|refresh token|session expired/i.test(error?.message || '')) {
+            await markAuthRequired(error.message);
+            throw error;
+        }
+        return config;
+    }
+}
+
+async function callExtensionApi(config, payload, options = {}) {
+    const auth = options.auth !== false;
+    const retry = options.retry !== false;
+    const appUrl = (config.appUrl || DEFAULT_APP_URL).replace(/\/$/, '');
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (auth && config.token) headers.Authorization = `Bearer ${config.token}`;
+
+    let response;
+    try {
+        response = await fetch(`${appUrl}${EXTENSION_API_PATH}`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload)
+        });
+    } catch (error) {
+        if (appUrl !== DEFAULT_APP_URL && /localhost|127\.0\.0\.1/i.test(appUrl)) {
+            const fallbackConfig = { ...config, appUrl: DEFAULT_APP_URL, updatedAt: new Date().toISOString() };
+            await chrome.storage.local.set({ [CONFIG_KEY]: fallbackConfig });
+            return callExtensionApi(fallbackConfig, payload, options);
+        }
+        throw error;
+    }
+    const data = await readJsonResponse(response);
+
+    if (auth && retry && response.status === 401) {
+        const refreshedConfig = await refreshAuthToken(config);
+        return callExtensionApi(refreshedConfig, payload, { ...options, retry: false });
+    }
+
+    return { response, data, config };
+}
+
+async function refreshAuthToken(config) {
+    if (!config?.refreshToken) {
+        throw new Error('Session expired. Please sign in again in the extension.');
+    }
+
+    const { response, data } = await callExtensionApi(config, {
+        action: 'refresh-token',
+        refreshToken: config.refreshToken
+    }, { auth: false, retry: false });
+
+    if (!response.ok || !data?.success || !data.token) {
+        throw new Error(data?.message || 'Session expired. Please sign in again in the extension.');
+    }
+
+    const stored = await chrome.storage.local.get(CONFIG_KEY);
+    const oldConfig = stored[CONFIG_KEY] || config;
+    const nextConfig = {
+        ...oldConfig,
+        token: data.token,
+        refreshToken: data.refreshToken || oldConfig.refreshToken || config.refreshToken,
+        email: data.email || oldConfig.email,
+        teamId: data.teamId || oldConfig.teamId,
+        updatedAt: new Date().toISOString(),
+        authUpdatedAt: new Date().toISOString()
+    };
+
+    await chrome.storage.local.set({ [CONFIG_KEY]: nextConfig });
+    return nextConfig;
+}
+
+async function readJsonResponse(response) {
+    const text = await response.text();
+    try {
+        return text ? JSON.parse(text) : {};
+    } catch (error) {
+        return {
+            success: false,
+            message: `Server did not return JSON (${response.status}). ${text.slice(0, 120)}`
+        };
+    }
+}
+
+async function markAuthRequired(message) {
+    const stored = await chrome.storage.local.get(STATS_KEY);
+    const oldStats = stored[STATS_KEY] || {};
+    await chrome.storage.local.set({
+        [STATS_KEY]: {
+            ...oldStats,
+            status: 'AUTH_REQUIRED',
+            currentShopName: 'Sign in again',
+            errorCount: (oldStats.errorCount || 0) + 1,
+            authError: message,
+            finishedAt: new Date().toISOString()
         }
     });
 }
 
-async function performAutoCrawl(force = false) {
-    console.log('[Background] performAutoCrawl started...', force ? '(FORCED)' : '(AUTO)');
-
-    // Check previous run to prevent rapid-fire loops
-    const { stats: oldStats } = await chrome.storage.local.get('stats');
-    if (!force && oldStats && oldStats.lastRun) {
-        const last = new Date(oldStats.lastRun).getTime();
-        const diff = Date.now() - last;
-        if (diff < 5 * 60 * 1000) { // 5 minutes buffer
-            console.warn(`[Background] Skipping auto-crawl. Last run was ${Math.round(diff / 1000)}s ago (Too soon).`);
-            return;
-        }
-    }
-
-    const { config } = await chrome.storage.local.get('config');
-
-    // Debug Log
-    console.log('[Background] Config loaded:', config);
-
-    if (!config || !config.teamId) {
-        console.error('[Background] Missing config or teamId. Cannot crawl.');
-        return;
-    }
-
-    const appUrl = config.appUrl || 'http://localhost:3000';
-    const activeShops = (config.shops || []).filter(s => s.selected);
-
-    if (activeShops.length === 0) {
-        console.warn('[Background] No shops selected for crawling.');
-        return;
-    }
-
-    console.log(`[Background] Starting batch crawl for ${activeShops.length} shops...`);
-
-    // ✅ NEW: Notify Dashboard that crawl has started
-    // This allows Dashboard to show progress bar when extension crawls
-    try {
-        // Send message to all dashboard tabs
-        const tabs = await chrome.tabs.query({ url: `${appUrl}/*` });
-        for (const tab of tabs) {
-            if (tab.id) {
-                chrome.tabs.sendMessage(tab.id, {
-                    type: 'EXTENSION_CRAWL_START',
-                    totalShops: activeShops.length
-                }).catch(() => {
-                    // Tab might not have content script, ignore
-                });
-            }
-        }
-        console.log('[Background] Sent EXTENSION_CRAWL_START to dashboard tabs');
-    } catch (error) {
-        console.warn('[Background] Failed to notify dashboard:', error);
-    }
-
-    // INIT REAL-TIME STATS
-    const stats = {
-        status: 'RUNNING',
-        totalShops: activeShops.length,
-        currentShopIndex: 0,
-        currentShopName: '',
-        totalListings: 0,
-        lastRun: new Date().toISOString()
-    };
-    await chrome.storage.local.set({ stats });
-
-    // ✅ Track success/error counts
-    let successCount = 0;
-    let errorCount = 0;
-    const crawlStartTime = Date.now();
-
-    // Sequential Crawl
-    for (let i = 0; i < activeShops.length; i++) {
-        const shop = activeShops[i];
-
-        // Update Current Shop Stat
-        stats.currentShopIndex = i + 1;
-        stats.currentShopName = shop.label;
-        await chrome.storage.local.set({ stats });
-
-        try {
-            console.log(`[Background] Auto-crawling ${shop.label} (ID: ${shop.id})...`);
-
-            // Open Tab & Crawl
-            const listings = await handleCrawlRequest(shop.label);
-
-            if (listings && listings.length > 0) {
-                // listings count updated incrementally in handleCrawlResult
-
-                console.log(`[Background] Scraped ${listings.length} listings. Saving to ${appUrl}...`);
-                await saveListingsToDashboard(listings, config.teamId, shop.id, config.userId, appUrl);
-                successCount++; // ✅ Track success
-            } else {
-                console.log(`[Background] No listings found or empty result for ${shop.label}. Pushing empty array to reset DB.`);
-                // ✅ KEY FIX: Must call save with empty array so API updates `last_listing_crawl` and clears removed items
-                await saveListingsToDashboard([], config.teamId, shop.id, config.userId, appUrl);
-                successCount++; // Still count as success (empty shop)
-            }
-
-            // Wait longer between shops to avoid Etsy protections (Random 20 - 30 seconds)
-            const delayMs = 20000 + Math.random() * 10000;
-            console.log(`[Background] Waiting ${Math.round(delayMs / 1000)}s before next shop to avoid rate limits...`);
-            await new Promise(r => setTimeout(r, delayMs));
-
-        } catch (err) {
-            console.error(`[Background] Failed to crawl ${shop.label}:`, err);
-            errorCount++; // ✅ Track error
-            // Push error to DB so user can see it natively!
-            await saveListingsToDashboard([], config.teamId, shop.id, config.userId, appUrl, err.message || 'Unknown error');
-        }
-    }
-
-    // FINISH
-    stats.status = 'IDLE';
-    stats.currentShopName = 'Done';
-    await chrome.storage.local.set({ stats });
-
-    // ✅ NEW: Notify Dashboard that crawl is COMPLETE
-    const finalStats = {
-        totalShops: activeShops.length,
-        successCount,
-        errorCount,
-        totalListings: stats.totalListings || 0,
-        duration: Date.now() - crawlStartTime
-    };
-
-    await notifyDashboard('EXTENSION_CRAWL_COMPLETE', { stats: finalStats });
-
-    console.log('[Background] Auto-crawl batch complete:', finalStats);
-
-    // ✅ NEW: Trigger Daily Snapshot
-    await triggerDailySnapshot(config);
-}
-
-// ✅ Trigger Daily Snapshot API
-async function triggerDailySnapshot(providedConfig, force = false, specificDateStr = null) {
-    let config = providedConfig;
-    if (!config) {
-        const res = await chrome.storage.local.get('config');
-        config = res.config;
-    }
-
-    if (!config || !config.teamId) {
-        console.log('[Background] Skipping Snapshot: No config/teamId found.');
-        return;
-    }
-
-    // Calculate YESTERDAY (since we run past midnight to close the previous day)
-    let targetDateStr = specificDateStr;
-    if (!targetDateStr) {
-        const date = new Date();
-        date.setDate(date.getDate() - 1);
-        targetDateStr = date.toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
-    }
-
-    // Check if we already ran for this date to avoid duplicates (unless forced)
-    const { stats } = await chrome.storage.local.get('stats');
-    if (!force && stats && stats.lastSnapshotDate === targetDateStr) {
-        console.log(`[Background] Snapshot for ${targetDateStr} already created. Skipping.`);
-        return;
-    }
-
-    const baseUrl = config.appUrl || 'http://localhost:3000';
-    // Remove trailing slash if any
-    const cleanUrl = baseUrl.replace(/\/$/, '');
-    const endpoint = `${cleanUrl}/api/listing`;
-
-    console.log(`[Background] 📸 Triggering Daily Snapshot for ${targetDateStr} at ${endpoint}...`);
+async function checkSingleShop(shop) {
+    const checkedAt = new Date().toISOString();
+    const label = String(shop.label || '').trim();
+    const url = `https://www.etsy.com/shop/${encodeURIComponent(label)}/reviews`;
+    let tabId = null;
+    let keepTabOpen = false;
 
     try {
-        const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'daily_snapshot',
-                teamId: config.teamId,
-                date: targetDateStr
-            })
+        const tab = await createVisibleTab(url);
+        tabId = tab.id;
+        currentHealthTabId = tabId;
+        await waitForTabComplete(tabId);
+        await wait(TAB_PARSE_DELAY_MS);
+
+        const [{ result: pageResult }] = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: parseShopHealthFromPage
         });
 
-        if (!res.ok) {
-            const txt = await res.text();
-            throw new Error(`Server returned ${res.status}: ${txt}`);
+        if (pageResult?.captchaRequired) {
+            keepTabOpen = true;
+            return buildHealthResult(shop, {
+                status: 'captcha_required',
+                suspended: false,
+                error: 'Etsy CAPTCHA / bot check appeared. The tab was left open for manual verification.',
+                checkedAt,
+                keepTabOpen: true
+            });
         }
 
-        const json = await res.json();
-        console.log('[Background] ✅ Daily Snapshot triggered successfully:', json);
-
-        // Save state only if it was an automatic daily snapshot, not a custom backfill
-        if (stats && !specificDateStr) {
-            stats.lastSnapshotDate = targetDateStr;
-            await chrome.storage.local.set({ stats });
+        if (pageResult?.notFound) {
+            return buildHealthResult(shop, {
+                status: 'suspended',
+                suspended: true,
+                suspendedReason: 'Etsy reviews page returned not found.',
+                checkedAt
+            });
         }
 
-    } catch (e) {
-        console.error('[Background] ❌ Failed to trigger snapshot:', e);
-        throw e;
+        if (pageResult?.suspended) {
+            return buildHealthResult(shop, {
+                status: 'suspended',
+                suspended: true,
+                suspendedReason: pageResult.suspendedReason || 'Shop is currently not selling on Etsy.',
+                reviewAverage: pageResult.reviewAverage,
+                reviewCount: pageResult.reviewCount,
+                checkedAt
+            });
+        }
+
+        return buildHealthResult(shop, {
+            status: 'ok',
+            suspended: false,
+            reviewAverage: pageResult?.reviewAverage,
+            reviewCount: pageResult?.reviewCount,
+            checkedAt
+        });
+    } catch (error) {
+        return buildHealthResult(shop, {
+            status: 'error',
+            suspended: false,
+            error: error.message || 'Failed to fetch Etsy reviews page.',
+            checkedAt
+        });
+    } finally {
+        if (tabId) {
+            if (currentHealthTabId === tabId) currentHealthTabId = null;
+            if (keepTabOpen) return;
+            try {
+                const [{ result: pageState }] = await chrome.scripting.executeScript({
+                    target: { tabId },
+                    func: () => ({
+                        captchaRequired: /captcha|robot|are you human|verify you are/i.test(document.body?.innerText || '')
+                    })
+                });
+                if (!pageState?.captchaRequired) await chrome.tabs.remove(tabId);
+            } catch (error) {
+                try { await chrome.tabs.remove(tabId); } catch (closeError) { /* noop */ }
+            }
+        }
     }
 }
 
-// ✅ Helper function to notify Dashboard
-async function notifyDashboard(type, data, retries = 3) {
+function buildHealthResult(shop, data) {
+    const wasSuspended = shop.suspended === true;
+    const isConfirmedState = data.status === 'ok' || data.status === 'suspended';
+    const isSuspended = isConfirmedState && Boolean(data.suspended);
+
+    return {
+        id: shop.id,
+        label: shop.label,
+        selected: shop.selected !== false,
+        reviewAverage: typeof data.reviewAverage === 'number' ? data.reviewAverage : null,
+        reviewCount: typeof data.reviewCount === 'number' ? data.reviewCount : null,
+        status: data.status,
+        suspended: Boolean(data.suspended),
+        suspendedReason: data.suspendedReason || null,
+        newlySuspended: isSuspended && !wasSuspended,
+        suspendedSince: isSuspended
+            ? (wasSuspended ? (shop.suspendedSince || shop.suspensionStatusChangedAt || shop.healthCheckedAt || data.checkedAt) : data.checkedAt)
+            : null,
+        error: data.error || null,
+        checkedAt: data.checkedAt,
+        keepTabOpen: Boolean(data.keepTabOpen)
+    };
+}
+
+async function mergeHealthResultIntoConfig(result) {
+    const stored = await chrome.storage.local.get(CONFIG_KEY);
+    const config = stored[CONFIG_KEY];
+    if (!config || !Array.isArray(config.shops)) return;
+
+    const shops = config.shops.map(shop => {
+        if (String(shop.id) !== String(result.id) && String(shop.label) !== String(result.label)) return shop;
+        const nextShop = {
+            ...shop,
+            reviewAverage: result.reviewAverage,
+            reviewCount: result.reviewCount,
+            healthStatus: result.status,
+            healthError: result.error,
+            healthCheckedAt: result.checkedAt
+        };
+
+        if (result.status === 'ok' || result.status === 'suspended') {
+            const wasSuspended = shop.suspended === true;
+            nextShop.suspended = result.suspended;
+            nextShop.suspendedReason = result.suspendedReason;
+            nextShop.newlySuspended = result.newlySuspended === true;
+            nextShop.suspendedSince = result.suspended ? result.suspendedSince : null;
+            nextShop.suspensionStatusChangedAt = wasSuspended !== result.suspended ? result.checkedAt : shop.suspensionStatusChangedAt;
+        }
+
+        return nextShop;
+    });
+
+    await chrome.storage.local.set({
+        [CONFIG_KEY]: {
+            ...config,
+            shops,
+            lastShopHealthCheckAt: new Date().toISOString()
+        }
+    });
+}
+
+async function notifyDashboard(type, data = {}, retries = 2) {
     for (let attempt = 0; attempt < retries; attempt++) {
         try {
-            const { config } = await chrome.storage.local.get('config');
-            const appUrl = config?.appUrl || 'http://localhost:3000';
+            const stored = await chrome.storage.local.get(CONFIG_KEY);
+            const appUrl = (stored[CONFIG_KEY]?.appUrl || DEFAULT_APP_URL).replace(/\/$/, '');
             const tabs = await chrome.tabs.query({ url: `${appUrl}/*` });
-
-            if (tabs.length === 0 && attempt < retries - 1) {
-                console.log(`[Background] No dashboard tabs found, retrying in 1s (${attempt + 1}/${retries})...`);
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                continue;
-            }
 
             let sent = 0;
             for (const tab of tabs) {
-                if (tab.id) {
-                    try {
-                        await chrome.tabs.sendMessage(tab.id, { type, ...data });
-                        sent++;
-                    } catch (e) {
-                        // Content script might not be ready, ignore
-                    }
+                if (!tab.id) continue;
+                try {
+                    await chrome.tabs.sendMessage(tab.id, { type, ...data });
+                    sent++;
+                } catch (error) {
+                    // Dashboard tab may not have the bridge loaded yet.
                 }
             }
 
-            if (sent > 0) {
-                console.log(`[Background] ✅ Sent ${type} to ${sent} dashboard tabs`);
-                return true;
-            }
-
-            if (attempt < retries - 1) {
-                console.log(`[Background] Failed to send to any tab, retrying...`);
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
+            if (sent > 0) return true;
+            if (attempt < retries - 1) await wait(1000);
         } catch (error) {
-            console.warn('[Background] Notify attempt failed:', error);
+            if (attempt < retries - 1) await wait(1000);
         }
     }
 
-    console.warn(`[Background] ❌ Failed to notify dashboard after ${retries} attempts`);
     return false;
 }
 
-async function saveListingsToDashboard(listings, teamId, shopId, userId, baseUrl = 'http://localhost:3000', errorMessage = null) {
-    try {
-        const endpoint = `${baseUrl.replace(/\/$/, '')}/api/listing`;
-        console.log(`[Background] Saving data to ${endpoint}...`);
-
-        const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'save',
-                teamId: teamId,
-                shopId: shopId,
-                userId: userId,
-                listings: listings,
-                errorMessage: errorMessage
-            })
-        });
-
-        if (!res.ok) {
-            const txt = await res.text();
-            throw new Error(`Server returned ${res.status}: ${txt}`);
-        }
-
-        const json = await res.json();
-        console.log('[Background] Save success:', json);
-
-    } catch (err) {
-        console.error('[Background] Failed to save listings to dashboard:', err);
-    }
+function randomDelay() {
+    return SHOP_DELAY_MIN_MS + Math.random() * (SHOP_DELAY_MAX_MS - SHOP_DELAY_MIN_MS);
 }
 
-async function handleCrawlRequest(shopName, startPage = 1) {
+function normalizePlatforms(shop) {
+    return Array.isArray(shop?.platforms)
+        ? shop.platforms.map(platform => String(platform).trim().toLowerCase()).filter(Boolean)
+        : [];
+}
+
+function supportsEtsy(shop) {
+    const platforms = normalizePlatforms(shop);
+    return platforms.includes('etsy');
+}
+
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function createVisibleTab(url) {
     return new Promise((resolve, reject) => {
-        // Check if duplicate request
-        if (pendingCrawls.has(shopName)) {
-            reject(new Error('Crawl already in progress'));
-            return;
-        }
-
-        const initialPage = typeof startPage === 'number' ? startPage : parseInt(startPage, 10) || 1;
-
-        pendingCrawls.set(shopName, {
-            resolve,
-            reject,
-            accumulatedListings: [],
-            page: initialPage,
-            pageRetries: 0
-        });
-
-        // Start with page X
-        const url = `https://www.etsy.com/shop/${shopName}?page=${initialPage}#items`;
-        console.log(`[Background] Opening tab for ${shopName} at page ${initialPage}: ${url}`);
-
-        chrome.tabs.create({ url: url, active: false }, (tab) => {
+        chrome.tabs.create({ url, active: false }, (tab) => {
             if (chrome.runtime.lastError) {
-                pendingCrawls.delete(shopName);
                 reject(new Error(chrome.runtime.lastError.message));
                 return;
             }
-
-            const pending = pendingCrawls.get(shopName);
-            if (pending) pending.tabId = tab.id;
-
-            console.log(`[Background] Tab ${tab.id} created for ${shopName}. Content script will auto-inject.`);
-
-            // Global Timeout (increased to 10 minutes to support delays)
-            setTimeout(() => {
-                if (pendingCrawls.has(shopName)) {
-                    const stale = pendingCrawls.get(shopName);
-                    pendingCrawls.delete(shopName);
-                    if (stale.tabId) chrome.tabs.remove(stale.tabId);
-                    stale.reject(new Error(`Timeout crawling ${shopName} at page ${stale.page}`));
-                }
-            }, 600000);
+            resolve(tab);
         });
     });
 }
 
-function handleCrawlResult(msg, sender) {
-    const shopName = getShopNameFromUrl(sender.tab.url);
-    const task = pendingCrawls.get(shopName);
+function waitForTabComplete(tabId) {
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            chrome.tabs.onUpdated.removeListener(listener);
+            reject(new Error('Timed out waiting for Etsy tab to load.'));
+        }, TAB_LOAD_TIMEOUT_MS);
 
-    console.log(`[Background] CRAWL_RESULT received:`, {
-        shopName,
-        tabId: sender.tab.id,
-        listingsFound: msg.listings?.length || 0,
-        nextPageUrl: msg.nextPageUrl,
-        hasTask: !!task,
-        taskTabId: task?.tabId
-    });
+        const listener = (updatedTabId, changeInfo) => {
+            if (updatedTabId !== tabId || changeInfo.status !== 'complete') return;
+            clearTimeout(timeout);
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+        };
 
-    if (!task) {
-        console.warn(`[Background] No pending task for ${shopName}. Ignoring result.`);
-        return;
-    }
-
-    // Verify Tab ID
-    if (sender.tab.id !== task.tabId) {
-        console.warn(`[Background] Tab ID mismatch. Expected ${task.tabId}, got ${sender.tab.id}`);
-        return;
-    }
-
-    if (msg.listings && msg.listings.length > 0) {
-        task.accumulatedListings = task.accumulatedListings.concat(msg.listings);
-        console.log(`[Background] [${shopName}] Page ${task.page} done. Accumulated: ${task.accumulatedListings.length}`);
-
-        // REAL-TIME STATS UPDATE
-        chrome.storage.local.get(['stats'], (res) => {
-            if (res.stats) {
-                res.stats.totalListings = (res.stats.totalListings || 0) + msg.listings.length;
-                chrome.storage.local.set({ stats: res.stats });
+        chrome.tabs.onUpdated.addListener(listener);
+        chrome.tabs.get(tabId, (tab) => {
+            if (chrome.runtime.lastError) return;
+            if (tab.status === 'complete') {
+                clearTimeout(timeout);
+                chrome.tabs.onUpdated.removeListener(listener);
+                resolve();
             }
         });
-    }
-
-    if (msg.nextPageUrl && task.accumulatedListings.length < 5000) { // Safety limit
-        task.page = task.page + 1;
-        task.pageRetries = 0;
-
-        console.log(`[Background] [${shopName}] Advancing to page ${task.page} -> ${msg.nextPageUrl} in 6 seconds (anti-bot delay)...`);
-
-        // Anti-bot delay: Wait 6-8 seconds organically between pages
-        const pageDelay = 6000 + Math.random() * 2000;
-        setTimeout(() => {
-            if (pendingCrawls.has(shopName)) {
-                chrome.tabs.update(task.tabId, { url: msg.nextPageUrl });
-            }
-        }, pageDelay);
-    } else {
-        // Done
-        console.log(`[Background] [${shopName}] Crawl finished. Reason: ${!msg.nextPageUrl ? 'No next page' : 'Limit reached'}. Total: ${task.accumulatedListings.length} listings`);
-        finishCrawl(shopName);
-    }
+    });
 }
 
-function handleCrawlError(msg, sender) {
-    const shopName = getShopNameFromUrl(sender.tab.url);
-    const task = pendingCrawls.get(shopName);
-    if (!task) return;
+function parseShopHealthFromPage() {
+    const bodyText = document.body?.innerText || '';
+    const html = document.documentElement?.outerHTML || '';
+    const captchaRequired = /captcha|robot|are you human|verify you are|security check/i.test(bodyText)
+        || /\/captcha/i.test(location.href);
+    const notFound = /Sorry,\s*the page you were looking for was not found/i.test(bodyText)
+        || /page not found/i.test(document.title || '');
+    const suspended = /currently\s+not\s+selling\s+on\s+Etsy/i.test(bodyText);
 
-    console.error(`[Background] [${shopName}] Error on page ${task.page}: ${msg.error}`);
+    const titleNode = document.querySelector('.wt-text-title-large');
+    let reviewAverage = titleNode ? Number((titleNode.textContent || '').trim()) : null;
+    let reviewCount = null;
 
-    // Retry Logic
-    if (task.pageRetries < 3) {
-        task.pageRetries++;
-        console.log(`[Background] [${shopName}] Retrying page ${task.page} (${task.pageRetries}/3)...`);
-        chrome.tabs.reload(task.tabId);
-    } else {
-        // If we have some data, resolve with what we have. Otherwise reject.
-        if (task.accumulatedListings.length > 0) {
-            console.warn(`[Background] [${shopName}] Max retries reached. Returning partial data.`);
-            finishCrawl(shopName);
-        } else {
-            task.reject(new Error(`Max retries reached on page ${task.page}`));
-            chrome.tabs.remove(task.tabId);
-            pendingCrawls.delete(shopName);
+    if (titleNode) {
+        const candidates = Array.from(document.querySelectorAll('.wt-text-body-small, span'));
+        const countNode = candidates.find(node => /^\(\s*[\d,]+\s*\)$/.test((node.textContent || '').trim()));
+        if (countNode) {
+            reviewCount = Number((countNode.textContent || '').replace(/[^\d]/g, ''));
         }
     }
-}
 
-function finishCrawl(shopName) {
-    const task = pendingCrawls.get(shopName);
-    if (task) {
-        task.resolve(task.accumulatedListings);
-        chrome.tabs.remove(task.tabId);
-        pendingCrawls.delete(shopName);
-        console.log(`[Background] [${shopName}] Crawl complete. Total: ${task.accumulatedListings.length}`);
+    if (!Number.isFinite(reviewAverage)) {
+        const ratingBlockMatch = html.match(/<span[^>]*class=["'][^"']*\bwt-text-title-large\b[^"']*["'][^>]*>\s*([0-9]+(?:\.[0-9]+)?)\s*<\/span>[\s\S]{0,1600}?<span[^>]*class=["'][^"']*\bwt-text-body-small\b[^"']*["'][^>]*>\s*\(([0-9,]+)\)\s*<\/span>/i);
+        if (ratingBlockMatch) {
+            reviewAverage = Number(ratingBlockMatch[1]);
+            reviewCount = Number(ratingBlockMatch[2].replace(/,/g, ''));
+        }
     }
-}
 
-function getShopNameFromUrl(url) {
-    const match = url.match(/etsy\.com\/shop\/([^/?#]+)/) || url.match(/etsy\.com\/([a-zA-Z0-9]+)/); // Fallback
-    return match ? match[1] : null;
+    if (!Number.isFinite(reviewAverage)) {
+        const ariaMatch = html.match(/Rating:\s*([0-9]+(?:\.[0-9]+)?)\s*out of 5 stars,\s*([0-9,]+)\s*reviews/i);
+        if (ariaMatch) {
+            reviewAverage = Number(ariaMatch[1]);
+            reviewCount = Number(ariaMatch[2].replace(/,/g, ''));
+        }
+    }
+
+    return {
+        captchaRequired,
+        notFound,
+        suspended,
+        suspendedReason: suspended ? 'Shop is currently not selling on Etsy.' : null,
+        reviewAverage: Number.isFinite(reviewAverage) ? reviewAverage : null,
+        reviewCount: Number.isFinite(reviewCount) ? reviewCount : null,
+        url: location.href
+    };
 }

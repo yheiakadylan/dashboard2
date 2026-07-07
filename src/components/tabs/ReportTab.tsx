@@ -26,9 +26,18 @@ type DesignerRow = { name: string; fulfillSubmitted: number; ideaSubmitted: numb
 type CsRow = { name: string; fulfilled: number };
 type TopSkuRow = { sku: string; name: string; quantity: number; orders: number; revenueUSD: number; shops: string[]; image?: string };
 type TopSkuAccumulator = Omit<TopSkuRow, 'orders' | 'shops'> & { orderIds: Set<string>; shopSet: Set<string> };
+type ShopRatingRow = {
+  shop: string;
+  avg: number;
+  count: number;
+  shopReviewAverage: number | null;
+  shopReviewCount: number | null;
+  suspended: boolean;
+};
 
 const formatMoney = (value: number) => `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatNumber = (value: number) => value.toLocaleString('en-US');
+const normalizeShopKey = (value?: string | number | null) => String(value || '').trim().toLowerCase();
 const logReportInfo = (message: string, details: globalThis.Record<string, unknown>) => {
   try {
     if (import.meta.env.DEV && localStorage.getItem('reportVerbose') === '1') {
@@ -298,7 +307,26 @@ const ReportTab: React.FC = () => {
   const reportData = useMemo(() => {
     const accountLabelMap = buildAccountLabelMap(accounts);
     const permittedAccounts = new Set(accounts.map(account => account.email));
+    const permittedShopKeys = new Set(
+      accounts.flatMap(account => [account.id, account.email, account.label])
+        .map(normalizeShopKey)
+        .filter(Boolean)
+    );
     const hasAccountScope = permittedAccounts.size > 0;
+    const shopHealthByKey = new Map<string, { reviewAverage: number | null; reviewCount: number | null; suspended: boolean }>();
+    accounts.forEach(account => {
+      const health = {
+        reviewAverage: typeof account.etsy_review_average === 'number' ? account.etsy_review_average : null,
+        reviewCount: typeof account.etsy_review_count === 'number' ? account.etsy_review_count : null,
+        suspended: account.etsy_suspended === true
+      };
+
+      [account.id, account.email, account.label]
+        .map(normalizeShopKey)
+        .filter(Boolean)
+        .forEach(key => shopHealthByKey.set(key, health));
+    });
+
     const { resolve: userName, resolveKnown: knownUserName, resolveKnownByRoles } = buildUserResolver(operationData.users);
     const trendMap = buildTrendMap(reportRange.from, reportRange.to, timeZone);
     const currencyToUsd = (amount: number, currency?: string | null) => currency === 'USD' || !currency ? amount : (exchangeRates?.[currency] ? amount * exchangeRates[currency] : amount);
@@ -364,10 +392,20 @@ const ReportTab: React.FC = () => {
       .slice(0, 20);
 
     const shopRatingsMap = new Map<string, { total: number; count: number }>();
+    accounts.forEach(account => {
+      if (typeof account.etsy_review_average !== 'number') return;
+      const shop = account.label || account.email || account.id;
+      if (!shopRatingsMap.has(shop)) {
+        shopRatingsMap.set(shop, { total: 0, count: 0 });
+      }
+    });
+
     let totalRating = 0;
     let totalRatedReviews = 0;
     reportReviews.forEach((review: ReportReview) => {
       if (!review.rating) return;
+      const shopKey = normalizeShopKey(review.shop_id);
+      if (hasAccountScope && !permittedShopKeys.has(shopKey)) return;
       const shop = resolveAccountLabel(accountLabelMap, review.shop_id);
       const current = shopRatingsMap.get(shop) || { total: 0, count: 0 };
       current.total += review.rating;
@@ -379,9 +417,24 @@ const ReportTab: React.FC = () => {
       if (trendRow) trendRow.reviews += 1;
     });
 
-    const shopRatings = Array.from(shopRatingsMap.entries())
-      .map(([shop, stats]) => ({ shop, avg: stats.total / stats.count, count: stats.count }))
-      .sort((a, b) => b.count - a.count || b.avg - a.avg || a.shop.localeCompare(b.shop));
+    const shopRatings: ShopRatingRow[] = Array.from(shopRatingsMap.entries())
+      .map(([shop, stats]) => {
+        const shopHealth = shopHealthByKey.get(normalizeShopKey(shop));
+        return {
+          shop,
+          avg: stats.count > 0 ? stats.total / stats.count : 0,
+          count: stats.count,
+          shopReviewAverage: shopHealth?.reviewAverage ?? null,
+          shopReviewCount: shopHealth?.reviewCount ?? null,
+          suspended: shopHealth?.suspended === true
+        };
+      })
+      .sort((a, b) =>
+        b.count - a.count ||
+        (b.shopReviewAverage ?? 0) - (a.shopReviewAverage ?? 0) ||
+        b.avg - a.avg ||
+        a.shop.localeCompare(b.shop)
+      );
 
     const ideaMap = new Map<string, LeaderRow>();
     const ensureIdeaRow = (key: string) => {
@@ -448,8 +501,18 @@ const ReportTab: React.FC = () => {
       }),
       { totalSubmitted: 0, fulfillSubmitted: 0, ideaSubmitted: 0 }
     );
-    const highestRatingShop = shopRatings.reduce<typeof shopRatings[number] | null>((best, shop) => (!best || shop.avg > best.avg ? shop : best), null);
-    const lowestRatingShop = shopRatings.reduce<typeof shopRatings[number] | null>((best, shop) => (!best || shop.avg < best.avg ? shop : best), null);
+    const shopsWithRangeReviews = shopRatings.filter(shop => shop.count > 0);
+    const shopsWithShopAverage = shopRatings.filter(shop => typeof shop.shopReviewAverage === 'number' && !shop.suspended);
+    const highestRatingShop = shopsWithRangeReviews.reduce<typeof shopRatings[number] | null>((best, shop) => (!best || shop.avg > best.avg ? shop : best), null);
+    const lowestRatingShop = shopsWithRangeReviews.reduce<typeof shopRatings[number] | null>((best, shop) => (!best || shop.avg < best.avg ? shop : best), null);
+    const highestShopAverageShop = shopsWithShopAverage.reduce<typeof shopRatings[number] | null>(
+      (best, shop) => (!best || (shop.shopReviewAverage ?? 0) > (best.shopReviewAverage ?? 0) ? shop : best),
+      null
+    );
+    const lowestShopAverageShop = shopsWithShopAverage.reduce<typeof shopRatings[number] | null>(
+      (best, shop) => (!best || (shop.shopReviewAverage ?? 0) < (best.shopReviewAverage ?? 0) ? shop : best),
+      null
+    );
 
     const csMap = new Map<string, CsRow>();
     const supplierMap = new Map<string, number>();
@@ -475,6 +538,8 @@ const ReportTab: React.FC = () => {
       avgRating: totalRatedReviews > 0 ? totalRating / totalRatedReviews : 0,
       highestRatingShop,
       lowestRatingShop,
+      highestShopAverageShop,
+      lowestShopAverageShop,
       ideaSummary,
       ideaRows,
       designerSummary,
@@ -574,13 +639,44 @@ const ReportTab: React.FC = () => {
           <div className="h-56"><React.Suspense fallback={<ChartSkeleton />}><ReportSupplierPieChart data={supplierPieData} /></React.Suspense></div>
         </Section>
 
-        <Section title="Rating theo shop" description="Highest/Lowest tinh theo diem sao trung binh cua review trong range." icon={<Star className="h-4 w-4 text-amber-600 fill-current" />}>
-          <div className="grid grid-cols-3 gap-2 mb-4">
+        <Section title="Rating theo shop" description="Range la diem review trong khoang report, Shop Avg la rating toan shop tu extension crawl." icon={<Star className="h-4 w-4 text-amber-600 fill-current" />}>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 mb-4">
             <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500">Avg all</p><p className="text-xl font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{reportData.avgRating ? reportData.avgRating.toFixed(2) : '-'} {reportData.avgRating ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p></div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Highest</p><p className="text-xl font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{reportData.highestRatingShop ? reportData.highestRatingShop.avg.toFixed(2) : '-'} {reportData.highestRatingShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.highestRatingShop?.shop || '-'}</p></div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Lowest</p><p className="text-xl font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{reportData.lowestRatingShop ? reportData.lowestRatingShop.avg.toFixed(2) : '-'} {reportData.lowestRatingShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.lowestRatingShop?.shop || '-'}</p></div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Highest Range</p><p className="text-xl font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{reportData.highestRatingShop ? reportData.highestRatingShop.avg.toFixed(2) : '-'} {reportData.highestRatingShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.highestRatingShop?.shop || '-'}</p></div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Lowest Range</p><p className="text-xl font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{reportData.lowestRatingShop ? reportData.lowestRatingShop.avg.toFixed(2) : '-'} {reportData.lowestRatingShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.lowestRatingShop?.shop || '-'}</p></div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Highest Shop Avg</p><p className="text-xl font-bold text-amber-600 dark:text-amber-400 inline-flex items-center gap-1">{reportData.highestShopAverageShop?.shopReviewAverage ? reportData.highestShopAverageShop.shopReviewAverage.toFixed(2) : '-'} {reportData.highestShopAverageShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.highestShopAverageShop?.shop || '-'}</p></div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Lowest Shop Avg</p><p className="text-xl font-bold text-amber-600 dark:text-amber-400 inline-flex items-center gap-1">{reportData.lowestShopAverageShop?.shopReviewAverage ? reportData.lowestShopAverageShop.shopReviewAverage.toFixed(2) : '-'} {reportData.lowestShopAverageShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.lowestShopAverageShop?.shop || '-'}</p></div>
           </div>
-          <div className="space-y-3">{reportData.shopRatings.map(shop => <div key={shop.shop} className="flex items-center justify-between gap-3 text-sm"><span className="font-medium text-gray-700 dark:text-gray-300 truncate">{shop.shop}</span><span className="flex items-center gap-2 flex-shrink-0"><span className="text-xs text-gray-500">{formatNumber(shop.count)} reviews</span><span className="font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{shop.avg.toFixed(2)} <Star className="h-3 w-3 text-amber-500 fill-current" /></span></span></div>)}{reportData.shopRatings.length === 0 && <p className="py-4 text-center text-sm text-gray-500">Chua co review trong range nay.</p>}</div>
+          <div className="space-y-3">
+            {reportData.shopRatings.map(shop => (
+              <div key={shop.shop} className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{shop.shop}</span>
+                <span className="flex items-center gap-3 flex-shrink-0 text-right">
+                  <span>
+                    <span className="block text-[10px] uppercase tracking-wide text-gray-400">Range</span>
+                    <span className="font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">
+                      {shop.count > 0 ? shop.avg.toFixed(2) : '-'} {shop.count > 0 ? <Star className="h-3 w-3 text-amber-500 fill-current" /> : null}
+                    </span>
+                    <span className="block text-xs text-gray-500">{formatNumber(shop.count)} reviews</span>
+                  </span>
+                  <span>
+                    <span className="block text-[10px] uppercase tracking-wide text-gray-400">Shop Avg</span>
+                    {shop.suspended ? (
+                      <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-black uppercase text-red-700 dark:bg-red-900/40 dark:text-red-300">Suspended</span>
+                    ) : typeof shop.shopReviewAverage === 'number' ? (
+                      <>
+                        <span className="font-bold text-amber-600 dark:text-amber-400 inline-flex items-center gap-1">{shop.shopReviewAverage.toFixed(2)} <Star className="h-3 w-3 text-amber-500 fill-current" /></span>
+                        <span className="block text-xs text-gray-500">({formatNumber(shop.shopReviewCount || 0)})</span>
+                      </>
+                    ) : (
+                      <span className="font-semibold text-gray-400">-</span>
+                    )}
+                  </span>
+                </span>
+              </div>
+            ))}
+            {reportData.shopRatings.length === 0 && <p className="py-4 text-center text-sm text-gray-500">Chua co shop rating data.</p>}
+          </div>
         </Section>
       </div>
     </div>

@@ -206,6 +206,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         chrome.runtime.sendMessage({ type: "CRAWL_RECENT_REVIEWS_25" }, (response) => {
             crawl25Btn.disabled = false;
             if (response && response.success) {
+                if (response.started) {
+                    toolStatusMsg.textContent = 'Da bat dau cao reviews. Theo doi trang thai o khung Sync status.';
+                    toolStatusMsg.className = 'status success';
+                    return;
+                }
                 toolStatusMsg.textContent = `Thành công! Đã lấy ${response.fetched}, lưu ${response.saved} review.`;
                 toolStatusMsg.className = 'status success';
             } else {

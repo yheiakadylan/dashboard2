@@ -12,6 +12,7 @@ export interface UserPermissions {
     viewProductsTab?: boolean;      // Tab: Products
     viewSupportTab?: boolean;       // Tab: Support (Messages/Cases)
     viewFulfillTab?: boolean;       // Tab: Fulfill
+    viewReviewsTab?: boolean;       // Tab: Reviews
     viewReportTab?: boolean;        // Tab: Report
 
     // === KPI PERMISSIONS ===

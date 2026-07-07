@@ -13,12 +13,23 @@ export interface Account {
   scan_start_date?: string; // Ngày bắt đầu của lịch sử email, được tìm thấy bởi giai đoạn dò tìm
   lastKnownHistoryId?: string; // ID cuối cùng mà webhook đã xử lý
   platforms?: string[]; // 'etsy', 'ebay'
+  etsy_review_average?: number | null;
+  etsy_review_count?: number | null;
+  etsy_suspended?: boolean;
+  etsy_suspended_reason?: string | null;
+  etsy_newly_suspended?: boolean;
+  etsy_suspended_since?: string | number | Date | { seconds?: number; toDate?: () => Date } | null;
+  etsy_suspension_status_changed_at?: string | number | Date | { seconds?: number; toDate?: () => Date } | null;
+  etsy_health_status?: string | null;
+  etsy_health_error?: string | null;
+  etsy_health_checked_at?: string | number | Date | { seconds?: number; toDate?: () => Date } | null;
   worker_status?: {
     status: 'idle' | 'processing' | 'error';
     last_heartbeat: string;
     last_error?: string;
     pending_count?: number;
     version?: string;
+    review_status?: any;
   };
 }
 

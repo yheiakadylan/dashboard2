@@ -28,7 +28,8 @@ export default defineConfig({
       input: {
         background: resolve(__dirname, 'src/background.ts'),
         popup: resolve(__dirname, 'src/popup.ts'),
-        offscreen: resolve(__dirname, 'src/offscreen.ts')
+        offscreen: resolve(__dirname, 'src/offscreen.ts'),
+        'sku-bridge': resolve(__dirname, 'src/sku-bridge.ts')
       },
       output: {
         entryFileNames: '[name].js',

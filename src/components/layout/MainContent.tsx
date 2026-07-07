@@ -128,6 +128,9 @@ const MainContent: React.FC<MainContentProps> = ({ onViewOrderDetails, onResyncO
                     );
 
                 case 'Reviews':
+                    if (!hasPermission(role, permissions, 'viewReviewsTab')) {
+                        return <div className="p-8 text-center text-gray-500">You do not have permission to view reviews.</div>;
+                    }
                     return (
                         <Suspense fallback={<div className="p-2 md:p-6 animate-fade-in"><SkeletonLoader variant="card" count={6} /></div>}>
                             <ReviewsTab />

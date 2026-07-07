@@ -360,7 +360,11 @@ const Header: React.FC = () => {
   // Prepare Account Options for CustomSelect
   const accountOptions = useMemo(() => [
     { value: 'all', label: 'All Accounts' },
-    ...accounts.map(acc => ({ value: acc.email, label: acc.label || acc.email }))
+    ...accounts.map(acc => ({
+      value: acc.email,
+      label: acc.label || acc.email,
+      status: acc.etsy_suspended === true ? 'suspended' as const : 'alive' as const
+    }))
   ], [accounts]);
 
   return (

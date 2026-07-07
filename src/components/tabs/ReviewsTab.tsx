@@ -21,6 +21,28 @@ const isBadReview = (review: EtsyReview) => typeof review.rating === 'number' &&
 const getReviewKey = (review: EtsyReview) => String(
     review.id || review.transaction_id || review.order_id || `${review.shop_id}-${review.create_date}-${review.rating}`
 );
+const getProductKey = (review: EtsyReview) => {
+    const listingId = String(review.listing_id || '').trim();
+    if (listingId) return listingId;
+    return decodeHTML(review.listing_title).trim().toLowerCase();
+};
+const normalizeShopKey = (value?: string | number | null) => String(value || '').trim().toLowerCase();
+
+interface ProductReviewHighlight {
+    productKey: string;
+    listingId: string;
+    title: string;
+    shopLabel: string;
+    total: number;
+    goodReviews: number;
+    badReviews: number;
+    averageRating: number;
+    imageUrl: string | null;
+    sampleReview: EtsyReview;
+}
+
+type ShopBreakdownSortKey = 'shopName' | 'total' | 'averageRating' | 'shopReviewAverage' | 'fiveStars' | 'badReviews' | 'withImages';
+type ShopBreakdownSort = { key: ShopBreakdownSortKey; direction: 'asc' | 'desc' };
 
 const ReviewsTab: React.FC = () => {
     const { etsyReviews, accounts, isLoading, teamId } = useDashboard();
@@ -31,7 +53,10 @@ const ReviewsTab: React.FC = () => {
     const [showBadReviewsOnly, setShowBadReviewsOnly] = useState(false);
     const [showImagesOnly, setShowImagesOnly] = useState(false);
     const [focusedReviewKey, setFocusedReviewKey] = useState<string | null>(null);
+    const [selectedProductFilter, setSelectedProductFilter] = useState<{ productKey: string; title: string } | null>(null);
+    const [shopBreakdownSort, setShopBreakdownSort] = useState<ShopBreakdownSort>({ key: 'total', direction: 'desc' });
     const reviewRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const reviewFeedRef = useRef<HTMLDivElement | null>(null);
 
     const accountLabelMap = useMemo(() => buildAccountLabelMap(accounts), [accounts]);
     const getShopLabel = (shopId?: string | number | null) => resolveAccountLabel(accountLabelMap, shopId);
@@ -47,6 +72,71 @@ const ReviewsTab: React.FC = () => {
                 .map(value => value.trim().toLowerCase())
         );
     }, [accounts, selectedAccountId]);
+
+    const shopHealthByKey = useMemo(() => {
+        const map = new Map<string, {
+            reviewAverage: number | null;
+            reviewCount: number | null;
+            suspended: boolean;
+        }>();
+
+        accounts.forEach(account => {
+            const health = {
+                reviewAverage: typeof account.etsy_review_average === 'number' ? account.etsy_review_average : null,
+                reviewCount: typeof account.etsy_review_count === 'number' ? account.etsy_review_count : null,
+                suspended: account.etsy_suspended === true
+            };
+
+            [account.id, account.email, account.label]
+                .map(normalizeShopKey)
+                .filter(Boolean)
+                .forEach(key => map.set(key, health));
+        });
+
+        return map;
+    }, [accounts]);
+
+    const shopAverageExtremes = useMemo(() => {
+        const rows = accounts
+            .filter(account => typeof account.etsy_review_average === 'number')
+            .filter(account => {
+                if (!selectedShopKeys) return true;
+                return [account.id, account.email, account.label]
+                    .map(normalizeShopKey)
+                    .filter(Boolean)
+                    .some(key => selectedShopKeys.has(key));
+            })
+            .map(account => ({
+                shop: account.label || account.email || account.id,
+                average: account.etsy_review_average as number,
+                count: typeof account.etsy_review_count === 'number' ? account.etsy_review_count : 0,
+                suspended: account.etsy_suspended === true
+            }));
+
+        const activeRows = rows.filter(row => !row.suspended);
+        const comparableRows = activeRows.length > 0 ? activeRows : rows;
+        const highest = comparableRows.reduce<typeof comparableRows[number] | null>(
+            (best, row) => (!best || row.average > best.average || (row.average === best.average && row.count > best.count) ? row : best),
+            null
+        );
+        const lowest = comparableRows.reduce<typeof comparableRows[number] | null>(
+            (best, row) => (!best || row.average < best.average || (row.average === best.average && row.count > best.count) ? row : best),
+            null
+        );
+
+        const toKpi = (row: typeof highest) => row
+            ? {
+                value: row.average.toFixed(2),
+                previousLabel: row.shop,
+                previousValue: `${row.count.toLocaleString()} reviews`
+            }
+            : { value: '-' };
+
+        return {
+            highest: toKpi(highest),
+            lowest: toKpi(lowest)
+        };
+    }, [accounts, selectedShopKeys]);
 
     useEffect(() => {
         let cancelled = false;
@@ -82,6 +172,9 @@ const ReviewsTab: React.FC = () => {
             if (selectedShopKeys && !selectedShopKeys.has(shopKey)) {
                 return false;
             }
+            if (selectedProductFilter && getProductKey(review) !== selectedProductFilter.productKey) {
+                return false;
+            }
             if (showBadReviewsOnly && !isBadReview(review)) {
                 return false;
             }
@@ -93,12 +186,13 @@ const ReviewsTab: React.FC = () => {
             }
             return true;
         }).sort((a, b) => new Date(b.create_date).getTime() - new Date(a.create_date).getTime());
-    }, [etsyReviews, reviewRatingFilter, selectedShopKeys, showBadReviewsOnly, showImagesOnly]);
+    }, [etsyReviews, reviewRatingFilter, selectedProductFilter, selectedShopKeys, showBadReviewsOnly, showImagesOnly]);
 
     const reviewKpis = useMemo(() => {
         const filterByShop = (review: EtsyReview) => {
             const shopKey = String(review.shop_id || '').trim().toLowerCase();
             if (selectedShopKeys && !selectedShopKeys.has(shopKey)) return false;
+            if (selectedProductFilter && getProductKey(review) !== selectedProductFilter.productKey) return false;
             return true;
         };
 
@@ -147,81 +241,192 @@ const ReviewsTab: React.FC = () => {
             badReviews: buildNumericKpi(currentBadReviews, previousBadReviews, String, previousLabel),
             withImages: buildNumericKpi(currentWithImages, previousWithImages, String, previousLabel)
         };
-    }, [etsyReviews, filteredReviews, previousLabel, previousReviews, reviewRatingFilter, selectedShopKeys, showBadReviewsOnly, showImagesOnly]);
+    }, [etsyReviews, filteredReviews, previousLabel, previousReviews, reviewRatingFilter, selectedProductFilter, selectedShopKeys, showBadReviewsOnly, showImagesOnly]);
 
     const reviewHighlights = useMemo(() => {
-        if (filteredReviews.length === 0) {
-            return {
-                lowestReview: null as EtsyReview | null,
-                latestReview: null as EtsyReview | null,
-                bestReview: null as EtsyReview | null,
-                latestPhotoReview: null as EtsyReview | null
-            };
-        }
-
-        const getRatingScore = (review: EtsyReview) => typeof review.rating === 'number' ? review.rating : 6;
-        const usedKeys = new Set<string>();
-
-        // 1. Find Lowest Review (absolute lowest rating)
-        const lowestReview = filteredReviews.reduce((best, review) => {
-            const reviewScore = getRatingScore(review);
-            const bestScore = getRatingScore(best);
-            if (reviewScore < bestScore) return review;
-            if (reviewScore === bestScore && new Date(review.create_date).getTime() > new Date(best.create_date).getTime()) {
-                return review;
-            }
-            return best;
-        }, filteredReviews[0]);
-
-        if (lowestReview) {
-            usedKeys.add(getReviewKey(lowestReview));
-        }
-
-        // 2. Find Newest Review (excluding lowest review, if possible)
-        let latestReview = filteredReviews.find(r => !usedKeys.has(getReviewKey(r))) || null;
-        if (!latestReview && filteredReviews.length > 0) {
-            // Fallback to absolute latest if we only have 1 review
-            latestReview = filteredReviews[0];
-        }
-        if (latestReview) {
-            usedKeys.add(getReviewKey(latestReview));
-        }
-
-        // 3. Find Best Review (rating 5 or highest rating, excluding already used reviews, prefer with text)
-        const remainingReviews = filteredReviews.filter(r => !usedKeys.has(getReviewKey(r)));
+        let lowestReview: EtsyReview | null = null;
+        let latestReview: EtsyReview | null = null;
         let bestReview: EtsyReview | null = null;
-        if (remainingReviews.length > 0) {
-            bestReview = remainingReviews.reduce((best, review) => {
+        let latestPhotoReview: EtsyReview | null = null;
+
+        if (filteredReviews.length > 0) {
+            const getRatingScore = (review: EtsyReview) => typeof review.rating === 'number' ? review.rating : 6;
+            const usedKeys = new Set<string>();
+
+            // 1. Find Lowest Review (absolute lowest rating)
+            lowestReview = filteredReviews.reduce((best, review) => {
                 const reviewScore = getRatingScore(review);
                 const bestScore = getRatingScore(best);
-                if (reviewScore > bestScore) return review;
-                if (reviewScore === bestScore) {
-                    const reviewHasText = (review.review || '').trim().length > 0;
-                    const bestHasText = (best.review || '').trim().length > 0;
-                    if (reviewHasText && !bestHasText) return review;
-                    if (!reviewHasText && bestHasText) return best;
-                    if (new Date(review.create_date).getTime() > new Date(best.create_date).getTime()) {
-                        return review;
-                    }
+                if (reviewScore < bestScore) return review;
+                if (reviewScore === bestScore && new Date(review.create_date).getTime() > new Date(best.create_date).getTime()) {
+                    return review;
                 }
                 return best;
-            }, remainingReviews[0]);
-        }
-        if (bestReview) {
-            usedKeys.add(getReviewKey(bestReview));
+            }, filteredReviews[0]);
+
+            if (lowestReview) {
+                usedKeys.add(getReviewKey(lowestReview));
+            }
+
+            // 2. Find Newest Review (excluding lowest review, if possible)
+            latestReview = filteredReviews.find(r => !usedKeys.has(getReviewKey(r))) || null;
+            if (!latestReview && filteredReviews.length > 0) {
+                // Fallback to absolute latest if we only have 1 review
+                latestReview = filteredReviews[0];
+            }
+            if (latestReview) {
+                usedKeys.add(getReviewKey(latestReview));
+            }
+
+            // 3. Find Best Review (rating 5 or highest rating, excluding already used reviews, prefer with text)
+            const remainingReviews = filteredReviews.filter(r => !usedKeys.has(getReviewKey(r)));
+            if (remainingReviews.length > 0) {
+                bestReview = remainingReviews.reduce((best, review) => {
+                    const reviewScore = getRatingScore(review);
+                    const bestScore = getRatingScore(best);
+                    if (reviewScore > bestScore) return review;
+                    if (reviewScore === bestScore) {
+                        const reviewHasText = (review.review || '').trim().length > 0;
+                        const bestHasText = (best.review || '').trim().length > 0;
+                        if (reviewHasText && !bestHasText) return review;
+                        if (!reviewHasText && bestHasText) return best;
+                        if (new Date(review.create_date).getTime() > new Date(best.create_date).getTime()) {
+                            return review;
+                        }
+                    }
+                    return best;
+                }, remainingReviews[0]);
+            }
+            if (bestReview) {
+                usedKeys.add(getReviewKey(bestReview));
+            }
+
+            // 4. Find Latest Photo Review (excluding already used reviews)
+            const remainingPhotoReviews = filteredReviews.filter(r => !usedKeys.has(getReviewKey(r)) && !!r.review_photo_detailed);
+            latestPhotoReview = remainingPhotoReviews.length > 0 ? remainingPhotoReviews[0] : null;
         }
 
-        // 4. Find Latest Photo Review (excluding already used reviews)
-        const remainingPhotoReviews = filteredReviews.filter(r => !usedKeys.has(getReviewKey(r)) && !!r.review_photo_detailed);
-        const latestPhotoReview = remainingPhotoReviews.length > 0 ? remainingPhotoReviews[0] : null;
+        const productReviewSource = etsyReviews.filter(review => {
+            const shopKey = String(review.shop_id || '').trim().toLowerCase();
+            if (selectedShopKeys && !selectedShopKeys.has(shopKey)) return false;
+            return true;
+        });
+
+        const productMap = new Map<string, {
+            productKey: string;
+            listingId: string;
+            title: string;
+            shopLabel: string;
+            total: number;
+            goodReviews: number;
+            badReviews: number;
+            ratings: number[];
+            imageUrl: string | null;
+            latestReview: EtsyReview;
+            goodSample: EtsyReview | null;
+            badSample: EtsyReview | null;
+        }>();
+
+        productReviewSource.forEach(review => {
+            const title = decodeHTML(review.listing_title).trim();
+            const listingId = String(review.listing_id || '').trim();
+            const productKey = getProductKey(review);
+            if (!productKey) return;
+
+            const current = productMap.get(productKey);
+            const reviewTime = new Date(review.create_date).getTime();
+            const isGood = typeof review.rating === 'number' && review.rating >= 4;
+            const isBad = isBadReview(review);
+
+            if (!current) {
+                productMap.set(productKey, {
+                    productKey,
+                    listingId,
+                    title: title || 'Unknown Product',
+                    shopLabel: resolveAccountLabel(accountLabelMap, review.shop_id) || 'Unknown Shop',
+                    total: 1,
+                    goodReviews: isGood ? 1 : 0,
+                    badReviews: isBad ? 1 : 0,
+                    ratings: typeof review.rating === 'number' ? [review.rating] : [],
+                    imageUrl: review.listing_image?.url_75x75 || review.listing_image?.url_300x300 || review.listing_image?.url_fullxfull || null,
+                    latestReview: review,
+                    goodSample: isGood ? review : null,
+                    badSample: isBad ? review : null,
+                });
+                return;
+            }
+
+            current.total += 1;
+            if (typeof review.rating === 'number') current.ratings.push(review.rating);
+            if (isGood) {
+                current.goodReviews += 1;
+                if (!current.goodSample || reviewTime > new Date(current.goodSample.create_date).getTime()) {
+                    current.goodSample = review;
+                }
+            }
+            if (isBad) {
+                current.badReviews += 1;
+                if (
+                    !current.badSample ||
+                    (typeof review.rating === 'number' && typeof current.badSample.rating === 'number' && review.rating < current.badSample.rating) ||
+                    reviewTime > new Date(current.badSample.create_date).getTime()
+                ) {
+                    current.badSample = review;
+                }
+            }
+            if (!current.imageUrl) {
+                current.imageUrl = review.listing_image?.url_75x75 || review.listing_image?.url_300x300 || review.listing_image?.url_fullxfull || null;
+            }
+            if (reviewTime > new Date(current.latestReview.create_date).getTime()) {
+                current.latestReview = review;
+            }
+        });
+
+        const productRows: ProductReviewHighlight[] = Array.from(productMap.values()).map(product => {
+            const averageRating = product.ratings.length > 0
+                ? product.ratings.reduce((sum, rating) => sum + rating, 0) / product.ratings.length
+                : 0;
+            return {
+                productKey: product.productKey,
+                listingId: product.listingId,
+                title: product.title,
+                shopLabel: product.shopLabel,
+                total: product.total,
+                goodReviews: product.goodReviews,
+                badReviews: product.badReviews,
+                averageRating,
+                imageUrl: product.imageUrl,
+                sampleReview: product.goodSample || product.badSample || product.latestReview,
+            };
+        });
+
+        const goodProduct = productRows
+            .filter(product => product.goodReviews > 0)
+            .sort((a, b) =>
+                b.goodReviews - a.goodReviews ||
+                b.averageRating - a.averageRating ||
+                b.total - a.total ||
+                new Date(b.sampleReview.create_date).getTime() - new Date(a.sampleReview.create_date).getTime()
+            )[0] || null;
+
+        const badProduct = productRows
+            .filter(product => product.badReviews > 0)
+            .sort((a, b) =>
+                b.badReviews - a.badReviews ||
+                a.averageRating - b.averageRating ||
+                b.total - a.total ||
+                new Date(b.sampleReview.create_date).getTime() - new Date(a.sampleReview.create_date).getTime()
+            )[0] || null;
 
         return {
             lowestReview,
             latestReview,
             bestReview,
-            latestPhotoReview
+            latestPhotoReview,
+            goodProduct,
+            badProduct
         };
-    }, [filteredReviews]);
+    }, [accountLabelMap, etsyReviews, filteredReviews, selectedShopKeys]);
 
     const shopBreakdownRows = useMemo(() => {
         const shopsDataMap = new Map<string, {
@@ -234,6 +439,7 @@ const ReviewsTab: React.FC = () => {
             badReviews: number;
             withImages: number;
         }>();
+
         const ensureRow = (shopName: string) => {
             if (!shopsDataMap.has(shopName)) {
                 shopsDataMap.set(shopName, {
@@ -249,6 +455,16 @@ const ReviewsTab: React.FC = () => {
             }
             return shopsDataMap.get(shopName)!;
         };
+
+        accounts.forEach(account => {
+            if (typeof account.etsy_review_average !== 'number') return;
+            const accountKeys = [account.id, account.email, account.label]
+                .map(normalizeShopKey)
+                .filter(Boolean);
+            if (selectedShopKeys && !accountKeys.some(key => selectedShopKeys.has(key))) return;
+
+            ensureRow(account.label || account.email || account.id);
+        });
 
         filteredReviews.forEach(review => {
             const shopName = getShopLabel(review.shop_id) || 'Unknown Shop';
@@ -284,14 +500,35 @@ const ReviewsTab: React.FC = () => {
                 const avg = data.ratings.length > 0
                     ? data.ratings.reduce((sum, r) => sum + r, 0) / data.ratings.length
                     : 0;
+                const shopHealth = shopHealthByKey.get(normalizeShopKey(data.shopName));
                 return {
                     ...data,
                     delta: data.total - data.previousTotal,
-                    averageRating: avg > 0 ? avg.toFixed(2) : '0.00'
+                    averageRating: avg,
+                    shopReviewAverage: shopHealth?.reviewAverage ?? null,
+                    shopReviewCount: shopHealth?.reviewCount ?? null,
+                    shopSuspended: shopHealth?.suspended === true
                 };
             })
-            .sort((a, b) => b.total - a.total || b.delta - a.delta);
-    }, [filteredReviews, getShopLabel, previousReviews, reviewRatingFilter, selectedShopKeys, showBadReviewsOnly, showImagesOnly]);
+            .sort((a, b) => {
+                const direction = shopBreakdownSort.direction === 'asc' ? 1 : -1;
+                const getValue = (row: typeof a) => {
+                    if (shopBreakdownSort.key === 'shopReviewAverage') return row.shopReviewAverage ?? -1;
+                    return row[shopBreakdownSort.key];
+                };
+                const valueA = getValue(a);
+                const valueB = getValue(b);
+
+                if (typeof valueA === 'string' || typeof valueB === 'string') {
+                    const compared = String(valueA).localeCompare(String(valueB));
+                    if (compared !== 0) return compared * direction;
+                } else if (valueA !== valueB) {
+                    return (Number(valueA) - Number(valueB)) * direction;
+                }
+
+                return b.total - a.total || b.delta - a.delta || a.shopName.localeCompare(b.shopName);
+            });
+    }, [accounts, filteredReviews, getShopLabel, previousReviews, reviewRatingFilter, selectedShopKeys, shopBreakdownSort, shopHealthByKey, showBadReviewsOnly, showImagesOnly]);
 
     if (isLoading) {
         return <LoadingSpinner variant="card" count={5} />;
@@ -328,6 +565,40 @@ const ReviewsTab: React.FC = () => {
         setReviewRatingFilter('All');
         setShowBadReviewsOnly(false);
         setShowImagesOnly(current => !current);
+    };
+
+    const handleProductHighlightClick = (product: ProductReviewHighlight) => {
+        setSelectedProductFilter({ productKey: product.productKey, title: product.title });
+        setReviewRatingFilter('All');
+        setShowBadReviewsOnly(false);
+        setShowImagesOnly(false);
+        setFocusedReviewKey(null);
+        window.setTimeout(() => {
+            reviewFeedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 0);
+    };
+
+    const handleShopBreakdownSort = (key: ShopBreakdownSortKey) => {
+        setShopBreakdownSort(current => ({
+            key,
+            direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc'
+        }));
+    };
+
+    const renderShopSortHeader = (label: string, key: ShopBreakdownSortKey, align: 'left' | 'center' = 'center') => {
+        const active = shopBreakdownSort.key === key;
+        const arrow = active ? (shopBreakdownSort.direction === 'desc' ? '↓' : '↑') : '↕';
+        return (
+            <button
+                type="button"
+                onClick={() => handleShopBreakdownSort(key)}
+                className={`inline-flex w-full items-center gap-1 font-bold uppercase tracking-wide transition-colors hover:text-blue-600 dark:hover:text-blue-400 ${align === 'center' ? 'justify-center' : 'justify-start'} ${active ? 'text-blue-600 dark:text-blue-400' : ''}`}
+                title={`Sort by ${label}`}
+            >
+                <span>{label}</span>
+                <span className="text-[10px]">{arrow}</span>
+            </button>
+        );
     };
 
     const renderHighlightCard = (label: string, review: EtsyReview | null) => {
@@ -389,13 +660,83 @@ const ReviewsTab: React.FC = () => {
         );
     };
 
+    const renderProductHighlightCard = (
+        label: string,
+        product: ProductReviewHighlight | null,
+        tone: 'good' | 'bad'
+    ) => {
+        if (!product) return null;
+
+        const isGood = tone === 'good';
+        const cardStyleClasses = isGood
+            ? "border-l-4 border-l-emerald-500 bg-gradient-to-br from-emerald-50/50 via-white to-white dark:from-emerald-950/10 dark:via-gray-800/90 dark:to-gray-800/80 hover:border-emerald-400 dark:hover:border-emerald-500"
+            : "border-l-4 border-l-orange-500 bg-gradient-to-br from-orange-50/50 via-white to-white dark:from-orange-950/10 dark:via-gray-800/90 dark:to-gray-800/80 hover:border-orange-400 dark:hover:border-orange-500";
+        const labelStyleClasses = isGood
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-orange-600 dark:text-orange-400";
+        const accentText = isGood
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-orange-600 dark:text-orange-400";
+        const primaryCount = isGood ? product.goodReviews : product.badReviews;
+        const primaryLabel = isGood ? 'good reviews' : 'bad reviews';
+
+        return (
+            <button
+                type="button"
+                onClick={() => handleProductHighlightClick(product)}
+                className={`text-left bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm hover:shadow-md transition-all ${cardStyleClasses}`}
+            >
+                <div className="flex items-start gap-3">
+                    {product.imageUrl ? (
+                        <img
+                            src={product.imageUrl}
+                            alt={product.title}
+                            className="w-16 h-16 rounded-lg object-cover border border-gray-200 dark:border-gray-700 shrink-0"
+                        />
+                    ) : (
+                        <div className="w-16 h-16 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 shrink-0 flex items-center justify-center text-[10px] font-semibold text-gray-400">
+                            No Img
+                        </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                        <div className={`text-xs font-bold uppercase tracking-widest ${labelStyleClasses}`}>{label}</div>
+                        <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white line-clamp-2">
+                            {product.title}
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            {product.shopLabel}{product.listingId ? ` · ID ${product.listingId}` : ''}
+                        </div>
+                    </div>
+                    <div className="shrink-0 hidden sm:block">{renderStars(product.averageRating)}</div>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-lg bg-white/70 dark:bg-gray-900/30 px-2 py-2">
+                        <div className={`text-sm font-black ${accentText}`}>{primaryCount}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{primaryLabel}</div>
+                    </div>
+                    <div className="rounded-lg bg-white/70 dark:bg-gray-900/30 px-2 py-2">
+                        <div className="text-sm font-black text-gray-900 dark:text-white">{product.averageRating.toFixed(2)}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">avg rating</div>
+                    </div>
+                    <div className="rounded-lg bg-white/70 dark:bg-gray-900/30 px-2 py-2">
+                        <div className="text-sm font-black text-gray-900 dark:text-white">{product.total}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">reviews</div>
+                    </div>
+                </div>
+                <div className={`mt-2 text-xs font-semibold ${accentText}`}>Click to filter this product</div>
+            </button>
+        );
+    };
+
     return (
         <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] relative">
             <div className="p-2 md:p-6">
-                <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4 md:gap-6 mb-6 w-full">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6 mb-6 w-full">
                     <KpiCard title="Total Reviews" value={reviewKpis.total} />
                     <KpiCard title="Reviewed Shops" value={reviewKpis.reviewedShops} />
                     <KpiCard title="Average Rating" value={reviewKpis.averageRating} />
+                    <KpiCard title="Highest Shop Avg" value={shopAverageExtremes.highest} />
+                    <KpiCard title="Lowest Shop Avg" value={shopAverageExtremes.lowest} />
                     <KpiCard title="5 Star Reviews" value={reviewKpis.fiveStars} />
                     <KpiCard
                         title="Bad Reviews"
@@ -413,7 +754,7 @@ const ReviewsTab: React.FC = () => {
                 </div>
 
                 {/* 2-Column Layout for Shop Breakdown & Review Highlights */}
-                {(shopBreakdownRows.length > 0 || reviewHighlights.lowestReview || reviewHighlights.latestReview) && (
+                {(shopBreakdownRows.length > 0 || reviewHighlights.lowestReview || reviewHighlights.latestReview || reviewHighlights.goodProduct || reviewHighlights.badProduct) && (
                     <div className="w-full mb-6 grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
                         {/* Shop Breakdown Table */}
                         {shopBreakdownRows.length > 0 ? (
@@ -426,12 +767,13 @@ const ReviewsTab: React.FC = () => {
                                         <table className="w-full text-left text-sm text-gray-500 dark:text-gray-400 relative border-collapse">
                                             <thead className="text-xs uppercase text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10 bg-gray-50 dark:bg-gray-800">
                                                 <tr>
-                                                    <th className="px-4 py-3 font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">Shop Name</th>
-                                                    <th className="px-3 py-3 text-center font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">Reviews</th>
-                                                    <th className="px-3 py-3 text-center font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">Rating</th>
-                                                    <th className="px-3 py-3 text-center font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">5 ★</th>
-                                                    <th className="px-3 py-3 text-center font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">Bad</th>
-                                                    <th className="px-3 py-3 text-center font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">Images</th>
+                                                    <th className="px-4 py-3 font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">{renderShopSortHeader('Shop Name', 'shopName', 'left')}</th>
+                                                    <th className="px-3 py-3 text-center font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">{renderShopSortHeader('Reviews', 'total')}</th>
+                                                    <th className="px-3 py-3 text-center font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">{renderShopSortHeader('Rating', 'averageRating')}</th>
+                                                    <th className="px-3 py-3 text-center font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">{renderShopSortHeader('Review Avg', 'shopReviewAverage')}</th>
+                                                    <th className="px-3 py-3 text-center font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">{renderShopSortHeader('5 star', 'fiveStars')}</th>
+                                                    <th className="px-3 py-3 text-center font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">{renderShopSortHeader('Bad', 'badReviews')}</th>
+                                                    <th className="px-3 py-3 text-center font-bold bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">{renderShopSortHeader('Images', 'withImages')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -449,7 +791,21 @@ const ReviewsTab: React.FC = () => {
                                                                 prev {row.previousTotal}
                                                             </div>
                                                         </td>
-                                                        <td className="px-3 py-3 text-center font-semibold text-yellow-600 dark:text-yellow-400">★{row.averageRating}</td>
+                                                        <td className="px-3 py-3 text-center font-semibold text-yellow-600 dark:text-yellow-400">★{row.averageRating.toFixed(2)}</td>
+                                                        <td className="px-3 py-3 text-center">
+                                                            {row.shopSuspended ? (
+                                                                <span className="inline-flex rounded-full bg-red-100 px-2 py-1 text-[10px] font-black uppercase text-red-700 dark:bg-red-900/40 dark:text-red-300">Suspended</span>
+                                                            ) : typeof row.shopReviewAverage === 'number' ? (
+                                                                <div>
+                                                                    <div className="font-semibold text-amber-600 dark:text-amber-400">★{row.shopReviewAverage.toFixed(2)}</div>
+                                                                    <div className="text-[11px] font-medium text-gray-400 dark:text-gray-500">
+                                                                        ({(row.shopReviewCount ?? 0).toLocaleString()})
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-gray-300 dark:text-gray-600">--</span>
+                                                            )}
+                                                        </td>
                                                         <td className="px-3 py-3 text-center font-semibold text-green-600 dark:text-green-400">{row.fiveStars}</td>
                                                         <td className="px-3 py-3 text-center font-semibold text-red-600 dark:text-red-400">{row.badReviews}</td>
                                                         <td className="px-3 py-3 text-center font-semibold text-blue-600 dark:text-blue-400">{row.withImages}</td>
@@ -463,14 +819,14 @@ const ReviewsTab: React.FC = () => {
                         ) : <div />}
 
                         {/* Review Highlights */}
-                        {(reviewHighlights.lowestReview || reviewHighlights.latestReview || reviewHighlights.bestReview || reviewHighlights.latestPhotoReview) ? (
+                        {(reviewHighlights.lowestReview || reviewHighlights.latestReview || reviewHighlights.bestReview || reviewHighlights.latestPhotoReview || reviewHighlights.goodProduct || reviewHighlights.badProduct) ? (
                             <div className="bg-gradient-to-br from-blue-50/80 via-white to-indigo-50/60 dark:from-gray-800 dark:via-gray-800/95 dark:to-blue-950/20 border-2 border-blue-100 dark:border-blue-900/40 p-5 rounded-2xl shadow-md ring-1 ring-blue-50 dark:ring-blue-950/30 flex flex-col">
                                 <div className="flex flex-col h-full w-full">
                                     <div className="mb-4 flex-shrink-0">
                                         <div className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/40 px-3 py-1 text-[11px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-300">
                                             Review Highlights
                                         </div>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Timeline events: lowest rating, latest review, best rating, and newest review with photo.</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Timeline events plus product-level winners and products collecting bad reviews in this range.</p>
                                     </div>
                                     <div className="flex flex-col gap-4">
                                         {(() => {
@@ -490,7 +846,11 @@ const ReviewsTab: React.FC = () => {
                                             addCard('Best Review', reviewHighlights.bestReview);
                                             addCard('Latest Photo Review', reviewHighlights.latestPhotoReview);
 
-                                            return cards;
+                                            return [
+                                                renderProductHighlightCard('Best Reviewed Product', reviewHighlights.goodProduct, 'good'),
+                                                renderProductHighlightCard('Most Bad Reviews Product', reviewHighlights.badProduct, 'bad'),
+                                                ...cards
+                                            ].filter(Boolean);
                                         })()}
                                     </div>
                                 </div>
@@ -523,9 +883,23 @@ const ReviewsTab: React.FC = () => {
                         </button>
                     </div>
                 )}
+                {selectedProductFilter && (
+                    <div className="max-w-6xl mx-auto mb-4 flex items-center justify-between gap-3 rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+                        <span className="min-w-0 truncate">
+                            Showing product: <strong>{selectedProductFilter.title}</strong>
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setSelectedProductFilter(null)}
+                            className="font-semibold hover:underline shrink-0"
+                        >
+                            Clear
+                        </button>
+                    </div>
+                )}
 
                 {/* List */}
-                <div className="max-w-6xl mx-auto mb-4 pt-2 border-t border-gray-200 dark:border-gray-700">
+                <div ref={reviewFeedRef} className="max-w-6xl mx-auto mb-4 pt-2 border-t border-gray-200 dark:border-gray-700 scroll-mt-4">
                     <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">
                         Review Feed ({filteredReviews.length})
                     </h3>

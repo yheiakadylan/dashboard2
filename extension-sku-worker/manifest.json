@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Etsy SKU Worker",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Background worker to fetch SKU from Etsy orders realtime via Firebase.",
   "permissions": ["storage", "alarms", "offscreen"],
   "host_permissions": [
     "*://*.etsy.com/*",
+    "https://*/*",
     "https://*.googleapis.com/*",
     "https://*.firebaseio.com/*"
   ],
@@ -13,6 +14,16 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:3000/*",
+        "http://localhost:3001/*",
+        "https://dashboardvikcom.vercel.app/*"
+      ],
+      "js": ["sku-bridge.js"]
+    }
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Etsy SKU Worker Settings"

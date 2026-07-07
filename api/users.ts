@@ -175,6 +175,7 @@ async function handleCreateUser(req: VercelRequest, res: VercelResponse) {
                 viewSales: true,
                 viewFunds: false,
                 viewFulfill: false,
+                viewReviewsTab: false,
                 viewSummary: false,
                 canManageSettings: false,
             }

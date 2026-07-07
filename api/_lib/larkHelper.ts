@@ -2,7 +2,6 @@ import { getDb } from './firebaseAdminHelper.js';
 import { SHARED_USER_ID } from '../../src/constants.js';
 import type { Account, Record as MailRecord } from './types.js';
 
-// --- ENV ---
 const LARK_WEBHOOK_URL = process.env.LARK_WEBHOOK_URL || '';
 const LARK_APP_ID = process.env.LARK_APP_ID || '';
 const LARK_APP_SECRET = process.env.LARK_APP_SECRET || '';
@@ -466,4 +465,56 @@ export async function sendLarkDailySummary(data: ReportData) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ msg_type: 'interactive', card }),
   }).catch(e => console.error('[larkHelper] webhook error', e));
+}
+
+export async function sendLarkShopHealthAlert(shopName: string, status: 'suspended' | 'recovered', reason?: string | null) {
+  if (!LARK_WEBHOOK_URL) return { status: 0, responseText: 'LARK_WEBHOOK_URL is not set' };
+
+  const isSuspended = status === 'suspended';
+  const colorTemplate = isSuspended ? 'red' : 'green';
+
+  const card = {
+    config: {
+      wide_screen_mode: true,
+      enable_forward: true
+    },
+    header: {
+      title: { content: isSuspended ? '🚨 Cảnh Báo Shop Bị Suspend' : '✅ Thông Báo Shop Đã Hoạt Động Lại', tag: 'plain_text' },
+      template: colorTemplate,
+    },
+    elements: [
+      {
+        tag: 'div',
+        text: {
+          tag: 'lark_md',
+          content: `**Shop**: **${shopName}**\n**Trạng thái**: ${isSuspended ? '🔴 Suspended' : '🟢 Active'}\n**Thời gian**: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} (UTC+7)`
+        }
+      }
+    ]
+  };
+
+  const resp = await fetch(LARK_WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ msg_type: 'interactive', card }),
+  }).catch(e => {
+    console.error('[larkHelper] health alert webhook error', e);
+    throw e;
+  });
+
+  const responseText = await resp.text();
+  let responseJson: any = null;
+  try {
+    responseJson = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    responseJson = null;
+  }
+
+  const larkCode = responseJson?.StatusCode ?? responseJson?.code;
+  if (!resp.ok || (larkCode !== undefined && Number(larkCode) !== 0)) {
+    throw new Error(`Lark webhook failed: HTTP ${resp.status} ${responseText.slice(0, 300)}`);
+  }
+
+  console.log(`[LARK] Shop health alert sent: ${resp.status}`);
+  return { status: resp.status, responseText };
 }

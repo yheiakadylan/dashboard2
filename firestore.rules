@@ -31,9 +31,9 @@ service cloud.firestore {
     // Updated to support NEW permission structure (no legacy required)
     function isValidPermissions(perms) {
       // All permissions must be boolean
-      return perms.size() <= 20  // Max 20 permissions
+      return perms.size() <= 32  // Max 32 permissions
           // Must contain at least one valid key to be a valid permission object
-          && perms.keys().hasAny(['viewOverviewTab', 'viewOrderListTab', 'viewKpiOrders', 'canManageUsers']);
+          && perms.keys().hasAny(['viewOverviewTab', 'viewOrderListTab', 'viewReviewsTab', 'viewKpiOrders', 'canManageUsers']);
     }
 
     // =========================================================

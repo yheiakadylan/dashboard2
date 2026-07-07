@@ -38,6 +38,7 @@ const etsyReviewSync = createEtsyReviewSync({
     markEtsyLoggedOut: () => { isEtsyLoggedOut = true; },
     setRateLimitUntil: (timestamp: number) => { rateLimitUntil = timestamp; }
 });
+let isReviewSyncProcessing = false;
 
 interface ExtractedItem {
     sku: string;
@@ -75,13 +76,13 @@ chrome.alarms.onAlarm.addListener((alarm: chrome.alarms.Alarm) => {
         scanPendingJobs();
         reportHeartbeat();
     } else if (alarm.name === ETSY_REVIEW_ALARM) {
-        etsyReviewSync.runEtsyReviewCronJob().catch((err: any) => console.error('[Reviews] Cron job failed:', err));
+        startReviewTask('cron', () => etsyReviewSync.runEtsyReviewCronJob());
     }
 });
 
 async function reportHeartbeat() {
     try {
-        const { teamId, account } = (await chrome.storage.local.get(['teamId', 'account'])) as { teamId?: string; account?: string };
+        const { teamId, account, etsy_review_sync_status } = (await chrome.storage.local.get(['teamId', 'account', 'etsy_review_sync_status'])) as { teamId?: string; account?: string; etsy_review_sync_status?: any };
         if (!teamId || !account) return;
 
         const isAuthenticated = await ensureAuth();
@@ -103,7 +104,8 @@ async function reportHeartbeat() {
                     last_heartbeat: new Date().toISOString(),
                     last_error: isEtsyLoggedOut ? 'Etsy Session Expired' : '',
                     pending_count: localQueue.length,
-                    version: chrome.runtime.getManifest().version
+                    version: chrome.runtime.getManifest().version,
+                    review_status: etsy_review_sync_status || null
                 }
             });
         } else {
@@ -275,16 +277,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
 
     if (msg.type === 'CRAWL_RECENT_REVIEWS_25') {
-        etsyReviewSync.crawlRecent25Reviews()
-            .then(result => sendResponse({ success: true, ...result }))
-            .catch(error => sendResponse({ success: false, error: String(error?.message || error) }));
+        const started = startReviewTask('recent_25', () => etsyReviewSync.crawlRecent25Reviews());
+        sendResponse(started
+            ? { success: true, started: true }
+            : { success: false, error: 'Review worker is already running.' });
         return true;
     }
 
     if (msg.type === 'RUN_ETSY_REVIEW_SYNC') {
-        etsyReviewSync.runEtsyReviewCronJob()
-            .then((result: any) => sendResponse({ success: true, ...result }))
-            .catch((error: any) => sendResponse({ success: false, error: String(error?.message || error) }));
+        const started = startReviewTask('cron', () => etsyReviewSync.runEtsyReviewCronJob());
+        sendResponse(started
+            ? { success: true, started: true }
+            : { success: false, error: 'Review worker is already running.' });
         return true;
     }
 
@@ -295,6 +299,23 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return true;
     }
 });
+
+function startReviewTask(action: string, task: () => Promise<any>): boolean {
+    if (isReviewSyncProcessing) {
+        console.warn(`[Reviews] Skip ${action}: another review task is already running.`);
+        return false;
+    }
+
+    isReviewSyncProcessing = true;
+    task()
+        .catch((err: any) => console.error(`[Reviews] ${action} task failed:`, err))
+        .finally(() => {
+            isReviewSyncProcessing = false;
+        });
+
+    return true;
+}
+
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }

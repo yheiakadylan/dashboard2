@@ -35,7 +35,7 @@ const AccountManager: React.FC = () => {
     <div onClick={handleBackdropClick}
       className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[100] p-2 md:p-4 animate-modal-backdrop" >
       <div onClick={(e) => e.stopPropagation()}
-        className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-2xl w-full max-w-3xl border border-gray-200 dark:border-gray-700 flex flex-col h-[90vh] md:h-[720px] md:max-h-[90vh] animate-slide-in-right" >
+        className={`bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-2xl w-full transition-all duration-300 ${activeTab === 'workers' ? 'md:max-w-6xl' : 'max-w-3xl'} border border-gray-200 dark:border-gray-700 flex flex-col h-[90vh] md:h-[720px] md:max-h-[90vh] animate-slide-in-right`} >
         {/* Header */}
         <div className="flex justify-between items-center p-3 md:p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <h2 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white">Settings</h2>

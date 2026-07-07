@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Check, Search } from 'lucide-react';
 
 interface SelectOption {
   value: string;
   label: string;
+  status?: 'alive' | 'suspended';
 }
 
 interface CustomSelectProps {
@@ -47,9 +48,28 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const selectedLabel = useMemo(() => (
-    options.find(option => option.value === value)?.label || value
+  const selectedOption = useMemo(() => (
+    options.find(option => option.value === value)
   ), [options, value]);
+  const selectedLabel = selectedOption?.label || value;
+
+  const renderStatusIcon = (status?: SelectOption['status']) => {
+    if (!status) return null;
+
+    const isSuspended = status === 'suspended';
+    return (
+      <span
+        className={`mr-2 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border ${
+          isSuspended
+            ? 'border-red-200 bg-red-50 text-red-600 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300'
+            : 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+        }`}
+        title={isSuspended ? 'Suspended' : 'Live'}
+      >
+        <Check className="h-3 w-3" strokeWidth={3} />
+      </span>
+    );
+  };
 
   const filteredOptions = useMemo(() => {
     if (!showSearch) return options;
@@ -70,7 +90,10 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
         disabled={disabled}
         className={`flex items-center justify-between w-full appearance-none bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md px-3 py-2 text-sm font-medium text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${triggerClassName} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
-        <span className="truncate mr-1">{selectedLabel}</span>
+        <span className="flex min-w-0 items-center truncate mr-1">
+          {renderStatusIcon(selectedOption?.status)}
+          <span className="truncate">{selectedLabel}</span>
+        </span>
         {icon || (
           <svg className="h-4 w-4 text-gray-500 flex-shrink-0 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -109,6 +132,7 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
                   : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
               >
+                {renderStatusIcon(option.status)}
                 <span className="truncate">{option.label}</span>
               </button>
             ))
