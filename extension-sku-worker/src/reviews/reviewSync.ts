@@ -1,5 +1,5 @@
 import type { Firestore } from 'firebase/firestore';
-import { collection, doc, getDocs, limit, orderBy, query, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, writeBatch } from 'firebase/firestore';
 import { discoverCurrentEtsyShop, fetchEtsyReviews, type EtsyReviewApiDeps } from './etsyReviewApi';
 import { cleanEtsyReview } from './reviewCleaner';
 import type { CleanedEtsyReview, EtsyReviewShopConfig, LatestSavedReviewMarker, ReviewSyncResult } from './types';
@@ -53,7 +53,13 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
         const storage = await chrome.storage.local.get(['review_webhook_url', 'LARK_WEBHOOK_URL']);
         const webhookUrl = (import.meta.env as any).VITE_REVIEW_WEBHOOK_URL || storage.review_webhook_url || storage.LARK_WEBHOOK_URL;
 
-        if (!webhookUrl) return;
+        if (!webhookUrl) {
+            console.warn(`[Reviews] Bad review alert skipped: webhook URL is not configured. review=${review.transaction_id || 'unknown'} shop=${review.shop_id}`);
+            return;
+        }
+
+        const maskedWebhook = String(webhookUrl).replace(/\/hook\/[^/?#]+/i, '/hook/***');
+        console.log(`[Reviews] Sending bad review alert. webhook=${maskedWebhook} review=${review.transaction_id || 'unknown'} shop=${review.shop_id} rating=${review.rating}`);
 
         const ratingStars = '⭐'.repeat(review.rating || 0);
         let content = `**Shop**: **${review.shop_id}**\n**Đánh giá**: ${review.rating} ${ratingStars}\n**Khách hàng**: ${review.buyer_name || 'N/A'} (${review.buyer_login_name || 'N/A'})\n**Sản phẩm**: [${review.listing_title}](https://www.etsy.com/listing/${review.listing_id})\n**Nội dung**: *"${review.review || 'Không có nội dung'}"*`;
@@ -88,7 +94,11 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ msg_type: 'interactive', card })
             });
-            console.log(`[Reviews] Bad review webhook response: ${resp.status}`);
+            const responseText = await resp.text().catch(() => '');
+            console.log(`[Reviews] Bad review webhook response: ${resp.status} ${responseText.slice(0, 300)}`);
+            if (!resp.ok) {
+                console.error(`[Reviews] Bad review webhook failed. status=${resp.status} body=${responseText.slice(0, 500)}`);
+            }
         } catch (e) {
             console.error('[Reviews] Error calling bad review webhook:', e);
         }
@@ -112,14 +122,21 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
             const docId = review.transaction_id;
             if (!docId) continue;
             const reviewRef = doc(reviewsRef, docId);
+            const shouldSendBadAlert = sendAlerts
+                && typeof review.rating === 'number'
+                && review.rating >= 1
+                && review.rating <= 3
+                && !(await getDoc(reviewRef)).exists();
             batch.set(reviewRef, { ...review, updated_at: new Date().toISOString() }, { merge: true });
             batchCount++;
             savedCount++;
 
-            if (sendAlerts && typeof review.rating === 'number' && review.rating >= 1 && review.rating <= 3) {
+            if (shouldSendBadAlert) {
                 triggerBadReviewWebhook(review).catch(err => {
                     console.error('[Reviews] Failed to send bad review alert:', err);
                 });
+            } else if (sendAlerts && typeof review.rating === 'number' && review.rating >= 1 && review.rating <= 3) {
+                console.log(`[Reviews] Bad review alert skipped because review already exists. review=${docId} shop=${review.shop_id}`);
             }
 
             if (batchCount >= 450) {
@@ -264,7 +281,7 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
                         if (cleaned) cleanedReviews.push(cleaned);
                     });
 
-                    const saved = await saveEtsyReviewsToFirestore(cleanedReviews);
+                    const saved = await saveEtsyReviewsToFirestore(cleanedReviews, true);
                     totalSaved += saved;
                 } catch (err: any) {
                     console.error(`[Reviews] Error crawling 25 reviews for shop ${shop.shopId}:`, err);

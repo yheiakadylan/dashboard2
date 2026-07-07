@@ -193,12 +193,21 @@ async function handleSaveHealth(req: VercelRequest, res: VercelResponse) {
   if (result.status === 'ok' || result.status === 'suspended') {
     const checkedAt = String(payload.etsy_health_checked_at);
     const wasSuspended = accountData.etsy_suspended === true;
-    const isSuspended = result.suspended === true;
+    const hasRatingSignal = parsedReviewAverage !== null || parsedReviewCount !== null;
+    const isAmbiguousRecovery = wasSuspended && result.status === 'ok' && result.suspended !== true && !hasRatingSignal;
+    const isSuspended = isAmbiguousRecovery ? true : result.suspended === true;
     const hasPendingSuspendAlert = accountData.etsy_lark_suspended_alert_pending === true;
 
     payload.etsy_suspended = isSuspended;
-    payload.etsy_suspended_reason = result.suspendedReason || null;
+    payload.etsy_suspended_reason = isAmbiguousRecovery
+      ? accountData.etsy_suspended_reason || 'Health check could not confirm recovery because Etsy rating was not detected.'
+      : result.suspendedReason || null;
     payload.etsy_newly_suspended = isSuspended && !wasSuspended;
+
+    if (isAmbiguousRecovery) {
+      payload.etsy_health_status = 'error';
+      payload.etsy_health_error = 'Ambiguous Etsy health check: shop was suspended, but the latest run returned ok without rating/count. Keeping suspended until a confirmed rating is detected.';
+    }
 
     if (isSuspended) {
       payload.etsy_suspended_since = wasSuspended
@@ -249,18 +258,26 @@ async function handleClaimCommand(req: VercelRequest, res: VercelResponse) {
   const userProfile = await getVerifiedUserProfile(getTokenFromRequest(req));
   const teamId = req.body?.teamId || userProfile.teamId;
   const target = String(req.body?.target || 'health');
+  const commandId = typeof req.body?.commandId === 'string' ? req.body.commandId.trim() : '';
 
   if (teamId !== userProfile.teamId) {
     return res.status(403).json({ success: false, message: 'Cannot read commands from another team.' });
   }
-  if (target !== 'health') {
+  if (target !== 'health' && target !== 'reviews') {
     return res.status(400).json({ success: false, message: 'Unsupported command target.' });
   }
 
   const db = getDb();
   const commandsRef = db.collection('user').doc(teamId).collection('worker_commands');
-  const pendingSnap = await commandsRef.where('status', '==', 'pending').limit(25).get();
-  const commandDoc = pendingSnap.docs.find(doc => doc.data()?.target === target);
+  let commandDoc: FirebaseFirestore.QueryDocumentSnapshot | FirebaseFirestore.DocumentSnapshot | null = null;
+
+  if (commandId) {
+    const exactDoc = await commandsRef.doc(commandId).get();
+    commandDoc = exactDoc.exists ? exactDoc : null;
+  } else {
+    const pendingSnap = await commandsRef.where('status', '==', 'pending').limit(25).get();
+    commandDoc = pendingSnap.docs.find(doc => doc.data()?.target === target) || null;
+  }
 
   if (!commandDoc) {
     return res.status(200).json({ success: true, command: null });
@@ -306,6 +323,11 @@ async function handleCompleteCommand(req: VercelRequest, res: VercelResponse) {
 
   const db = getDb();
   const commandRef = db.collection('user').doc(teamId).collection('worker_commands').doc(commandId);
+  if (status === 'success') {
+    await commandRef.delete();
+    return res.status(200).json({ success: true, deleted: true });
+  }
+
   await commandRef.set({
     status,
     finished_at: new Date().toISOString(),

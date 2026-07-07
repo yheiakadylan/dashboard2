@@ -88,9 +88,12 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
             .map(account => {
                 const changedAt = account.etsy_suspension_status_changed_at || account.etsy_suspended_since || account.etsy_health_checked_at;
                 const newlySuspended = account.etsy_suspended === true
+                    && account.etsy_newly_suspended === true
+                    && account.etsy_health_status !== 'error'
                     && isWithinHours(changedAt, 48);
                 const recovered = account.etsy_suspended !== true
                     && account.etsy_health_status === 'ok'
+                    && typeof account.etsy_review_average === 'number'
                     && Boolean(account.etsy_suspension_status_changed_at)
                     && isWithinHours(account.etsy_suspension_status_changed_at, 48);
 

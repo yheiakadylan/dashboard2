@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     saveBtn.addEventListener('click', async () => {
         const teamId = teamIdInput.value.trim();
-        const account = accountInput.value.trim().toLowerCase();
+        const account = accountInput.value.trim();
         const dbEmail = dbEmailInput.value.trim();
         const dbPassword = dbPasswordInput.value.trim();
 
@@ -59,11 +59,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             await signInWithEmailAndPassword(auth, dbEmail, dbPassword);
 
             // 2. Kiểm tra quyền truy cập Team + Tồn tại của Shop
-            const accountsRef = collection(db, 'user', teamId, 'accounts');
-            const q = query(accountsRef, where('email', '==', account), limit(1));
-            const snap = await getDocs(q);
+            const accountDoc = await findWorkerAccount(teamId, account);
 
-            if (snap.empty) {
+            if (!accountDoc) {
                 throw new Error(`Shop "${account}" không tồn tại trong Team "${teamId}". Vui lòng kiểm tra lại.`);
             }
 
@@ -253,3 +251,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
 });
+
+async function findWorkerAccount(teamId: string, account: string): Promise<any | null> {
+    const accountsRef = collection(db, 'user', teamId, 'accounts');
+    const normalizedAccount = String(account || '').trim();
+    const candidates = Array.from(new Set([normalizedAccount, normalizedAccount.toLowerCase()].filter(Boolean)));
+    const fields = ['email', 'label', 'name', 'shopName', 'etsyShopName'];
+
+    for (const field of fields) {
+        for (const candidate of candidates) {
+            const snap = await getDocs(query(accountsRef, where(field, '==', candidate), limit(1)));
+            if (!snap.empty) return snap.docs[0];
+        }
+    }
+
+    const allAccountsSnap = await getDocs(accountsRef);
+    const normalizedNeedles = new Set(candidates.map(value => value.toLowerCase()));
+    for (const accountDoc of allAccountsSnap.docs) {
+        const data = accountDoc.data() as any;
+        const values = [
+            data.email,
+            data.label,
+            data.name,
+            data.shopName,
+            data.etsyShopName
+        ].map(value => String(value || '').trim().toLowerCase()).filter(Boolean);
+
+        if (values.some(value => normalizedNeedles.has(value))) {
+            return accountDoc;
+        }
+    }
+
+    return null;
+}
