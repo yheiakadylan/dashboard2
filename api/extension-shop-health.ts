@@ -3,6 +3,8 @@ import { getAuth } from 'firebase-admin/auth';
 import { getDb, initFirebaseAdmin } from './_lib/firebaseAdminHelper.js';
 import { sendLarkShopHealthAlert } from './_lib/larkHelper.js';
 
+const SUSPENDED_NOT_FOUND_REASON = 'Etsy reviews page returned not found.';
+
 type ShopHealthResult = {
   id?: string;
   label?: string;
@@ -10,6 +12,10 @@ type ShopHealthResult = {
   reviewCount?: number | null;
   suspended?: boolean;
   suspendedReason?: string | null;
+  reviewPageNotFound?: boolean;
+  reviewPageStatus?: number | null;
+  reviewPageUrl?: string | null;
+  notFoundEvidence?: string[] | null;
   status?: string;
   error?: string | null;
   checkedAt?: string;
@@ -22,6 +28,30 @@ function parseFiniteNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function isConfirmedEtsyReviewsNotFound(result: ShopHealthResult): boolean {
+  const evidence = Array.isArray(result.notFoundEvidence)
+    ? result.notFoundEvidence.filter(item => typeof item === 'string')
+    : [];
+  const hasKnownEvidence = evidence.some(item =>
+    item === 'http_404' ||
+    item === 'visible_not_found_text' ||
+    item === 'meta_not_found_description' ||
+    item === 'etsy_error_404_beacon'
+  );
+  return result.reviewPageNotFound === true && isEtsyReviewsUrl(result.reviewPageUrl) && hasKnownEvidence;
+}
+
+function isEtsyReviewsUrl(value: unknown): boolean {
+  try {
+    const url = new URL(String(value || ''));
+    return url.protocol === 'https:'
+      && url.hostname === 'www.etsy.com'
+      && /^\/shop\/[^/]+\/reviews\/?$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
 }
 
 function normalizePlatforms(value: unknown): string[] {
@@ -180,36 +210,57 @@ async function handleSaveHealth(req: VercelRequest, res: VercelResponse) {
 
   const parsedReviewAverage = parseFiniteNumber(result.reviewAverage);
   const parsedReviewCount = parseFiniteNumber(result.reviewCount);
+  const hasRatingSignal = parsedReviewAverage !== null && parsedReviewCount !== null;
   const payload: Record<string, unknown> = {
     etsy_health_status: result.status || null,
     etsy_health_error: result.error || null,
     etsy_health_checked_at: result.checkedAt || new Date().toISOString(),
   };
+  if (typeof result.reviewPageUrl === 'string') payload.etsy_health_review_page_url = result.reviewPageUrl;
+  if (typeof result.reviewPageStatus === 'number') payload.etsy_health_review_page_status = result.reviewPageStatus;
+  if (Array.isArray(result.notFoundEvidence)) payload.etsy_health_not_found_evidence = result.notFoundEvidence;
 
-  if (parsedReviewAverage !== null) payload.etsy_review_average = parsedReviewAverage;
-  if (parsedReviewCount !== null) payload.etsy_review_count = parsedReviewCount;
+  if (result.status === 'ok' && hasRatingSignal) {
+    payload.etsy_review_average = parsedReviewAverage;
+    payload.etsy_review_count = parsedReviewCount;
+  }
   let larkSuspendAlert: { shopLabel: string; reason: string | null } | null = null;
 
   if (result.status === 'ok' || result.status === 'suspended') {
     const checkedAt = String(payload.etsy_health_checked_at);
     const wasSuspended = accountData.etsy_suspended === true;
-    const hasRatingSignal = parsedReviewAverage !== null || parsedReviewCount !== null;
-    const isAmbiguousRecovery = wasSuspended && result.status === 'ok' && result.suspended !== true && !hasRatingSignal;
-    const isSuspended = isAmbiguousRecovery ? true : result.suspended === true;
+    const isConfirmedSuspension = result.status === 'suspended'
+      && result.suspended === true
+      && isConfirmedEtsyReviewsNotFound(result);
+    const isConfirmedRecovery = result.status === 'ok'
+      && result.suspended !== true
+      && hasRatingSignal;
+    const isAmbiguousRecovery = wasSuspended && result.status === 'ok' && !isConfirmedRecovery;
+    const isMissingReviewStatsOk = !wasSuspended && result.status === 'ok' && !isConfirmedRecovery;
+    const isInvalidSuspension = result.status === 'suspended' && !isConfirmedSuspension;
+    const isSuspended = isConfirmedSuspension ? true : isConfirmedRecovery ? false : wasSuspended;
     const hasPendingSuspendAlert = accountData.etsy_lark_suspended_alert_pending === true;
 
     payload.etsy_suspended = isSuspended;
-    payload.etsy_suspended_reason = isAmbiguousRecovery
-      ? accountData.etsy_suspended_reason || 'Health check could not confirm recovery because Etsy rating was not detected.'
-      : result.suspendedReason || null;
-    payload.etsy_newly_suspended = isSuspended && !wasSuspended;
+    payload.etsy_suspended_reason = isConfirmedSuspension
+      ? SUSPENDED_NOT_FOUND_REASON
+      : isSuspended
+        ? accountData.etsy_suspended_reason || null
+        : null;
+    payload.etsy_newly_suspended = isConfirmedSuspension && !wasSuspended;
 
     if (isAmbiguousRecovery) {
       payload.etsy_health_status = 'error';
-      payload.etsy_health_error = 'Ambiguous Etsy health check: shop was suspended, but the latest run returned ok without rating/count. Keeping suspended until a confirmed rating is detected.';
+      payload.etsy_health_error = 'Ambiguous Etsy health check: shop was suspended, but the latest run did not return both review average and review count. Keeping suspended until confirmed review stats are detected.';
+    } else if (isMissingReviewStatsOk) {
+      payload.etsy_health_status = 'error';
+      payload.etsy_health_error = 'Etsy reviews page loaded, but review average/count were not found. Suspended status was not changed.';
+    } else if (isInvalidSuspension) {
+      payload.etsy_health_status = 'error';
+      payload.etsy_health_error = 'Suspended status ignored. The Etsy reviews page did not provide confirmed 404/not-found evidence.';
     }
 
-    if (isSuspended) {
+    if (isConfirmedSuspension) {
       payload.etsy_suspended_since = wasSuspended
         ? accountData.etsy_suspended_since || accountData.etsy_suspension_status_changed_at || checkedAt
         : checkedAt;
@@ -218,16 +269,16 @@ async function handleSaveHealth(req: VercelRequest, res: VercelResponse) {
         const shopLabel = accountData.label || accountData.shopName || accountData.email || result.id || 'Unknown Shop';
         larkSuspendAlert = {
           shopLabel: String(shopLabel),
-          reason: result.suspendedReason || accountData.etsy_suspended_reason || null
+          reason: SUSPENDED_NOT_FOUND_REASON
         };
       }
-    } else {
+    } else if (isConfirmedRecovery) {
       payload.etsy_suspended_since = null;
       payload.etsy_lark_suspended_alert_pending = false;
       payload.etsy_lark_suspended_alert_error = null;
     }
 
-    if (isSuspended !== wasSuspended) {
+    if ((isConfirmedSuspension || isConfirmedRecovery) && isSuspended !== wasSuspended) {
       payload.etsy_suspension_status_changed_at = checkedAt;
     }
   }

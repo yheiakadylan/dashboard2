@@ -32,6 +32,7 @@ export interface NotificationMetadata {
     subject?: string;
     message?: string;
     shopName?: string;
+    shopHealthKeys?: string[];
 
     // SUMMARY metadata
     summary_data?: {

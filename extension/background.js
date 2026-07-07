@@ -8,6 +8,7 @@ const HEALTH_ALARM_NAME = 'etsy_shop_health_cron';
 const HEALTH_COMMAND_ALARM_NAME = 'etsy_shop_health_remote_commands';
 const TAB_LOAD_TIMEOUT_MS = 45000;
 const TAB_PARSE_DELAY_MS = 2500;
+const SUSPENDED_NOT_FOUND_REASON = 'Etsy reviews page returned not found.';
 
 let healthRunInProgress = false;
 let stopRequested = false;
@@ -496,18 +497,22 @@ async function checkSingleShop(shop) {
             return buildHealthResult(shop, {
                 status: 'suspended',
                 suspended: true,
-                suspendedReason: 'Etsy reviews page returned not found.',
+                reviewPageNotFound: true,
+                reviewPageStatus: pageResult.responseStatus,
+                reviewPageUrl: pageResult.url,
+                notFoundEvidence: pageResult.notFoundEvidence,
                 checkedAt
             });
         }
 
-        if (pageResult?.suspended) {
+        const hasReviewStats = typeof pageResult?.reviewAverage === 'number'
+            && typeof pageResult?.reviewCount === 'number';
+
+        if (!hasReviewStats) {
             return buildHealthResult(shop, {
-                status: 'suspended',
-                suspended: true,
-                suspendedReason: pageResult.suspendedReason || 'Shop is currently not selling on Etsy.',
-                reviewAverage: pageResult.reviewAverage,
-                reviewCount: pageResult.reviewCount,
+                status: 'error',
+                suspended: false,
+                error: 'Etsy reviews page loaded, but review average/count were not found. Suspended status was not changed.',
                 checkedAt
             });
         }
@@ -547,10 +552,19 @@ async function checkSingleShop(shop) {
 
 function buildHealthResult(shop, data) {
     const wasSuspended = shop.suspended === true;
-    const isConfirmedState = data.status === 'ok' || data.status === 'suspended';
-    const isSuspended = isConfirmedState && Boolean(data.suspended);
-    const reviewAverage = typeof data.reviewAverage === 'number' ? data.reviewAverage : shop.reviewAverage;
-    const reviewCount = typeof data.reviewCount === 'number' ? data.reviewCount : shop.reviewCount;
+    const hasNotFoundEvidence = data.reviewPageNotFound === true
+        && Array.isArray(data.notFoundEvidence)
+        && data.notFoundEvidence.length > 0
+        && isEtsyReviewsUrl(data.reviewPageUrl);
+    const isConfirmedSuspension = data.status === 'suspended'
+        && data.suspended === true
+        && hasNotFoundEvidence;
+    const hasFreshRatingSignal = typeof data.reviewAverage === 'number' && typeof data.reviewCount === 'number';
+    const isAmbiguousRecovery = wasSuspended && data.status === 'ok' && data.suspended !== true && !hasFreshRatingSignal;
+    const isInvalidSuspension = data.status === 'suspended' && !isConfirmedSuspension;
+    const isSuspended = isAmbiguousRecovery ? true : isConfirmedSuspension;
+    const reviewAverage = hasFreshRatingSignal ? data.reviewAverage : shop.reviewAverage;
+    const reviewCount = hasFreshRatingSignal ? data.reviewCount : shop.reviewCount;
 
     return {
         id: shop.id,
@@ -558,17 +572,38 @@ function buildHealthResult(shop, data) {
         selected: shop.selected !== false,
         reviewAverage: typeof reviewAverage === 'number' ? reviewAverage : null,
         reviewCount: typeof reviewCount === 'number' ? reviewCount : null,
-        status: data.status,
-        suspended: Boolean(data.suspended),
-        suspendedReason: data.suspendedReason || null,
+        reviewPageNotFound: data.reviewPageNotFound === true,
+        reviewPageStatus: typeof data.reviewPageStatus === 'number' ? data.reviewPageStatus : null,
+        reviewPageUrl: data.reviewPageUrl || null,
+        notFoundEvidence: Array.isArray(data.notFoundEvidence) ? data.notFoundEvidence : [],
+        status: isAmbiguousRecovery || isInvalidSuspension ? 'error' : data.status,
+        suspended: isSuspended,
+        suspendedReason: isAmbiguousRecovery
+            ? (shop.suspendedReason || 'Health check could not confirm recovery because Etsy rating was not detected.')
+            : isSuspended ? SUSPENDED_NOT_FOUND_REASON : null,
         newlySuspended: isSuspended && !wasSuspended,
         suspendedSince: isSuspended
             ? (wasSuspended ? (shop.suspendedSince || shop.suspensionStatusChangedAt || shop.healthCheckedAt || data.checkedAt) : data.checkedAt)
             : null,
-        error: data.error || null,
+        error: isAmbiguousRecovery
+            ? 'Ambiguous Etsy health check: shop was suspended, but the latest run returned ok without rating/count. Keeping suspended until a confirmed rating is detected.'
+            : isInvalidSuspension
+                ? 'Suspended status ignored. The Etsy reviews page did not provide confirmed 404/not-found evidence.'
+            : data.error || null,
         checkedAt: data.checkedAt,
         keepTabOpen: Boolean(data.keepTabOpen)
     };
+}
+
+function isEtsyReviewsUrl(value) {
+    try {
+        const url = new URL(String(value || ''));
+        return url.protocol === 'https:'
+            && url.hostname === 'www.etsy.com'
+            && /^\/shop\/[^/]+\/reviews\/?$/i.test(url.pathname);
+    } catch {
+        return false;
+    }
 }
 
 async function mergeHealthResultIntoConfig(result) {
@@ -698,9 +733,19 @@ function parseShopHealthFromPage() {
     const html = document.documentElement?.outerHTML || '';
     const captchaRequired = /captcha|robot|are you human|verify you are|security check/i.test(bodyText)
         || /\/captcha/i.test(location.href);
-    const notFound = /Sorry,\s*the page you were looking for was not found/i.test(bodyText)
-        || /page not found/i.test(document.title || '');
-    const suspended = /currently\s+not\s+selling\s+on\s+Etsy/i.test(bodyText);
+    const isReviewsPage = /^\/shop\/[^/]+\/reviews\/?$/i.test(location.pathname);
+    const navigationEntry = performance.getEntriesByType?.('navigation')?.[0];
+    const responseStatus = typeof navigationEntry?.responseStatus === 'number' ? navigationEntry.responseStatus : null;
+    const notFoundEvidence = [];
+    if (responseStatus === 404) notFoundEvidence.push('http_404');
+    if (/Sorry,\s*the page you were looking for was not found/i.test(bodyText)) {
+        notFoundEvidence.push('visible_not_found_text');
+    }
+    if (/<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]+content=["']Sorry,\s*the page you were looking for was not found\./i.test(html)) {
+        notFoundEvidence.push('meta_not_found_description');
+    }
+    if (/beacon_source=error_404/i.test(html)) notFoundEvidence.push('etsy_error_404_beacon');
+    const notFound = isReviewsPage && notFoundEvidence.length > 0;
 
     const titleNode = document.querySelector('.wt-text-title-large');
     let reviewAverage = titleNode ? Number((titleNode.textContent || '').trim()) : null;
@@ -733,8 +778,9 @@ function parseShopHealthFromPage() {
     return {
         captchaRequired,
         notFound,
-        suspended,
-        suspendedReason: suspended ? 'Shop is currently not selling on Etsy.' : null,
+        suspended: notFound,
+        responseStatus,
+        notFoundEvidence,
         reviewAverage: Number.isFinite(reviewAverage) ? reviewAverage : null,
         reviewCount: Number.isFinite(reviewCount) ? reviewCount : null,
         url: location.href

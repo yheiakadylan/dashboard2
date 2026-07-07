@@ -14,59 +14,8 @@ import { useNotification } from '../../contexts/NotificationContext';
 
 const OverviewChart = React.lazy(() => import('../charts/OverviewChart'));
 const SummaryChart = React.lazy(() => import('../charts/SummaryChart'));
-const SUMMARY_COLUMN_WIDTHS = { 'Revenue': 120, 'Orders': 80 };
 const DATE_COLUMN = 'Date';
-
-type HealthDateValue = string | number | Date | { seconds?: number; toDate?: () => Date } | null | undefined;
-
-const parseHealthDate = (value: HealthDateValue): Date | null => {
-    if (!value) return null;
-    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-    if (typeof value === 'string' || typeof value === 'number') {
-        const date = new Date(value);
-        return Number.isNaN(date.getTime()) ? null : date;
-    }
-    if (typeof value.toDate === 'function') {
-        const date = value.toDate();
-        return Number.isNaN(date.getTime()) ? null : date;
-    }
-    if (typeof value.seconds === 'number') {
-        return new Date(value.seconds * 1000);
-    }
-    return null;
-};
-
-const formatHealthAge = (value: HealthDateValue) => {
-    const date = parseHealthDate(value);
-    if (!date) return 'not checked yet';
-
-    const diffMinutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
-    if (diffMinutes < 1) return 'just now';
-    if (diffMinutes < 60) return `${diffMinutes}m ago`;
-
-    const diffHours = Math.floor(diffMinutes / 60);
-    if (diffHours < 48) return `${diffHours}h ago`;
-
-    return `${Math.floor(diffHours / 24)}d ago`;
-};
-
-const formatHealthCheckedAt = (value: HealthDateValue) => {
-    const date = parseHealthDate(value);
-    if (!date) return '';
-    return date.toLocaleString([], {
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-};
-
-const isWithinHours = (value: HealthDateValue, hours: number) => {
-    const date = parseHealthDate(value);
-    if (!date) return false;
-    const diffMs = Date.now() - date.getTime();
-    return diffMs >= 0 && diffMs <= hours * 60 * 60 * 1000;
-};
+const SUMMARY_COLUMN_WIDTHS = { 'Revenue': 120, 'Orders': 80 };
 
 interface OverviewTabProps {
     processedData: ProcessedData;
@@ -79,41 +28,9 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
     const { role, permissions, accounts, filterDateRange, isLoading, isFetchingNewRange, isProcessing, processedDataKeys, currentDataKey } = useDashboard();
     const { globalUsdMode } = useUISettings();
     const { addNotification } = useNotification();
-    const [isSuspendedAlertDismissed, setIsSuspendedAlertDismissed] = React.useState(false);
     const hiddenValue: KpiValue = { value: '---', direction: 'neutral' };
     const isOverviewDataStale = processedDataKeys.overview !== currentDataKey;
     const showLoadingState = isLoading || isFetchingNewRange || isProcessing || isOverviewDataStale;
-    const etsyHealthAlerts = React.useMemo(
-        () => accounts
-            .map(account => {
-                const changedAt = account.etsy_suspension_status_changed_at || account.etsy_suspended_since || account.etsy_health_checked_at;
-                const newlySuspended = account.etsy_suspended === true
-                    && account.etsy_newly_suspended === true
-                    && account.etsy_health_status !== 'error'
-                    && isWithinHours(changedAt, 48);
-                const recovered = account.etsy_suspended !== true
-                    && account.etsy_health_status === 'ok'
-                    && typeof account.etsy_review_average === 'number'
-                    && Boolean(account.etsy_suspension_status_changed_at)
-                    && isWithinHours(account.etsy_suspension_status_changed_at, 48);
-
-                if (!newlySuspended && !recovered) return null;
-
-                return {
-                    account,
-                    type: newlySuspended ? 'suspended' : 'recovered',
-                    changedAt
-                };
-            })
-            .filter((alert): alert is NonNullable<typeof alert> => Boolean(alert))
-            .sort((a, b) => {
-                if (a.type !== b.type) return a.type === 'suspended' ? -1 : 1;
-                const aDate = parseHealthDate(a.changedAt)?.getTime() || 0;
-                const bDate = parseHealthDate(b.changedAt)?.getTime() || 0;
-                return bDate - aDate;
-            }),
-        [accounts]
-    );
 
     // Permission helper - checks new permissions with fallback to legacy
     const can = (permission: keyof typeof permissions) => hasPermission(role, permissions, permission);
@@ -323,64 +240,6 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
 
     return (
         <div className="p-2 md:p-6 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
-            {!isSuspendedAlertDismissed && etsyHealthAlerts.length > 0 && (
-                <div className="relative mb-6 rounded-2xl border border-amber-200 bg-amber-50/80 p-4 pr-12 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20">
-                    <button
-                        type="button"
-                        onClick={() => setIsSuspendedAlertDismissed(true)}
-                        className="absolute right-3 top-3 rounded-full px-2 py-1 text-sm font-bold text-amber-500 transition-colors hover:bg-amber-100 hover:text-amber-700 dark:hover:bg-amber-900/40 dark:hover:text-amber-200"
-                        aria-label="Dismiss Etsy health alert"
-                        title="Hide this alert"
-                    >
-                        x
-                    </button>
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                            <div className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-[11px] font-black uppercase tracking-widest text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                                Etsy Health Alert
-                            </div>
-                            <h3 className="mt-2 text-base font-bold text-amber-900 dark:text-amber-100">
-                                {etsyHealthAlerts.length} recent Etsy account update{etsyHealthAlerts.length > 1 ? 's' : ''}
-                            </h3>
-                            <p className="text-sm text-amber-700/80 dark:text-amber-300/80">
-                                Only newly suspended or recovered accounts from the last 48 hours are shown here.
-                            </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            {etsyHealthAlerts.map(({ account, type, changedAt }) => {
-                                const checkedAt = formatHealthCheckedAt(account.etsy_health_checked_at);
-                                const changedAtLabel = formatHealthCheckedAt(changedAt);
-                                const isRecovered = type === 'recovered';
-                                const rating = typeof account.etsy_review_average === 'number'
-                                    ? `Avg ${account.etsy_review_average.toFixed(2)} (${(account.etsy_review_count ?? 0).toLocaleString()})`
-                                    : 'No rating';
-                                return (
-                                    <div
-                                        key={`${type}-${account.id}`}
-                                        className={`rounded-xl border bg-white px-3 py-2 text-sm shadow-sm dark:bg-gray-900 ${isRecovered ? 'border-emerald-200 dark:border-emerald-900/50' : 'border-red-200 dark:border-red-900/50'}`}
-                                        title={account.etsy_suspended_reason || account.etsy_health_error || undefined}
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white ${isRecovered ? 'bg-emerald-600' : 'bg-orange-600'}`}>
-                                                {isRecovered ? 'Recovered' : 'Newly Suspended'}
-                                            </span>
-                                            <span className="font-bold text-gray-900 dark:text-white">{account.label}</span>
-                                        </div>
-                                        <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                                            Checked {formatHealthAge(account.etsy_health_checked_at)}{checkedAt ? ` · ${checkedAt}` : ''} · {rating}
-                                        </div>
-                                        {changedAtLabel && (
-                                            <div className={`mt-0.5 text-xs font-semibold ${isRecovered ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}>
-                                                {isRecovered ? 'Recovered' : 'Detected'} {changedAtLabel}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* 1. KPIs Section - Conditionally render based on permissions */}
             <div className="grid grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-4 md:gap-6 mb-6">
