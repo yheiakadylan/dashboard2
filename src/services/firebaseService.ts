@@ -1162,6 +1162,39 @@ export const clearAllWorkerHeartbeats = async (teamId: string): Promise<void> =>
       }
     });
   });
-  
+
   await batch.commit();
+};
+
+export type RemoteWorkerTarget = 'health' | 'reviews';
+
+export const enqueueRemoteWorkerCommand = async (
+  teamId: string,
+  target: RemoteWorkerTarget,
+  command: string,
+  payload: globalThis.Record<string, any> = {}
+): Promise<string> => {
+  const commandsRef = collection(db, 'user', teamId, 'worker_commands');
+  const docRef = await addDoc(commandsRef, {
+    target,
+    command,
+    payload,
+    status: 'pending',
+    created_at: new Date().toISOString(),
+    created_by_uid: auth.currentUser?.uid || null,
+    created_by_email: auth.currentUser?.email || null,
+  });
+  return docRef.id;
+};
+
+export const saveRemoteReviewCronHours = async (teamId: string, hours: number[]): Promise<void> => {
+  const settingsRef = doc(db, 'user', teamId, 'settings', 'worker_control');
+  await setDoc(settingsRef, {
+    review_cron_hours: hours,
+    review_cron_updated_at: new Date().toISOString(),
+    review_cron_updated_by_uid: auth.currentUser?.uid || null,
+    review_cron_updated_by_email: auth.currentUser?.email || null,
+  }, { merge: true });
+
+  await enqueueRemoteWorkerCommand(teamId, 'reviews', 'set_review_cron_hours', { hours });
 };

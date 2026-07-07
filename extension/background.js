@@ -5,6 +5,7 @@ const EXTENSION_API_PATH = '/api/extension-shop-health';
 const SHOP_DELAY_MIN_MS = 1200;
 const SHOP_DELAY_MAX_MS = 2600;
 const HEALTH_ALARM_NAME = 'etsy_shop_health_cron';
+const HEALTH_COMMAND_ALARM_NAME = 'etsy_shop_health_remote_commands';
 const TAB_LOAD_TIMEOUT_MS = 45000;
 const TAB_PARSE_DELAY_MS = 2500;
 
@@ -13,9 +14,29 @@ let stopRequested = false;
 let currentHealthTabId = null;
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name !== HEALTH_ALARM_NAME) return;
-    runShopHealthCheck(false).catch(error => {
-        console.warn('[Background] Scheduled shop health check failed:', error);
+    if (alarm.name === HEALTH_ALARM_NAME) {
+        runShopHealthCheck(false).catch(error => {
+            console.warn('[Background] Scheduled shop health check failed:', error);
+        });
+        return;
+    }
+
+    if (alarm.name === HEALTH_COMMAND_ALARM_NAME) {
+        pollRemoteHealthCommand().catch(error => {
+            console.warn('[Background] Remote health command poll failed:', error);
+        });
+    }
+});
+
+chrome.runtime.onStartup.addListener(() => {
+    restoreHealthExtensionAlarms().catch(error => {
+        console.warn('[Background] Failed to restore health extension alarms:', error);
+    });
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+    restoreHealthExtensionAlarms().catch(error => {
+        console.warn('[Background] Failed to restore health extension alarms:', error);
     });
 });
 
@@ -84,6 +105,7 @@ async function setConfig(config) {
     if (!config) {
         await chrome.storage.local.remove([CONFIG_KEY, STATS_KEY]);
         await chrome.alarms.clear(HEALTH_ALARM_NAME);
+        await chrome.alarms.clear(HEALTH_COMMAND_ALARM_NAME);
         return;
     }
 
@@ -102,6 +124,7 @@ async function setConfig(config) {
 
     await chrome.storage.local.set({ [CONFIG_KEY]: merged });
     await setupHealthAlarm(merged);
+    await setupRemoteCommandAlarm(merged);
 }
 
 async function setupHealthAlarm(config) {
@@ -114,6 +137,24 @@ async function setupHealthAlarm(config) {
         delayInMinutes: 1,
         periodInMinutes: hours * 60
     });
+}
+
+async function setupRemoteCommandAlarm(config) {
+    await chrome.alarms.clear(HEALTH_COMMAND_ALARM_NAME);
+
+    if (!config?.token || !config?.teamId) return;
+
+    chrome.alarms.create(HEALTH_COMMAND_ALARM_NAME, {
+        delayInMinutes: 0.5,
+        periodInMinutes: 0.5
+    });
+}
+
+async function restoreHealthExtensionAlarms() {
+    const { config } = await chrome.storage.local.get(CONFIG_KEY);
+    if (!config) return;
+    await setupHealthAlarm(config);
+    await setupRemoteCommandAlarm(config);
 }
 
 async function runShopHealthCheck(force = false) {
@@ -246,6 +287,64 @@ async function stopShopHealthCheck() {
     };
     await chrome.storage.local.set({ [STATS_KEY]: stats });
     return stats;
+}
+
+async function pollRemoteHealthCommand() {
+    if (healthRunInProgress) return;
+
+    let { config } = await chrome.storage.local.get(CONFIG_KEY);
+    if (!config?.token || !config?.teamId) return;
+
+    const { response, data, config: nextConfig } = await callExtensionApi(config, {
+        action: 'claim-command',
+        teamId: config.teamId,
+        target: 'health'
+    });
+    config = nextConfig;
+
+    if (!response.ok || data?.success === false) {
+        throw new Error(data?.message || `Cannot claim remote health command (${response.status}).`);
+    }
+
+    const command = data?.command;
+    if (!command?.id) return;
+
+    try {
+        if (command.command !== 'run_health_check') {
+            throw new Error(`Unsupported health command: ${command.command || 'unknown'}`);
+        }
+
+        const payload = command.payload || {};
+        if (Array.isArray(payload.shops) && payload.shops.length > 0) {
+            config = {
+                ...config,
+                shops: payload.shops,
+                updatedAt: new Date().toISOString()
+            };
+            await chrome.storage.local.set({ [CONFIG_KEY]: config });
+        }
+
+        const stats = await runShopHealthCheck(Boolean(payload.force));
+        await completeRemoteHealthCommand(config, command.id, 'success', { stats });
+    } catch (error) {
+        await completeRemoteHealthCommand(config, command.id, 'error', null, error);
+        throw error;
+    }
+}
+
+async function completeRemoteHealthCommand(config, commandId, status, result = null, error = null) {
+    if (!commandId) return;
+
+    await callExtensionApi(config, {
+        action: 'complete-command',
+        teamId: config.teamId,
+        commandId,
+        status,
+        result,
+        error: error ? (error.message || String(error)) : null
+    }).catch(completeError => {
+        console.warn('[Background] Failed to complete remote health command:', completeError);
+    });
 }
 
 async function saveHealthResultToDashboard(config, result) {

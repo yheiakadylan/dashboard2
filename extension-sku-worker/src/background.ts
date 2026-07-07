@@ -1,7 +1,7 @@
 /// <reference types="chrome" />
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, setPersistence, indexedDBLocalPersistence, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, query, where, doc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
+import { getFirestore, collection, query, where, doc, updateDoc, deleteDoc, getDocs, runTransaction } from 'firebase/firestore';
 import { createEtsyReviewSync, ETSY_REVIEW_ALARM } from './reviews/reviewSync';
 
 const firebaseConfig = {
@@ -269,6 +269,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return;
     }
 
+    if (msg.type === 'REMOTE_WORKER_COMMAND') {
+        processRemoteWorkerCommand(String(msg.teamId || ''), msg.command)
+            .then(result => sendResponse({ success: true, ...result }))
+            .catch(error => sendResponse({ success: false, error: String(error?.message || error) }));
+        return true;
+    }
+
+    if (msg.type === 'APPLY_REVIEW_CRON_HOURS') {
+        applyReviewCronHours(msg.hours)
+            .then(result => sendResponse({ success: true, ...result }))
+            .catch(error => sendResponse({ success: false, error: String(error?.message || error) }));
+        return true;
+    }
+
     if (msg.type === 'BACKFILL_ETSY_REVIEWS') {
         etsyReviewSync.backFillEtsyReviews(String(msg.shopId || ''), msg.shopName ? String(msg.shopName) : undefined, msg.minDate ? String(msg.minDate) : undefined)
             .then(result => sendResponse({ success: true, ...result }))
@@ -300,18 +314,122 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
 });
 
+async function processRemoteWorkerCommand(teamId: string, command: any): Promise<{ started?: boolean; skipped?: boolean }> {
+    if (!teamId || !command?.id) throw new Error('Missing remote worker command id.');
+
+    const commandRef = doc(db, 'user', teamId, 'worker_commands', String(command.id));
+    const storage = await chrome.storage.local.get(['account']);
+    const workerAccount = String(storage.account || '');
+
+    const claimedCommand = await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(commandRef);
+        if (!snap.exists()) return null;
+
+        const data = snap.data() as any;
+        if (data.status !== 'pending' || data.target !== 'reviews') return null;
+
+        transaction.update(commandRef, {
+            status: 'running',
+            claimed_at: new Date().toISOString(),
+            claimed_by: workerAccount || 'sku-worker',
+            updated_at: new Date().toISOString()
+        });
+
+        return data;
+    });
+
+    if (!claimedCommand) return { skipped: true };
+
+    executeRemoteReviewCommand(teamId, String(command.id), claimedCommand)
+        .catch(error => console.error('[Reviews] Remote command failed:', error));
+
+    return { started: true };
+}
+
+async function executeRemoteReviewCommand(teamId: string, commandId: string, command: any): Promise<void> {
+    const commandRef = doc(db, 'user', teamId, 'worker_commands', commandId);
+
+    try {
+        const payload = command.payload || {};
+        let result: any = null;
+
+        if (command.command === 'crawl_recent_reviews') {
+            const shops = normalizeReviewShops(payload.shops);
+            if (shops.length > 0) {
+                await chrome.storage.local.set({ etsy_review_shops: shops });
+            }
+            result = await runReviewTask('recent_25', () => etsyReviewSync.crawlRecent25Reviews());
+        } else if (command.command === 'set_review_cron_hours') {
+            result = await applyReviewCronHours(payload.hours);
+        } else if (command.command === 'run_review_sync') {
+            result = await runReviewTask('cron', () => etsyReviewSync.runEtsyReviewCronJob());
+        } else {
+            throw new Error(`Unsupported review command: ${command.command || 'unknown'}`);
+        }
+
+        await updateDoc(commandRef, {
+            status: 'success',
+            result: result || null,
+            finished_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        });
+    } catch (error: any) {
+        await updateDoc(commandRef, {
+            status: 'error',
+            error: String(error?.message || error),
+            finished_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        });
+        throw error;
+    }
+}
+
+function normalizeReviewShops(rawShops: any): Array<{ shopId: string; shopName: string }> {
+    if (!Array.isArray(rawShops)) return [];
+    return rawShops
+        .map((shop: any) => ({
+            shopId: String(shop?.shopId || shop?.etsy_shop_id || shop?.id || '').trim(),
+            shopName: String(shop?.shopName || shop?.label || shop?.name || shop?.email || shop?.shopId || '').trim()
+        }))
+        .filter(shop => shop.shopId && shop.shopName);
+}
+
+function normalizeReviewCronHours(rawHours: any): number[] {
+    if (!Array.isArray(rawHours)) return [];
+    return Array.from(new Set(rawHours
+        .map(hour => Number(hour))
+        .filter(hour => Number.isInteger(hour) && hour >= 0 && hour <= 23)))
+        .sort((a, b) => a - b);
+}
+
+async function applyReviewCronHours(rawHours: any): Promise<{ hours: number[]; nextRunAt: string }> {
+    const hours = normalizeReviewCronHours(rawHours);
+    if (hours.length === 0) throw new Error('Invalid review cron hours.');
+
+    await chrome.storage.local.set({ etsy_review_sync_hours: hours });
+    const nextRunAt = await etsyReviewSync.scheduleNextEtsyReviewCron();
+    return { hours, nextRunAt };
+}
+
+function runReviewTask(action: string, task: () => Promise<any>): Promise<any> {
+    if (isReviewSyncProcessing) {
+        return Promise.reject(new Error('Review worker is already running.'));
+    }
+
+    isReviewSyncProcessing = true;
+    return task().finally(() => {
+        isReviewSyncProcessing = false;
+    });
+}
+
 function startReviewTask(action: string, task: () => Promise<any>): boolean {
     if (isReviewSyncProcessing) {
         console.warn(`[Reviews] Skip ${action}: another review task is already running.`);
         return false;
     }
 
-    isReviewSyncProcessing = true;
-    task()
+    runReviewTask(action, task)
         .catch((err: any) => console.error(`[Reviews] ${action} task failed:`, err))
-        .finally(() => {
-            isReviewSyncProcessing = false;
-        });
 
     return true;
 }

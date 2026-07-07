@@ -1,7 +1,7 @@
 /// <reference types="chrome" />
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, setPersistence, indexedDBLocalPersistence, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { getFirestore, collection, doc, query, where, onSnapshot } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -21,6 +21,8 @@ setPersistence(auth, indexedDBLocalPersistence).catch(console.error);
 
 
 let unsubscribe: (() => void) | null = null;
+let unsubscribeCommands: (() => void) | null = null;
+let unsubscribeWorkerSettings: (() => void) | null = null;
 let currentConfig: Record<string, string> | null = null;
 
 async function startListening(config: Record<string, string>): Promise<void> {
@@ -34,6 +36,14 @@ async function startListening(config: Record<string, string>): Promise<void> {
     if (unsubscribe) {
         unsubscribe();
         unsubscribe = null;
+    }
+    if (unsubscribeCommands) {
+        unsubscribeCommands();
+        unsubscribeCommands = null;
+    }
+    if (unsubscribeWorkerSettings) {
+        unsubscribeWorkerSettings();
+        unsubscribeWorkerSettings = null;
     }
 
     try {
@@ -99,6 +109,54 @@ async function startListening(config: Record<string, string>): Promise<void> {
         setTimeout(() => {
             console.log("Offscreen: Attempting to restart listener...");
             if (currentConfig) startListening(currentConfig);
+        }, 5_000);
+    });
+
+    const commandsRef = collection(db, 'user', teamId, 'worker_commands');
+    const commandsQuery = query(commandsRef, where('status', '==', 'pending'));
+
+    unsubscribeCommands = onSnapshot(commandsQuery, (snapshot) => {
+        snapshot.docChanges().forEach(change => {
+            if (change.type !== 'added') return;
+            const command = { id: change.doc.id, ...change.doc.data() };
+            if ((command as any).target !== 'reviews') return;
+            console.log('Offscreen: Remote review command received, routing to background worker...', command);
+            sendRemoteWorkerCommand(command, teamId);
+        });
+    }, (error) => {
+        console.error("Offscreen: Worker command listen error (Listener died):", error);
+        setTimeout(() => {
+            console.log("Offscreen: Attempting to restart listener...");
+            if (currentConfig) startListening(currentConfig);
+        }, 5_000);
+    });
+
+    const workerSettingsRef = doc(db, 'user', teamId, 'settings', 'worker_control');
+    unsubscribeWorkerSettings = onSnapshot(workerSettingsRef, (snapshot) => {
+        const hours = snapshot.data()?.review_cron_hours;
+        if (!Array.isArray(hours)) return;
+
+        chrome.runtime.sendMessage({
+            type: 'APPLY_REVIEW_CRON_HOURS',
+            hours
+        }).catch(() => { /* SW may be restarting; settings listener will replay. */ });
+    }, (error) => {
+        console.error("Offscreen: Worker settings listen error (Listener died):", error);
+    });
+}
+
+function sendRemoteWorkerCommand(command: any, teamId: string) {
+    chrome.runtime.sendMessage({
+        type: 'REMOTE_WORKER_COMMAND',
+        command,
+        teamId
+    }).catch(() => {
+        setTimeout(() => {
+            chrome.runtime.sendMessage({
+                type: 'REMOTE_WORKER_COMMAND',
+                command,
+                teamId
+            }).catch(() => { /* Command stays pending for the next listener restart. */ });
         }, 5_000);
     });
 }

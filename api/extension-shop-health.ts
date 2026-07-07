@@ -37,6 +37,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'refresh-token') return await handleRefreshToken(req, res);
     if (action === 'get-shops') return await handleGetShops(req, res);
     if (action === 'save-health') return await handleSaveHealth(req, res);
+    if (action === 'claim-command') return await handleClaimCommand(req, res);
+    if (action === 'complete-command') return await handleCompleteCommand(req, res);
 
     return res.status(400).json({ success: false, message: 'Unknown action.' });
   } catch (error: any) {
@@ -227,6 +229,78 @@ async function handleSaveHealth(req: VercelRequest, res: VercelResponse) {
       }, { merge: true });
     }
   }
+
+  return res.status(200).json({ success: true });
+}
+
+async function handleClaimCommand(req: VercelRequest, res: VercelResponse) {
+  const userProfile = await getVerifiedUserProfile(getTokenFromRequest(req));
+  const teamId = req.body?.teamId || userProfile.teamId;
+  const target = String(req.body?.target || 'health');
+
+  if (teamId !== userProfile.teamId) {
+    return res.status(403).json({ success: false, message: 'Cannot read commands from another team.' });
+  }
+  if (target !== 'health') {
+    return res.status(400).json({ success: false, message: 'Unsupported command target.' });
+  }
+
+  const db = getDb();
+  const commandsRef = db.collection('user').doc(teamId).collection('worker_commands');
+  const pendingSnap = await commandsRef.where('status', '==', 'pending').limit(25).get();
+  const commandDoc = pendingSnap.docs.find(doc => doc.data()?.target === target);
+
+  if (!commandDoc) {
+    return res.status(200).json({ success: true, command: null });
+  }
+
+  const claimed = await db.runTransaction(async tx => {
+    const fresh = await tx.get(commandDoc.ref);
+    if (!fresh.exists) return null;
+
+    const data = fresh.data() || {};
+    if (data.status !== 'pending' || data.target !== target) return null;
+
+    tx.set(commandDoc.ref, {
+      status: 'running',
+      claimed_at: new Date().toISOString(),
+      claimed_by: userProfile.email || userProfile.uid || 'health-extension',
+      updated_at: new Date().toISOString(),
+    }, { merge: true });
+
+    return {
+      id: commandDoc.id,
+      command: data.command || '',
+      payload: data.payload || {},
+      createdAt: data.created_at || null,
+    };
+  });
+
+  return res.status(200).json({ success: true, command: claimed });
+}
+
+async function handleCompleteCommand(req: VercelRequest, res: VercelResponse) {
+  const userProfile = await getVerifiedUserProfile(getTokenFromRequest(req));
+  const teamId = req.body?.teamId || userProfile.teamId;
+  const commandId = String(req.body?.commandId || '');
+  const status = req.body?.status === 'success' ? 'success' : 'error';
+
+  if (teamId !== userProfile.teamId) {
+    return res.status(403).json({ success: false, message: 'Cannot update commands from another team.' });
+  }
+  if (!commandId) {
+    return res.status(400).json({ success: false, message: 'Missing commandId.' });
+  }
+
+  const db = getDb();
+  const commandRef = db.collection('user').doc(teamId).collection('worker_commands').doc(commandId);
+  await commandRef.set({
+    status,
+    finished_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    result: req.body?.result || null,
+    error: req.body?.error || null,
+  }, { merge: true });
 
   return res.status(200).json({ success: true });
 }

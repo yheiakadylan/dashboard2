@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { useDashboard } from "../../../contexts/DashboardContext";
 import { useNotification } from "../../../contexts/NotificationContext";
 import { Account } from "../../../types";
@@ -17,7 +17,11 @@ import {
   Settings2,
   Save,
 } from "lucide-react";
-import { clearPendingSkuJobs } from "../../../services/firebaseService";
+import {
+  clearPendingSkuJobs,
+  enqueueRemoteWorkerCommand,
+  saveRemoteReviewCronHours,
+} from "../../../services/firebaseService";
 
 dayjs.extend(relativeTime);
 
@@ -37,29 +41,6 @@ const parseDateValue = (value: any): Date | null => {
   return null;
 };
 
-// Send a command to an extension via window.postMessage and return a promise
-function sendExtCmd<T = any>(type: string, payload: Record<string, any> = {}): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const requestId = `${type}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const resultType = type.replace('VIKCOM_CMD_', 'VIKCOM_RESULT_');
-    const timer = setTimeout(() => {
-      window.removeEventListener('message', handler);
-      reject(new Error('Extension did not respond (timeout). Is the extension installed and enabled?'));
-    }, 15000);
-    function handler(event: MessageEvent) {
-      if (event.source !== window) return;
-      const msg = event.data;
-      if (!msg || msg.type !== resultType || msg.requestId !== requestId) return;
-      clearTimeout(timer);
-      window.removeEventListener('message', handler);
-      if (msg.success === false) reject(new Error(msg.error || 'Extension returned failure'));
-      else resolve(msg as T);
-    }
-    window.addEventListener('message', handler);
-    window.postMessage({ type, requestId, ...payload }, '*');
-  });
-}
-
 const WorkerStatusManager: React.FC = () => {
   const { accounts, teamId } = useDashboard();
   const { addNotification } = useNotification();
@@ -78,40 +59,59 @@ const WorkerStatusManager: React.FC = () => {
   const [isSavingCron, setIsSavingCron] = useState(false);
   const [showCronConfig, setShowCronConfig] = useState(false);
 
-  // Load current cron hours from SKU Worker
-  useEffect(() => {
-    sendExtCmd('VIKCOM_CMD_REVIEWS_GET_STATUS')
-      .then((res: any) => {
-        if (Array.isArray(res.cronHours) && res.cronHours.length > 0) {
-          setCronHoursInput(res.cronHours.join(', '));
-        }
+  const healthCommandShops = useMemo(() => {
+    return accounts
+      .filter((acc) => acc.platforms && acc.platforms.includes("etsy"))
+      .map((acc) => ({
+        id: acc.id,
+        label: acc.label || acc.email || acc.id,
+        email: acc.email || null,
+        platforms: acc.platforms || [],
+        selected: true,
+      }));
+  }, [accounts]);
+
+  const reviewCommandShops = useMemo(() => {
+    return accounts
+      .filter((acc) => acc.platforms && acc.platforms.includes("etsy"))
+      .map((acc) => {
+        const raw = acc as any;
+        return {
+          shopId: raw.etsy_shop_id || raw.etsyShopId || raw.shopId || acc.id,
+          shopName: acc.label || raw.shopName || acc.email || acc.id,
+        };
       })
-      .catch(() => {}); // Ignore if SKU Worker not installed
-  }, []);
+      .filter((shop) => shop.shopId && shop.shopName);
+  }, [accounts]);
 
   const handleRunHealthCheck = useCallback(async () => {
     setIsHealthRunning(true);
     try {
-      await sendExtCmd('VIKCOM_CMD_HEALTH_CHECK_RUN', { force: true });
-      addNotification('Health check started! Results will appear in the table as shops are checked.', 'success');
+      await enqueueRemoteWorkerCommand(teamId, 'health', 'run_health_check', {
+        force: true,
+        shops: healthCommandShops,
+      });
+      addNotification('Health check queued! Remote health extension will run it shortly.', 'success');
     } catch (err: any) {
-      addNotification(err.message || 'Failed to trigger health check.', 'error');
+      addNotification(err.message || 'Failed to queue health check.', 'error');
     } finally {
       setIsHealthRunning(false);
     }
-  }, [addNotification]);
+  }, [addNotification, healthCommandShops, teamId]);
 
   const handleCrawlReviews = useCallback(async () => {
     setIsCrawlingReviews(true);
     try {
-      await sendExtCmd('VIKCOM_CMD_REVIEWS_CRAWL_NOW');
-      addNotification('Review crawl started! Results will update in the worker status after it finishes.', 'success');
+      await enqueueRemoteWorkerCommand(teamId, 'reviews', 'crawl_recent_reviews', {
+        shops: reviewCommandShops,
+      });
+      addNotification('Review crawl queued! Remote SKU worker will run it shortly.', 'success');
     } catch (err: any) {
-      addNotification(err.message || 'Failed to trigger review crawl.', 'error');
+      addNotification(err.message || 'Failed to queue review crawl.', 'error');
     } finally {
       setIsCrawlingReviews(false);
     }
-  }, [addNotification]);
+  }, [addNotification, reviewCommandShops, teamId]);
 
   const handleSaveCronHours = useCallback(async () => {
     const hours = cronHoursInput
@@ -124,8 +124,8 @@ const WorkerStatusManager: React.FC = () => {
     }
     setIsSavingCron(true);
     try {
-      const res: any = await sendExtCmd('VIKCOM_CMD_REVIEWS_SET_CRON_HOURS', { hours });
-      addNotification(`Cron updated! Next run: ${res.nextRunAt ? dayjs(res.nextRunAt).format('HH:mm DD/MM') : 'scheduled'}`, 'success');
+      await saveRemoteReviewCronHours(teamId, hours);
+      addNotification('Cron saved! Remote SKU workers will apply it shortly.', 'success');
       setShowCronConfig(false);
     } catch (err: any) {
       addNotification(err.message || 'Failed to save cron hours.', 'error');
