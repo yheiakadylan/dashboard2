@@ -191,11 +191,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const oldById = new Map((currentConfig.shops || []).map(shop => [String(shop.id), shop]));
             currentConfig = {
                 ...nextConfig,
-                shops: data.shops.map(shop => ({
-                    ...oldById.get(String(shop.id)),
-                    ...shop,
-                    selected: oldById.has(String(shop.id)) ? oldById.get(String(shop.id)).selected !== false : true
-                })),
+                shops: data.shops.map(shop => {
+                    const oldShop = oldById.get(String(shop.id));
+                    return {
+                        ...oldShop,
+                        ...shop,
+                        reviewAverage: typeof shop.reviewAverage === 'number' ? shop.reviewAverage : oldShop?.reviewAverage,
+                        reviewCount: typeof shop.reviewCount === 'number' ? shop.reviewCount : oldShop?.reviewCount,
+                        selected: oldShop ? oldShop.selected !== false : true
+                    };
+                }),
                 updatedAt: new Date().toISOString()
             };
 

@@ -27,6 +27,42 @@ const getProductKey = (review: EtsyReview) => {
     return decodeHTML(review.listing_title).trim().toLowerCase();
 };
 const normalizeShopKey = (value?: string | number | null) => String(value || '').trim().toLowerCase();
+const parseFiniteNumber = (value: unknown) => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value === 'string') {
+        const parsed = Number.parseFloat(value.replace(/,/g, '').trim());
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+};
+const getRatingTone = (rating?: number | null) => {
+    if (typeof rating !== 'number' || !Number.isFinite(rating)) return 'text-gray-500 dark:text-gray-400';
+    if (rating > 4.5) return 'text-emerald-600 dark:text-emerald-400';
+    if (rating >= 4.0) return 'text-amber-500 dark:text-amber-300';
+    return 'text-rose-700 dark:text-rose-400';
+};
+
+const getRatingDelta = (current?: number | null, previous?: number | null) => {
+    if (typeof current !== 'number' || typeof previous !== 'number') return null;
+    const delta = current - previous;
+    return Math.abs(delta) < 0.005 ? 0 : delta;
+};
+
+const RatingArrow = ({ up }: { up: boolean }) => (
+    <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        {up ? (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+        ) : (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+        )}
+    </svg>
+);
+
+const RatingStar = () => (
+    <svg className="h-3 w-3 fill-current" viewBox="0 0 20 20" aria-hidden="true">
+        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+    </svg>
+);
 
 interface ProductReviewHighlight {
     productKey: string;
@@ -81,9 +117,11 @@ const ReviewsTab: React.FC = () => {
         }>();
 
         accounts.forEach(account => {
+            const reviewAverage = parseFiniteNumber(account.etsy_review_average);
+            const reviewCount = parseFiniteNumber(account.etsy_review_count);
             const health = {
-                reviewAverage: typeof account.etsy_review_average === 'number' ? account.etsy_review_average : null,
-                reviewCount: typeof account.etsy_review_count === 'number' ? account.etsy_review_count : null,
+                reviewAverage,
+                reviewCount,
                 suspended: account.etsy_suspended === true
             };
 
@@ -98,18 +136,23 @@ const ReviewsTab: React.FC = () => {
 
     const shopAverageExtremes = useMemo(() => {
         const rows = accounts
-            .filter(account => typeof account.etsy_review_average === 'number')
+            .map(account => ({
+                account,
+                average: parseFiniteNumber(account.etsy_review_average),
+                count: parseFiniteNumber(account.etsy_review_count) ?? 0
+            }))
+            .filter(row => typeof row.average === 'number')
             .filter(account => {
                 if (!selectedShopKeys) return true;
-                return [account.id, account.email, account.label]
+                return [account.account.id, account.account.email, account.account.label]
                     .map(normalizeShopKey)
                     .filter(Boolean)
                     .some(key => selectedShopKeys.has(key));
             })
-            .map(account => ({
+            .map(({ account, average, count }) => ({
                 shop: account.label || account.email || account.id,
-                average: account.etsy_review_average as number,
-                count: typeof account.etsy_review_count === 'number' ? account.etsy_review_count : 0,
+                average: average as number,
+                count,
                 suspended: account.etsy_suspended === true
             }));
 
@@ -438,9 +481,10 @@ const ReviewsTab: React.FC = () => {
             fiveStars: number;
             badReviews: number;
             withImages: number;
+            shopKeys: Set<string>;
         }>();
 
-        const ensureRow = (shopName: string) => {
+        const ensureRow = (shopName: string, keys: Array<string | number | null | undefined> = []) => {
             if (!shopsDataMap.has(shopName)) {
                 shopsDataMap.set(shopName, {
                     shopName,
@@ -450,25 +494,31 @@ const ReviewsTab: React.FC = () => {
                     ratings: [],
                     fiveStars: 0,
                     badReviews: 0,
-                    withImages: 0
+                    withImages: 0,
+                    shopKeys: new Set()
                 });
             }
-            return shopsDataMap.get(shopName)!;
+            const row = shopsDataMap.get(shopName)!;
+            [shopName, ...keys]
+                .map(normalizeShopKey)
+                .filter(Boolean)
+                .forEach(key => row.shopKeys.add(key));
+            return row;
         };
 
         accounts.forEach(account => {
-            if (typeof account.etsy_review_average !== 'number') return;
+            if (parseFiniteNumber(account.etsy_review_average) === null) return;
             const accountKeys = [account.id, account.email, account.label]
                 .map(normalizeShopKey)
                 .filter(Boolean);
             if (selectedShopKeys && !accountKeys.some(key => selectedShopKeys.has(key))) return;
 
-            ensureRow(account.label || account.email || account.id);
+            ensureRow(account.label || account.email || account.id, [account.id, account.email, account.label]);
         });
 
         filteredReviews.forEach(review => {
             const shopName = getShopLabel(review.shop_id) || 'Unknown Shop';
-            const data = ensureRow(shopName);
+            const data = ensureRow(shopName, [review.shop_id]);
             data.total += 1;
             if (typeof review.rating === 'number') {
                 data.ratings.push(review.rating);
@@ -491,7 +541,7 @@ const ReviewsTab: React.FC = () => {
 
         (previousReviews || []).filter(previousFilter).forEach(review => {
             const shopName = getShopLabel(review.shop_id) || 'Unknown Shop';
-            const data = ensureRow(shopName);
+            const data = ensureRow(shopName, [review.shop_id]);
             data.previousTotal += 1;
         });
 
@@ -500,12 +550,16 @@ const ReviewsTab: React.FC = () => {
                 const avg = data.ratings.length > 0
                     ? data.ratings.reduce((sum, r) => sum + r, 0) / data.ratings.length
                     : 0;
-                const shopHealth = shopHealthByKey.get(normalizeShopKey(data.shopName));
+                const shopHealth = Array.from(data.shopKeys)
+                    .map(key => shopHealthByKey.get(key))
+                    .find(Boolean);
+                const shopAverage = shopHealth?.reviewAverage ?? null;
                 return {
                     ...data,
                     delta: data.total - data.previousTotal,
                     averageRating: avg,
-                    shopReviewAverage: shopHealth?.reviewAverage ?? null,
+                    ratingDelta: getRatingDelta(data.ratings.length > 0 ? avg : null, shopAverage),
+                    shopReviewAverage: shopAverage,
                     shopReviewCount: shopHealth?.reviewCount ?? null,
                     shopSuspended: shopHealth?.suspended === true
                 };
@@ -545,6 +599,32 @@ const ReviewsTab: React.FC = () => {
             );
         }
         return <div className="flex items-center space-x-1">{stars}</div>;
+    };
+
+    const renderRatingBadge = (rating: number | null | undefined, delta?: number | null) => {
+        if (typeof rating !== 'number' || !Number.isFinite(rating)) {
+            return <span className="text-gray-300 dark:text-gray-600">--</span>;
+        }
+        const tone = getRatingTone(rating);
+        const hasDelta = typeof delta === 'number' && delta !== 0;
+        const isUp = (delta || 0) > 0;
+
+        return (
+            <span className="inline-flex items-center justify-center gap-1.5">
+                <span className={`inline-flex items-center gap-0.5 text-sm font-black ${tone}`}>
+                    <RatingStar />
+                    <span>{rating.toFixed(2)}</span>
+                </span>
+                {hasDelta && (
+                    <span
+                        className={`inline-flex items-center text-[11px] font-black ${isUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}
+                        title={`${isUp ? 'Higher' : 'Lower'} than shop Review Avg`}
+                    >
+                        <RatingArrow up={isUp} />
+                    </span>
+                )}
+            </span>
+        );
     };
 
     const handleHighlightClick = (review: EtsyReview) => {
@@ -760,8 +840,14 @@ const ReviewsTab: React.FC = () => {
                         {shopBreakdownRows.length > 0 ? (
                             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm overflow-hidden flex flex-col h-[350px] lg:h-0 lg:min-h-full">
                                 <div className="flex flex-col h-full">
-                                    <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex-shrink-0">
+                                    <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex-shrink-0 flex items-center justify-between gap-3">
                                         <h3 className="text-sm font-bold uppercase tracking-widest text-gray-700 dark:text-gray-300">Shop Breakdown</h3>
+                                        <div className="flex flex-wrap items-center justify-end gap-1.5 text-[10px] font-black uppercase tracking-wide">
+                                            <span className="mr-1 text-gray-500 dark:text-gray-400">Rating & Review Avg</span>
+                                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">&gt; 4.5</span>
+                                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-600 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">4.0 - 4.5</span>
+                                            <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-rose-700 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-300">&lt; 4</span>
+                                        </div>
                                     </div>
                                     <div className="overflow-x-auto overflow-y-auto flex-1 min-h-0 relative [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-750 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
                                         <table className="w-full text-left text-sm text-gray-500 dark:text-gray-400 relative border-collapse">
@@ -791,13 +877,15 @@ const ReviewsTab: React.FC = () => {
                                                                 prev {row.previousTotal}
                                                             </div>
                                                         </td>
-                                                        <td className="px-3 py-3 text-center font-semibold text-yellow-600 dark:text-yellow-400">★{row.averageRating.toFixed(2)}</td>
+                                                        <td className="px-3 py-3 text-center">
+                                                            {row.ratings.length > 0 ? renderRatingBadge(row.averageRating, row.ratingDelta) : <span className="text-gray-300 dark:text-gray-600">--</span>}
+                                                        </td>
                                                         <td className="px-3 py-3 text-center">
                                                             {row.shopSuspended ? (
                                                                 <span className="inline-flex rounded-full bg-red-100 px-2 py-1 text-[10px] font-black uppercase text-red-700 dark:bg-red-900/40 dark:text-red-300">Suspended</span>
                                                             ) : typeof row.shopReviewAverage === 'number' ? (
                                                                 <div>
-                                                                    <div className="font-semibold text-amber-600 dark:text-amber-400">★{row.shopReviewAverage.toFixed(2)}</div>
+                                                                    {renderRatingBadge(row.shopReviewAverage)}
                                                                     <div className="text-[11px] font-medium text-gray-400 dark:text-gray-500">
                                                                         ({(row.shopReviewCount ?? 0).toLocaleString()})
                                                                     </div>

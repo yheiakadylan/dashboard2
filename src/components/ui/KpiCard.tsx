@@ -195,6 +195,17 @@ const renderComparison = (kpiValue: KpiValue, trendPolarity: 'higher-is-better' 
   );
 };
 
+const getRatingToneText = (title: string, value: KpiValue | { [currency: string]: KpiValue }) => {
+  if (!('value' in value) || typeof value.value !== 'string') return '';
+  const normalizedTitle = title.toLowerCase();
+  if (!normalizedTitle.includes('rating') && !normalizedTitle.includes('shop avg')) return '';
+
+  const numeric = Number.parseFloat(value.value);
+  if (!Number.isFinite(numeric)) return '';
+  if (numeric > 4.5) return 'text-emerald-600 dark:text-emerald-400';
+  if (numeric >= 4.0) return 'text-amber-500 dark:text-amber-300';
+  return 'text-rose-700 dark:text-rose-400';
+};
 
 const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdate, onRefresh, onReset, onClick, isActive = false, trendPolarity = 'higher-is-better' }) => {
   const { icon, bg, text } = getIcon(title);
@@ -217,6 +228,7 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
       displayRefundInfo = usdTotal.refundInfo;
     }
   }
+  const ratingToneText = getRatingToneText(title, displayValue);
 
   const handleRefundClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -324,7 +336,7 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
             <div className="flex flex-col gap-1">
               <div className="flex items-baseline gap-2">
                 <p
-                  className={`${displayValue.value.length > 8 ? 'text-base font-bold' : 'text-2xl font-black'} text-gray-900 dark:text-white tracking-tight ${((displayValue as KpiValue).conversionDetails || (displayValue as KpiValue).shopBreakdown) ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-b-2 border-dotted border-gray-300 dark:border-gray-600' : ''}`}
+                  className={`${displayValue.value.length > 8 ? 'text-base font-bold' : 'text-2xl font-black'} ${ratingToneText || 'text-gray-900 dark:text-white'} tracking-tight ${((displayValue as KpiValue).conversionDetails || (displayValue as KpiValue).shopBreakdown) ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-b-2 border-dotted border-gray-300 dark:border-gray-600' : ''}`}
                   onClick={((displayValue as KpiValue).conversionDetails || (displayValue as KpiValue).shopBreakdown) ? handleValueClick : undefined}
                   title={(displayValue as KpiValue).conversionDetails ? "Click to view conversion details" : (displayValue as KpiValue).shopBreakdown ? "Click to view shop breakdown" : ""}
                 >

@@ -38,6 +38,54 @@ type ShopRatingRow = {
 const formatMoney = (value: number) => `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatNumber = (value: number) => value.toLocaleString('en-US');
 const normalizeShopKey = (value?: string | number | null) => String(value || '').trim().toLowerCase();
+const parseFiniteNumber = (value: unknown) => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value.replace(/,/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+const getRatingToneText = (rating?: number | null) => {
+  if (typeof rating !== 'number' || !Number.isFinite(rating)) return 'text-gray-400 dark:text-gray-500';
+  if (rating > 4.5) return 'text-emerald-600 dark:text-emerald-400';
+  if (rating >= 4.0) return 'text-amber-500 dark:text-amber-300';
+  return 'text-rose-700 dark:text-rose-400';
+};
+const getRatingDelta = (current?: number | null, baseline?: number | null) => {
+  if (typeof current !== 'number' || typeof baseline !== 'number') return null;
+  const delta = current - baseline;
+  return Math.abs(delta) < 0.005 ? 0 : delta;
+};
+const RatingArrow = ({ up }: { up: boolean }) => (
+  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    {up ? (
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+    ) : (
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+    )}
+  </svg>
+);
+const renderRatingValue = (rating?: number | null, delta?: number | null) => {
+  if (typeof rating !== 'number' || !Number.isFinite(rating)) return <span className="font-semibold text-gray-400">-</span>;
+  const hasDelta = typeof delta === 'number' && delta !== 0;
+  const isUp = (delta || 0) > 0;
+  return (
+    <span className="inline-flex items-center justify-end gap-1.5">
+      <span className={`inline-flex items-center gap-1 font-black ${getRatingToneText(rating)}`}>
+        <Star className="h-3 w-3 fill-current" /> {rating.toFixed(2)}
+      </span>
+      {hasDelta && (
+        <span
+          className={`inline-flex items-center text-[11px] font-black ${isUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}
+          title={`${isUp ? 'Higher' : 'Lower'} than Shop Avg`}
+        >
+          <RatingArrow up={isUp} />
+        </span>
+      )}
+    </span>
+  );
+};
 const logReportInfo = (message: string, details: globalThis.Record<string, unknown>) => {
   try {
     if (import.meta.env.DEV && localStorage.getItem('reportVerbose') === '1') {
@@ -132,12 +180,12 @@ const buildUserResolver = (users: OperationUser[]) => {
   return { resolve, resolveKnown, resolveKnownByRoles };
 };
 
-const StatCard: React.FC<{ title: string; value: string; subtitle?: string; icon: React.ReactNode; tone: string }> = ({ title, value, subtitle, icon, tone }) => (
+const StatCard: React.FC<{ title: string; value: string; subtitle?: string; icon: React.ReactNode; tone: string; valueClassName?: string }> = ({ title, value, subtitle, icon, tone, valueClassName }) => (
   <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 shadow-sm">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{title}</p>
-        <p className="mt-2 text-2xl font-bold text-gray-950 dark:text-white truncate">{value}</p>
+        <p className={`mt-2 text-2xl font-bold truncate ${valueClassName || 'text-gray-950 dark:text-white'}`}>{value}</p>
         {subtitle && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">{subtitle}</p>}
       </div>
       <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${tone}`}>{icon}</div>
@@ -316,8 +364,8 @@ const ReportTab: React.FC = () => {
     const shopHealthByKey = new Map<string, { reviewAverage: number | null; reviewCount: number | null; suspended: boolean }>();
     accounts.forEach(account => {
       const health = {
-        reviewAverage: typeof account.etsy_review_average === 'number' ? account.etsy_review_average : null,
-        reviewCount: typeof account.etsy_review_count === 'number' ? account.etsy_review_count : null,
+        reviewAverage: parseFiniteNumber(account.etsy_review_average),
+        reviewCount: parseFiniteNumber(account.etsy_review_count),
         suspended: account.etsy_suspended === true
       };
 
@@ -393,7 +441,7 @@ const ReportTab: React.FC = () => {
 
     const shopRatingsMap = new Map<string, { total: number; count: number }>();
     accounts.forEach(account => {
-      if (typeof account.etsy_review_average !== 'number') return;
+      if (parseFiniteNumber(account.etsy_review_average) === null) return;
       const shop = account.label || account.email || account.id;
       if (!shopRatingsMap.has(shop)) {
         shopRatingsMap.set(shop, { total: 0, count: 0 });
@@ -585,7 +633,7 @@ const ReportTab: React.FC = () => {
         <StatCard title="Top SKU" value={reportData.topSkus[0]?.sku || '-'} subtitle={reportData.topSkus[0] ? `${reportData.topSkus[0].quantity} qty / ${reportData.topSkus[0].orders} orders` : 'Chua co order'} icon={<ClipboardCheck className="h-5 w-5" />} tone="bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300" />
         <StatCard title="Design submit" value={formatNumber(reportData.totalDesigns)} subtitle="Fulfill + Idea board" icon={<FileImage className="h-5 w-5" />} tone="bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300" />
         <StatCard title="Refunded" value={formatNumber(reportData.refundCount)} subtitle="Distinct refunded orders" icon={<AlertTriangle className="h-5 w-5" />} tone="bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300" />
-        <StatCard title="Avg rating" value={reportData.avgRating ? reportData.avgRating.toFixed(2) : '-'} subtitle={`${reportReviews.length} reviews`} icon={<Star className="h-5 w-5 fill-current" />} tone="bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300" />
+        <StatCard title="Avg rating" value={reportData.avgRating ? reportData.avgRating.toFixed(2) : '-'} subtitle={`${reportReviews.length} reviews`} icon={<Star className="h-5 w-5 fill-current" />} tone="bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300" valueClassName={getRatingToneText(reportData.avgRating || null)} />
       </div>
 
       <Section title="Nhip van hanh theo ngay" icon={<BarChart3 className="h-4 w-4 text-blue-600" />}>
@@ -641,11 +689,40 @@ const ReportTab: React.FC = () => {
 
         <Section title="Rating theo shop" description="Range la diem review trong khoang report, Shop Avg la rating toan shop tu extension crawl." icon={<Star className="h-4 w-4 text-amber-600 fill-current" />}>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 mb-4">
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500">Avg all</p><p className="text-xl font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{reportData.avgRating ? reportData.avgRating.toFixed(2) : '-'} {reportData.avgRating ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p></div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Highest Range</p><p className="text-xl font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{reportData.highestRatingShop ? reportData.highestRatingShop.avg.toFixed(2) : '-'} {reportData.highestRatingShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.highestRatingShop?.shop || '-'}</p></div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Lowest Range</p><p className="text-xl font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">{reportData.lowestRatingShop ? reportData.lowestRatingShop.avg.toFixed(2) : '-'} {reportData.lowestRatingShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.lowestRatingShop?.shop || '-'}</p></div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Highest Shop Avg</p><p className="text-xl font-bold text-amber-600 dark:text-amber-400 inline-flex items-center gap-1">{reportData.highestShopAverageShop?.shopReviewAverage ? reportData.highestShopAverageShop.shopReviewAverage.toFixed(2) : '-'} {reportData.highestShopAverageShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.highestShopAverageShop?.shop || '-'}</p></div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500 truncate">Lowest Shop Avg</p><p className="text-xl font-bold text-amber-600 dark:text-amber-400 inline-flex items-center gap-1">{reportData.lowestShopAverageShop?.shopReviewAverage ? reportData.lowestShopAverageShop.shopReviewAverage.toFixed(2) : '-'} {reportData.lowestShopAverageShop ? <Star className="h-4 w-4 text-amber-500 fill-current" /> : null}</p><p className="text-xs text-gray-500 truncate">{reportData.lowestShopAverageShop?.shop || '-'}</p></div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3">
+              <p className="text-xs text-gray-500">Avg all</p>
+              <p className="text-xl font-bold">{renderRatingValue(reportData.avgRating || null)}</p>
+            </div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3">
+              <p className="text-xs text-gray-500 truncate">Highest Range</p>
+              <p className="text-xl font-bold">
+                {renderRatingValue(
+                  reportData.highestRatingShop?.avg ?? null,
+                  reportData.highestRatingShop ? getRatingDelta(reportData.highestRatingShop.avg, reportData.highestRatingShop.shopReviewAverage) : null
+                )}
+              </p>
+              <p className="text-xs text-gray-500 truncate">{reportData.highestRatingShop?.shop || '-'}</p>
+            </div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3">
+              <p className="text-xs text-gray-500 truncate">Lowest Range</p>
+              <p className="text-xl font-bold">
+                {renderRatingValue(
+                  reportData.lowestRatingShop?.avg ?? null,
+                  reportData.lowestRatingShop ? getRatingDelta(reportData.lowestRatingShop.avg, reportData.lowestRatingShop.shopReviewAverage) : null
+                )}
+              </p>
+              <p className="text-xs text-gray-500 truncate">{reportData.lowestRatingShop?.shop || '-'}</p>
+            </div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3">
+              <p className="text-xs text-gray-500 truncate">Highest Shop Avg</p>
+              <p className="text-xl font-bold">{renderRatingValue(reportData.highestShopAverageShop?.shopReviewAverage ?? null)}</p>
+              <p className="text-xs text-gray-500 truncate">{reportData.highestShopAverageShop?.shop || '-'}</p>
+            </div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3">
+              <p className="text-xs text-gray-500 truncate">Lowest Shop Avg</p>
+              <p className="text-xl font-bold">{renderRatingValue(reportData.lowestShopAverageShop?.shopReviewAverage ?? null)}</p>
+              <p className="text-xs text-gray-500 truncate">{reportData.lowestShopAverageShop?.shop || '-'}</p>
+            </div>
           </div>
           <div className="space-y-3">
             {reportData.shopRatings.map(shop => (
@@ -654,8 +731,8 @@ const ReportTab: React.FC = () => {
                 <span className="flex items-center gap-3 flex-shrink-0 text-right">
                   <span>
                     <span className="block text-[10px] uppercase tracking-wide text-gray-400">Range</span>
-                    <span className="font-bold text-gray-900 dark:text-white inline-flex items-center gap-1">
-                      {shop.count > 0 ? shop.avg.toFixed(2) : '-'} {shop.count > 0 ? <Star className="h-3 w-3 text-amber-500 fill-current" /> : null}
+                    <span className="font-bold">
+                      {renderRatingValue(shop.count > 0 ? shop.avg : null, getRatingDelta(shop.count > 0 ? shop.avg : null, shop.shopReviewAverage))}
                     </span>
                     <span className="block text-xs text-gray-500">{formatNumber(shop.count)} reviews</span>
                   </span>
@@ -665,7 +742,7 @@ const ReportTab: React.FC = () => {
                       <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-black uppercase text-red-700 dark:bg-red-900/40 dark:text-red-300">Suspended</span>
                     ) : typeof shop.shopReviewAverage === 'number' ? (
                       <>
-                        <span className="font-bold text-amber-600 dark:text-amber-400 inline-flex items-center gap-1">{shop.shopReviewAverage.toFixed(2)} <Star className="h-3 w-3 text-amber-500 fill-current" /></span>
+                        <span className="font-bold">{renderRatingValue(shop.shopReviewAverage)}</span>
                         <span className="block text-xs text-gray-500">({formatNumber(shop.shopReviewCount || 0)})</span>
                       </>
                     ) : (

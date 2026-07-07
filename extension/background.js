@@ -549,13 +549,15 @@ function buildHealthResult(shop, data) {
     const wasSuspended = shop.suspended === true;
     const isConfirmedState = data.status === 'ok' || data.status === 'suspended';
     const isSuspended = isConfirmedState && Boolean(data.suspended);
+    const reviewAverage = typeof data.reviewAverage === 'number' ? data.reviewAverage : shop.reviewAverage;
+    const reviewCount = typeof data.reviewCount === 'number' ? data.reviewCount : shop.reviewCount;
 
     return {
         id: shop.id,
         label: shop.label,
         selected: shop.selected !== false,
-        reviewAverage: typeof data.reviewAverage === 'number' ? data.reviewAverage : null,
-        reviewCount: typeof data.reviewCount === 'number' ? data.reviewCount : null,
+        reviewAverage: typeof reviewAverage === 'number' ? reviewAverage : null,
+        reviewCount: typeof reviewCount === 'number' ? reviewCount : null,
         status: data.status,
         suspended: Boolean(data.suspended),
         suspendedReason: data.suspendedReason || null,
@@ -578,8 +580,8 @@ async function mergeHealthResultIntoConfig(result) {
         if (String(shop.id) !== String(result.id) && String(shop.label) !== String(result.label)) return shop;
         const nextShop = {
             ...shop,
-            reviewAverage: result.reviewAverage,
-            reviewCount: result.reviewCount,
+            reviewAverage: typeof result.reviewAverage === 'number' ? result.reviewAverage : shop.reviewAverage,
+            reviewCount: typeof result.reviewCount === 'number' ? result.reviewCount : shop.reviewCount,
             healthStatus: result.status,
             healthError: result.error,
             healthCheckedAt: result.checkedAt

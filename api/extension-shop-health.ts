@@ -15,6 +15,15 @@ type ShopHealthResult = {
   checkedAt?: string;
 };
 
+function parseFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value.replace(/,/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function normalizePlatforms(value: unknown): string[] {
   return Array.isArray(value)
     ? value.map(platform => String(platform).trim().toLowerCase()).filter(Boolean)
@@ -169,13 +178,16 @@ async function handleSaveHealth(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ success: false, message: 'This account is not marked as an Etsy account.' });
   }
 
+  const parsedReviewAverage = parseFiniteNumber(result.reviewAverage);
+  const parsedReviewCount = parseFiniteNumber(result.reviewCount);
   const payload: Record<string, unknown> = {
-    etsy_review_average: typeof result.reviewAverage === 'number' ? result.reviewAverage : null,
-    etsy_review_count: typeof result.reviewCount === 'number' ? result.reviewCount : null,
     etsy_health_status: result.status || null,
     etsy_health_error: result.error || null,
     etsy_health_checked_at: result.checkedAt || new Date().toISOString(),
   };
+
+  if (parsedReviewAverage !== null) payload.etsy_review_average = parsedReviewAverage;
+  if (parsedReviewCount !== null) payload.etsy_review_count = parsedReviewCount;
   let larkSuspendAlert: { shopLabel: string; reason: string | null } | null = null;
 
   if (result.status === 'ok' || result.status === 'suspended') {
@@ -390,8 +402,8 @@ async function getTeamShops(teamId: string, userProfile: Awaited<ReturnType<type
         email: data.email || null,
         platforms,
         selected: true,
-        reviewAverage: typeof data.etsy_review_average === 'number' ? data.etsy_review_average : null,
-        reviewCount: typeof data.etsy_review_count === 'number' ? data.etsy_review_count : null,
+        reviewAverage: parseFiniteNumber(data.etsy_review_average),
+        reviewCount: parseFiniteNumber(data.etsy_review_count),
         suspended: data.etsy_suspended === true,
         suspendedReason: data.etsy_suspended_reason || null,
         newlySuspended: data.etsy_newly_suspended === true,
