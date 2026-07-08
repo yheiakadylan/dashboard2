@@ -2,6 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getAuth } from 'firebase-admin/auth';
 import { getDb, initFirebaseAdmin } from './_lib/firebaseAdminHelper.js';
 import { sendLarkShopHealthAlert } from './_lib/larkHelper.js';
+import { createNotificationDocument } from './_lib/notificationHelper.js';
+import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
 
 const SUSPENDED_NOT_FOUND_REASON = 'Etsy reviews page returned not found.';
 
@@ -62,6 +64,17 @@ function normalizePlatforms(value: unknown): string[] {
 
 function supportsEtsy(platforms: string[]): boolean {
   return platforms.includes('etsy');
+}
+
+function createNotificationDeepLink(notificationId: string): string {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app';
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set('notification', notificationId);
+    return url.toString();
+  } catch {
+    return `${baseUrl}?notification=${encodeURIComponent(notificationId)}`;
+  }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -280,6 +293,38 @@ async function handleSaveHealth(req: VercelRequest, res: VercelResponse) {
 
     if ((isConfirmedSuspension || isConfirmedRecovery) && isSuspended !== wasSuspended) {
       payload.etsy_suspension_status_changed_at = checkedAt;
+
+      const shopLabel = accountData.label || accountData.shopName || accountData.email || result.id || 'Unknown Shop';
+      const type = isConfirmedSuspension ? 'suspended' : 'recovered';
+      const messageText = isConfirmedSuspension
+        ? `Etsy warning: 1 newly suspended shop: ${shopLabel}`
+        : `Etsy warning: Shop ${shopLabel} has been recovered!`;
+
+      const notificationId = await createNotificationDocument({
+        teamId,
+        type: 'CASE_HELP',
+        title: isConfirmedSuspension ? 'Etsy Shop Health Warning' : 'Etsy Shop Health Recovered',
+        content: messageText,
+        metadata: {
+          subject: isConfirmedSuspension ? 'Suspended Etsy Shop Detected' : 'Etsy Shop Recovered',
+          message: isConfirmedSuspension
+            ? `The following Etsy shop is reported as suspended or failed check:\n\n- ${shopLabel}: ${SUSPENDED_NOT_FOUND_REASON}`
+            : `The following Etsy shop is now active and recovered:\n\n- ${shopLabel}: Recovered`,
+          priority: isConfirmedSuspension ? 'High' : 'Normal',
+          shopName: shopLabel,
+          shopHealthStatus: type,
+          shopHealthAccountId: String(result.id || ''),
+          shopHealthCheckedAt: checkedAt
+        }
+      });
+
+      await sendPushNotificationToUsers(teamId, isConfirmedSuspension ? 'case' : 'help', {
+        title: isConfirmedSuspension ? 'Etsy Shop Health Warning' : 'Etsy Shop Health Recovered',
+        body: messageText,
+        url: createNotificationDeepLink(notificationId)
+      });
+
+      console.log(`[API ShopHealth] Successfully saved notification document for shop ${shopLabel} (${type})`);
     }
   }
 

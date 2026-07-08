@@ -20,8 +20,7 @@ import LoginNotificationHandler from './features/auth/components/LoginNotificati
 import ConnectedDashboardProvider from './contexts/ConnectedDashboardProvider';
 import MainContent from './components/layout/MainContent';
 import ErrorBoundary from './components/ui/ErrorBoundary';
-import { getMessagingInstance, db } from './services/firebaseService';
-import { collection, addDoc } from 'firebase/firestore';
+import { getMessagingInstance } from './services/firebaseService';
 import { onMessage } from 'firebase/messaging';
 import CommandPalette from './components/ui/CommandPalette';
 
@@ -44,33 +43,6 @@ const FullPageLoadingFallback = () => (
         <Spinner size="xl" />
     </div>
 );
-
-const normalizeShopKey = (value: unknown) => String(value || '').trim().toLowerCase();
-const SHOP_HEALTH_NOTIFIED_STORAGE_KEY = 'etsy_shop_health_notified_suspend_keys';
-
-const getStoredShopHealthNotifiedKeys = () => {
-    try {
-        const raw = localStorage.getItem(SHOP_HEALTH_NOTIFIED_STORAGE_KEY);
-        const parsed = raw ? JSON.parse(raw) : [];
-        return new Set<string>(Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === 'string') : []);
-    } catch {
-        return new Set<string>();
-    }
-};
-
-const saveStoredShopHealthNotifiedKeys = (keys: Set<string>) => {
-    try {
-        localStorage.setItem(SHOP_HEALTH_NOTIFIED_STORAGE_KEY, JSON.stringify(Array.from(keys)));
-    } catch {
-        // Best-effort only. The Firestore notification is still saved below.
-    }
-};
-
-const getShopHealthNotificationKey = (shop: any) =>
-    [
-        normalizeShopKey(shop?.id) || normalizeShopKey(shop?.email) || normalizeShopKey(shop?.label),
-        normalizeShopKey(shop?.suspendedSince) || normalizeShopKey(shop?.suspensionStatusChangedAt) || 'current'
-    ].filter(Boolean).join(':');
 
 const DashboardLayout: React.FC = () => {
     const {
@@ -112,17 +84,6 @@ const DashboardLayout: React.FC = () => {
         });
         return map;
     }, [accounts]);
-    const permittedShopKeys = useMemo(() => {
-        const keys = new Set<string>();
-        accounts.forEach(account => {
-            [account.id, account.email, account.label]
-                .map(normalizeShopKey)
-                .filter(Boolean)
-                .forEach(key => keys.add(key));
-        });
-        return keys;
-    }, [accounts]);
-
     // Pull-to-refresh for mobile
     const { isPulling, isRefreshing, pullDistance, pullProgress, touchHandlers } = usePullToRefresh({
         onRefresh: async () => {
@@ -240,12 +201,16 @@ const DashboardLayout: React.FC = () => {
                     console.log('[FCM] Foreground message received:', payload);
 
                     const { notification, data } = payload;
-                    if (!notification) return;
+                    const title = notification?.title || data?.title || 'New Notification';
+                    const body = notification?.body || data?.body || '';
+                    if (!title && !body) return;
+
+                    let shownBrowserNotification = false;
 
                     // Show browser notification
                     if ('Notification' in window && Notification.permission === 'granted') {
-                        const notif = new Notification(notification.title || 'New Notification', {
-                            body: notification.body || '',
+                        const notif = new Notification(title, {
+                            body,
                             icon: '/icon-192x192.png',
                             badge: '/icon-192x192.png',
                             tag: data?.type || 'notification',
@@ -263,10 +228,14 @@ const DashboardLayout: React.FC = () => {
                                 window.location.href = data.url;
                             }
                         };
+
+                        shownBrowserNotification = true;
                     }
 
-                    // Also show in-app notification via NotificationContext
-                    addNotification(notification.body || notification.title || 'New notification', 'info');
+                    // Fallback for browsers/devices where browser notifications are unavailable or disabled.
+                    if (!shownBrowserNotification) {
+                        addNotification(body || title, 'info');
+                    }
                 });
 
             } catch (error) {
@@ -286,69 +255,6 @@ const DashboardLayout: React.FC = () => {
     }, [addNotification]);
 
 
-
-    useEffect(() => {
-        const handleExtensionShopHealthMessage = (event: MessageEvent) => {
-            const data = event.data;
-            if (!data || data.type !== 'EXTENSION_SHOP_HEALTH_COMPLETE') return;
-
-            const suspendedShops = Array.isArray(data.suspendedShops) ? data.suspendedShops : [];
-            const canSeeShop = (shop: any) => {
-                const keys = [shop?.id, shop?.email, shop?.label].map(normalizeShopKey).filter(Boolean);
-                return keys.some(key => permittedShopKeys.has(key));
-            };
-            const visibleSuspendedShops = suspendedShops.filter(canSeeShop);
-
-            if (visibleSuspendedShops.length === 0) return;
-
-            const notifiedKeys = getStoredShopHealthNotifiedKeys();
-            const shopsToNotify = visibleSuspendedShops.filter((shop: any) => {
-                if (shop?.newlySuspended !== true) return false;
-                const key = getShopHealthNotificationKey(shop);
-                return key && !notifiedKeys.has(key);
-            });
-
-            if (shopsToNotify.length === 0) return;
-
-            shopsToNotify.forEach((shop: any) => {
-                const key = getShopHealthNotificationKey(shop);
-                if (key) notifiedKeys.add(key);
-            });
-            saveStoredShopHealthNotifiedKeys(notifiedKeys);
-
-            const shopNames = shopsToNotify
-                .map((shop: any) => shop?.label || shop?.email || shop?.id)
-                .filter(Boolean)
-                .slice(0, 5);
-            const moreCount = Math.max(0, shopsToNotify.length - shopNames.length);
-            const suffix = moreCount > 0 ? ` +${moreCount} more` : '';
-
-            const messageText = `Etsy warning: ${shopsToNotify.length} newly suspended shop(s): ${shopNames.join(', ')}${suffix}`;
-
-            addNotification(messageText, 'warning');
-
-            if (teamId) {
-                const notifRef = collection(db, 'user', teamId, 'notifications');
-                addDoc(notifRef, {
-                    type: 'CASE_HELP',
-                    title: 'Etsy Shop Health Warning',
-                    content: messageText,
-                    metadata: {
-                        subject: 'Suspended Etsy Shop(s) Detected',
-                        message: `The following Etsy shop(s) are reported as suspended or failed check:\n\n` +
-                            shopsToNotify.map((shop: any) => `- ${shop.label || shop.email || shop.id}: ${shop.suspendedReason || 'Suspended'}`).join('\n'),
-                        shopHealthKeys: shopsToNotify.map(getShopHealthNotificationKey).filter(Boolean),
-                        priority: 'High'
-                    },
-                    isRead: false,
-                    createdAt: new Date().toISOString()
-                }).catch(err => console.error('Failed to save shop health notification to Firestore:', err));
-            }
-        };
-
-        window.addEventListener('message', handleExtensionShopHealthMessage);
-        return () => window.removeEventListener('message', handleExtensionShopHealthMessage);
-    }, [addNotification, permittedShopKeys, teamId]);
 
     const visibleTabs = React.useMemo(
         () => getPermittedTabs(tabOrder, role, permissions).filter(tab => !hiddenTabs.has(tab)),

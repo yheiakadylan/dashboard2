@@ -118,6 +118,7 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                             content: data.content,
                             metadata: data.metadata || {},
                             isRead: data.isRead || false,
+                            deletedBy: Array.isArray(data.deletedBy) ? data.deletedBy : [],
                             createdAt: data.createdAt,
                         };
 
@@ -276,6 +277,9 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
      */
     const markAsRead = useCallback(
         async (id: string) => {
+            const notification = notifications.find(n => n.id === id);
+            if (notification && notification.isRead) return;
+
             // Update local state immediately
             setNotifications((prev) =>
                 prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
@@ -291,15 +295,32 @@ export function useNotificationCenter(options: UseNotificationCenterOptions = {}
                 }
             }
         },
-        [teamId, enableFirestoreSync]
+        [teamId, enableFirestoreSync, notifications]
     );
 
     /**
     * Mark all notifications as read
     */
-    const markAllAsRead = useCallback(() => {
+    const markAllAsRead = useCallback(async () => {
+        const unreadFirestoreIds = notifications
+            .filter(n => !n.isRead && !n.id.startsWith('notif_'))
+            .map(n => n.id);
+
         setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-    }, []);
+
+        if (!teamId || !enableFirestoreSync || unreadFirestoreIds.length === 0) {
+            return;
+        }
+
+        try {
+            await Promise.all(unreadFirestoreIds.map(id => {
+                const notifRef = doc(db, 'user', teamId, 'notifications', id);
+                return updateDoc(notifRef, { isRead: true });
+            }));
+        } catch (error) {
+            console.error('[NotificationCenter] Failed to mark all as read in Firestore:', error);
+        }
+    }, [teamId, enableFirestoreSync, notifications]);
 
     /**
      * Clear all notifications (deletes from both localStorage and Firestore)

@@ -33,6 +33,9 @@ export interface NotificationMetadata {
     message?: string;
     shopName?: string;
     shopHealthKeys?: string[];
+    shopHealthStatus?: 'suspended' | 'recovered';
+    shopHealthAccountId?: string;
+    shopHealthCheckedAt?: string;
 
     // SUMMARY metadata
     summary_data?: {
