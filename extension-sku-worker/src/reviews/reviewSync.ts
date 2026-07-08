@@ -1,6 +1,6 @@
 import type { Firestore } from 'firebase/firestore';
-import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, writeBatch } from 'firebase/firestore';
-import { discoverCurrentEtsyShop, fetchEtsyReviews, type EtsyReviewApiDeps } from './etsyReviewApi';
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { discoverCurrentEtsyShop, fetchEtsyReviews, isValidEtsyShopId, type EtsyReviewApiDeps } from './etsyReviewApi';
 import { cleanEtsyReview } from './reviewCleaner';
 import type { CleanedEtsyReview, EtsyReviewShopConfig, LatestSavedReviewMarker, ReviewSyncResult } from './types';
 
@@ -9,6 +9,7 @@ export const ETSY_REVIEW_ALARM = 'etsy_review_cron';
 const DEFAULT_REVIEW_SYNC_HOURS = [8, 12];
 const VIETNAM_UTC_OFFSET_MS = 7 * 60 * 60 * 1000;
 const REVIEW_SYNC_LOOKBACK_SECONDS = 24 * 60 * 60;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export interface EtsyReviewSyncDeps extends EtsyReviewApiDeps {
     db: Firestore;
@@ -65,7 +66,123 @@ function maskWebhookUrl(webhookUrl: string): string {
     return webhookUrl.replace(/\/hook\/[^/?#]+/i, '/hook/***');
 }
 
+function cleanText(value: unknown): string {
+    return String(value || '').trim();
+}
+
+function normalizeKey(value: unknown): string {
+    return cleanText(value).toLowerCase();
+}
+
+function isEmailLike(value: unknown): boolean {
+    return EMAIL_PATTERN.test(cleanText(value));
+}
+
+function pickPreferredShopName(shop: Partial<EtsyReviewShopConfig> & Record<string, any>, fallback?: string): string {
+    const preferred = [
+        shop.label,
+        shop.etsyShopName,
+        shop.etsy_shop_name,
+        shop.name,
+        shop.shopLabel,
+        shop.displayName,
+        shop.shopName
+    ].map(cleanText).filter(Boolean);
+
+    const nonEmail = preferred.find(value => !isEmailLike(value));
+    if (nonEmail) return nonEmail;
+
+    const fallbackText = cleanText(fallback);
+    if (fallbackText && !isEmailLike(fallbackText)) return fallbackText;
+
+    return preferred[0]
+        || fallbackText
+        || cleanText(shop.email)
+        || cleanText(shop.shopId);
+}
+
 export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
+    async function persistDiscoveredShopId(shop: EtsyReviewShopConfig): Promise<void> {
+        if (!isValidEtsyShopId(shop.shopId)) return;
+
+        const storage = (await chrome.storage.local.get(['teamId', 'account', 'accountLabel'])) as {
+            teamId?: string;
+            account?: string;
+            accountLabel?: string;
+        };
+        if (!storage.teamId) return;
+
+        const accountsRef = collection(deps.db, 'user', storage.teamId, 'accounts');
+        const candidates = Array.from(new Set([
+            cleanText(storage.account).toLowerCase(),
+            cleanText(storage.account),
+            cleanText(storage.accountLabel),
+            cleanText(shop.shopName),
+        ].filter(Boolean)));
+
+        let accountDocId = '';
+        for (const candidate of candidates) {
+            const directDoc = await getDoc(doc(accountsRef, candidate));
+            if (directDoc.exists()) {
+                accountDocId = directDoc.id;
+                break;
+            }
+        }
+
+        for (const candidate of candidates) {
+            if (accountDocId) break;
+            for (const field of ['email', 'label', 'name', 'shopName']) {
+                const snap = await getDocs(query(accountsRef, where(field, '==', candidate), limit(1)));
+                if (!snap.empty) {
+                    accountDocId = snap.docs[0].id;
+                    break;
+                }
+            }
+            if (accountDocId) break;
+        }
+
+        if (!accountDocId) {
+            console.warn(`[Reviews] Discovered Etsy shop_id=${shop.shopId}, but could not match current account to persist it.`);
+            return;
+        }
+
+        await updateDoc(doc(deps.db, 'user', storage.teamId, 'accounts', accountDocId), {
+            etsy_shop_id: shop.shopId,
+            etsyShopId: shop.shopId,
+            etsyShopName: shop.shopName || null,
+            updated_at: new Date().toISOString()
+        });
+    }
+
+    async function resolveReviewShopDisplayName(review: CleanedEtsyReview): Promise<string> {
+        const storage = (await chrome.storage.local.get(['account', 'accountLabel', 'etsy_review_shops'])) as {
+            account?: string;
+            accountLabel?: string;
+            etsy_review_shops?: EtsyReviewShopConfig[];
+        };
+
+        const reviewShop = cleanText(review.shop_id);
+        const reviewShopKey = normalizeKey(reviewShop);
+        const configuredShops = Array.isArray(storage.etsy_review_shops) ? storage.etsy_review_shops : [];
+        const matchedShop = configuredShops.find(shop => [
+            shop.shopId,
+            shop.shopName,
+            shop.label,
+            shop.email,
+            shop.name,
+            shop.etsyShopName
+        ].some(value => normalizeKey(value) === reviewShopKey));
+
+        const matchedName = matchedShop ? pickPreferredShopName(matchedShop) : '';
+        const accountLabel = cleanText(storage.accountLabel);
+        const account = cleanText(storage.account);
+
+        if (matchedName && !isEmailLike(matchedName)) return matchedName;
+        if (accountLabel && !isEmailLike(accountLabel)) return accountLabel;
+        if (reviewShop && !isEmailLike(reviewShop)) return reviewShop;
+        return matchedName || reviewShop || accountLabel || account || 'Unknown Shop';
+    }
+
     async function triggerBadReviewWebhook(review: CleanedEtsyReview) {
         const storage = await chrome.storage.local.get(['review_webhook_urls', 'review_webhook_url', 'LARK_WEBHOOK_URL']);
         const webhookUrls = Array.from(new Set([
@@ -85,7 +202,8 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
         console.log(`[Reviews] Sending bad review alert to ${webhookUrls.length} webhook(s). review=${review.transaction_id || 'unknown'} shop=${review.shop_id} rating=${review.rating}`);
 
         const ratingStars = '⭐'.repeat(review.rating || 0);
-        let content = `**Shop**: **${review.shop_id}**\n**Đánh giá**: ${review.rating} ${ratingStars}\n**Khách hàng**: ${review.buyer_name || 'N/A'} (${review.buyer_login_name || 'N/A'})\n**Sản phẩm**: [${review.listing_title}](https://www.etsy.com/listing/${review.listing_id})\n**Nội dung**: *"${review.review || 'Không có nội dung'}"*`;
+        const shopDisplayName = await resolveReviewShopDisplayName(review);
+        let content = `**Shop**: **${shopDisplayName}**\n**Đánh giá**: ${review.rating} ${ratingStars}\n**Khách hàng**: ${review.buyer_name || 'N/A'} (${review.buyer_login_name || 'N/A'})\n**Sản phẩm**: [${review.listing_title}](https://www.etsy.com/listing/${review.listing_id})\n**Nội dung**: *"${review.review || 'Không có nội dung'}"*`;
 
         if (review.review_photo_detailed?.url_fullxfull) {
             content += `\n**Ảnh đính kèm**: [Xem ảnh khách chụp](${review.review_photo_detailed.url_fullxfull})`;
@@ -177,39 +295,58 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
     }
 
     async function resolveShopName(shopId: string): Promise<string> {
-        const { account, etsy_review_shops } = (await chrome.storage.local.get(['account', 'etsy_review_shops'])) as { account?: string; etsy_review_shops?: EtsyReviewShopConfig[] };
+        const { account, accountLabel, etsy_review_shops } = (await chrome.storage.local.get(['account', 'accountLabel', 'etsy_review_shops'])) as { account?: string; accountLabel?: string; etsy_review_shops?: EtsyReviewShopConfig[] };
         const configured = Array.isArray(etsy_review_shops) ? etsy_review_shops.find(shop => String(shop.shopId) === String(shopId)) : null;
-        return configured?.shopName || account || String(shopId);
+        return configured ? pickPreferredShopName(configured, accountLabel || account || String(shopId)) : (accountLabel || account || String(shopId));
     }
 
     async function resolveReviewShopInput(shopId: string, shopName?: string): Promise<EtsyReviewShopConfig> {
-        if (shopId) {
+        if (isValidEtsyShopId(shopId)) {
             return { shopId: String(shopId), shopName: shopName || await resolveShopName(shopId) };
         }
 
         const discoveredShop = await discoverCurrentEtsyShop(deps);
         if (!discoveredShop?.shopId) throw new Error('Missing shopId for review back-fill and cannot discover current Etsy shop.');
 
-        const { account } = (await chrome.storage.local.get(['account'])) as { account?: string };
-        return {
+        const { account, accountLabel } = (await chrome.storage.local.get(['account', 'accountLabel'])) as { account?: string; accountLabel?: string };
+        const resolvedShop = {
             shopId: String(discoveredShop.shopId),
-            shopName: shopName || account || discoveredShop.shopName || String(discoveredShop.shopId)
+            shopName: shopName || accountLabel || account || discoveredShop.shopName || String(discoveredShop.shopId)
         };
+        await persistDiscoveredShopId(resolvedShop).catch(error => console.warn('[Reviews] Failed to persist discovered Etsy shop_id:', error));
+        await chrome.storage.local.set({ etsy_review_shops: [resolvedShop] });
+        return resolvedShop;
     }
 
     async function getConfiguredReviewShops(): Promise<EtsyReviewShopConfig[]> {
         const storage = (await chrome.storage.local.get(['etsy_review_shops'])) as { etsy_review_shops?: EtsyReviewShopConfig[] };
+        let validConfiguredShops: EtsyReviewShopConfig[] = [];
         if (Array.isArray(storage.etsy_review_shops) && storage.etsy_review_shops.length > 0) {
-            return storage.etsy_review_shops
-                .filter(shop => shop?.shopId)
-                .map(shop => ({ shopId: String(shop.shopId), shopName: String(shop.shopName || shop.shopId) }));
+            validConfiguredShops = storage.etsy_review_shops
+                .filter(shop => isValidEtsyShopId(shop?.shopId))
+                .map(shop => ({
+                    ...shop,
+                    shopId: String(shop.shopId),
+                    shopName: pickPreferredShopName(shop, String(shop.shopId))
+                }));
+
+            const hasInvalidConfiguredShop = storage.etsy_review_shops.some(shop => !isValidEtsyShopId(shop?.shopId));
+            if (!hasInvalidConfiguredShop && validConfiguredShops.length > 0) return validConfiguredShops;
+            console.warn('[Reviews] Missing or invalid Etsy shop_id in stored review shop config. Discovering current Etsy shop instead.');
         }
 
         const currentShop = await discoverCurrentEtsyShop(deps);
-        if (!currentShop) return [];
+        if (!currentShop) return validConfiguredShops;
 
-        const { account } = (await chrome.storage.local.get(['account'])) as { account?: string };
-        return [{ ...currentShop, shopName: account || currentShop.shopName }];
+        const { account, accountLabel } = (await chrome.storage.local.get(['account', 'accountLabel'])) as { account?: string; accountLabel?: string };
+        const resolvedShop = { ...currentShop, shopName: accountLabel || account || currentShop.shopName };
+        await persistDiscoveredShopId(resolvedShop).catch(error => console.warn('[Reviews] Failed to persist discovered Etsy shop_id:', error));
+        const mergedShops = [
+            ...validConfiguredShops.filter(shop => String(shop.shopId) !== String(resolvedShop.shopId)),
+            resolvedShop
+        ];
+        await chrome.storage.local.set({ etsy_review_shops: mergedShops });
+        return mergedShops;
     }
 
     async function backFillEtsyReviews(shopId: string, shopName?: string, minDateStr?: string): Promise<ReviewSyncResult> {

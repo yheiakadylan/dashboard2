@@ -1,12 +1,26 @@
 import type { EtsyReviewShopConfig, FetchEtsyReviewsOptions } from './types';
 import { normalizeReviewPayload } from './reviewCleaner';
 
+const MAX_ETSY_SHOP_ID = 2147483647;
+
 export interface EtsyReviewApiDeps {
     markEtsyLoggedOut: () => void;
     setRateLimitUntil: (timestamp: number) => void;
 }
 
+export function isValidEtsyShopId(value: unknown): boolean {
+    const text = String(value || '').trim();
+    if (!/^\d+$/.test(text)) return false;
+
+    const numericValue = Number(text);
+    return Number.isSafeInteger(numericValue) && numericValue > 0 && numericValue <= MAX_ETSY_SHOP_ID;
+}
+
 export async function fetchEtsyReviews(deps: EtsyReviewApiDeps, shopId: string, options: FetchEtsyReviewsOptions = {}): Promise<any[]> {
+    if (!isValidEtsyShopId(shopId)) {
+        throw new Error(`Invalid Etsy shop id for reviews API: ${shopId}`);
+    }
+
     const params = new URLSearchParams();
     if (options.limit) params.set('limit', String(options.limit));
     if (options.offset !== undefined) params.set('offset', String(options.offset));

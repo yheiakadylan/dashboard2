@@ -1,8 +1,13 @@
 /// <reference types="chrome" />
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, setPersistence, indexedDBLocalPersistence, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, query, where, doc, updateDoc, deleteDoc, getDocs, runTransaction } from 'firebase/firestore';
+import { getFirestore, collection, query, where, doc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { createEtsyReviewSync, ETSY_REVIEW_ALARM } from './reviews/reviewSync';
+
+const DEFAULT_APP_URL = 'https://dashboardvikcom.vercel.app';
+const EXTENSION_API_PATH = '/api/extension-shop-health';
+const TASK_ENRICHMENT_API_URL = 'https://vikcomltd.xyz/api/tasks/update-with-reuse';
+const INVALID_SKU_VALUES = new Set(['', 'NULL']);
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -54,6 +59,16 @@ interface FetchSKUResult {
     extractedItems: ExtractedItem[] | string;
     customerFiles: string[];
     shippingPhone?: string;
+}
+
+interface TaskSyncPayload {
+    taskId: string;
+    sku: string;
+    variant1?: string;
+    variant2?: string;
+    customerFiles: string[];
+    listingId?: string;
+    transactionId?: string;
 }
 
 
@@ -318,45 +333,27 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 async function processRemoteWorkerCommand(teamId: string, command: any): Promise<{ started?: boolean; skipped?: boolean }> {
     if (!teamId || !command?.id) throw new Error('Missing remote worker command id.');
 
-    const commandRef = doc(db, 'user', teamId, 'worker_commands', String(command.id));
-    const storage = await chrome.storage.local.get(['account']);
-    const workerAccount = String(storage.account || '');
+    const isAuthenticated = await ensureAuth();
+    if (!isAuthenticated) throw new Error('Cannot authenticate Firebase for remote command.');
 
-    const claimedCommand = await runTransaction(db, async (transaction) => {
-        const snap = await transaction.get(commandRef);
-        if (!snap.exists()) return null;
-
-        const data = snap.data() as any;
-        if (data.status !== 'pending' || data.target !== 'reviews') return null;
-
-        transaction.update(commandRef, {
-            status: 'running',
-            claimed_at: new Date().toISOString(),
-            claimed_by: workerAccount || 'sku-worker',
-            updated_at: new Date().toISOString()
-        });
-
-        return data;
-    });
+    const claimedCommand = await claimRemoteCommandViaApi(teamId, String(command.id), 'reviews');
 
     if (!claimedCommand) return { skipped: true };
 
-    executeRemoteReviewCommand(teamId, String(command.id), claimedCommand)
+    executeRemoteReviewCommand(teamId, String(claimedCommand.id || command.id), claimedCommand)
         .catch(error => console.error('[Reviews] Remote command failed:', error));
 
     return { started: true };
 }
 
 async function executeRemoteReviewCommand(teamId: string, commandId: string, command: any): Promise<void> {
-    const commandRef = doc(db, 'user', teamId, 'worker_commands', commandId);
-
     try {
         const payload = command.payload || {};
         let result: any = null;
 
         if (command.command === 'crawl_recent_reviews') {
             const shops = normalizeReviewShops(payload.shops);
-            if (shops.length > 0) {
+            if (Array.isArray(payload.shops)) {
                 await chrome.storage.local.set({ etsy_review_shops: shops });
             }
             result = await runReviewTask(() => etsyReviewSync.crawlRecent25Reviews());
@@ -368,33 +365,103 @@ async function executeRemoteReviewCommand(teamId: string, commandId: string, com
             throw new Error(`Unsupported review command: ${command.command || 'unknown'}`);
         }
 
-        await updateDoc(commandRef, {
-            status: 'success',
-            result: result || null,
-            finished_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        });
+        await completeRemoteCommandViaApi(teamId, commandId, 'success', result || null);
     } catch (error: any) {
-        await updateDoc(commandRef, {
-            status: 'error',
-            error: String(error?.message || error),
-            finished_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        });
+        await completeRemoteCommandViaApi(teamId, commandId, 'error', null, String(error?.message || error));
         throw error;
     }
 }
 
-function normalizeReviewShops(rawShops: any): Array<{ shopId: string; shopName: string }> {
-    if (!Array.isArray(rawShops)) return [];
-    return rawShops
-        .map((shop: any) => ({
-            shopId: String(shop?.shopId || shop?.etsy_shop_id || shop?.id || '').trim(),
-            shopName: String(shop?.shopName || shop?.label || shop?.name || shop?.email || shop?.shopId || '').trim()
-        }))
-        .filter(shop => shop.shopId && shop.shopName);
+async function getExtensionApiUrl(): Promise<string> {
+    const storage = await chrome.storage.local.get(['appUrl']);
+    return String(storage.appUrl || DEFAULT_APP_URL).replace(/\/$/, '') + EXTENSION_API_PATH;
 }
 
+async function callExtensionApi(body: Record<string, any>): Promise<any> {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) throw new Error('Missing Firebase auth token for extension API.');
+
+    const response = await fetch(await getExtensionApiUrl(), {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(body)
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.success === false) {
+        throw new Error(data?.message || `Extension API failed with HTTP ${response.status}`);
+    }
+    return data;
+}
+
+async function claimRemoteCommandViaApi(teamId: string, commandId: string, target: 'reviews' | 'health'): Promise<any | null> {
+    const data = await callExtensionApi({
+        action: 'claim-command',
+        teamId,
+        target,
+        commandId
+    });
+    return data?.command || null;
+}
+
+async function completeRemoteCommandViaApi(teamId: string, commandId: string, status: 'success' | 'error', result?: any, error?: string): Promise<void> {
+    await callExtensionApi({
+        action: 'complete-command',
+        teamId,
+        commandId,
+        status,
+        result: result || null,
+        error: error || null
+    });
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_ETSY_SHOP_ID = 2147483647;
+
+function isValidEtsyReviewShopId(value: unknown): boolean {
+    const text = String(value || '').trim();
+    if (!/^\d+$/.test(text)) return false;
+
+    const numericValue = Number(text);
+    return Number.isSafeInteger(numericValue) && numericValue > 0 && numericValue <= MAX_ETSY_SHOP_ID;
+}
+
+function pickReviewShopName(shop: any): string {
+    const preferred = [
+        shop?.label,
+        shop?.etsyShopName,
+        shop?.etsy_shop_name,
+        shop?.name,
+        shop?.shopLabel,
+        shop?.displayName,
+        shop?.shopName
+    ].map(value => String(value || '').trim()).filter(Boolean);
+    return preferred.find(value => !EMAIL_PATTERN.test(value))
+        || preferred[0]
+        || String(shop?.email || shop?.shopId || '').trim();
+}
+
+function normalizeReviewShops(rawShops: any): Array<{ shopId: string; shopName: string; label?: string | null; email?: string | null; name?: string | null; etsyShopName?: string | null }> {
+    if (!Array.isArray(rawShops)) return [];
+    return rawShops
+        .map((shop: any) => {
+            const shopId = [shop?.shopId, shop?.etsy_shop_id, shop?.etsyShopId]
+                .map(value => String(value || '').trim())
+                .find(isValidEtsyReviewShopId) || '';
+            return {
+                shopId,
+                shopName: pickReviewShopName(shop),
+                label: shop?.label || null,
+                email: shop?.email || null,
+                name: shop?.name || null,
+                etsyShopName: shop?.etsyShopName || shop?.etsy_shop_name || null
+            };
+        })
+        .filter(shop => shop.shopName);
+}
 function normalizeReviewCronHours(rawHours: any): number[] {
     if (!Array.isArray(rawHours)) return [];
     return Array.from(new Set(rawHours
@@ -437,6 +504,91 @@ function startReviewTask(action: string, task: () => Promise<any>): boolean {
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function normalizeSkuValue(value: unknown): string {
+    const normalized = String(value || '').trim();
+    return INVALID_SKU_VALUES.has(normalized.toUpperCase()) ? '' : normalized;
+}
+
+function normalizeCustomerFiles(value: unknown): string[] {
+    return Array.isArray(value)
+        ? value.map(file => String(file || '').trim()).filter(Boolean)
+        : [];
+}
+
+function variationValuesFromItem(item: Partial<ExtractedItem> | Record<string, any> | undefined): string[] {
+    if (!item) return [];
+
+    if (Array.isArray(item.variations)) {
+        return item.variations
+            .map((variation: any) => String(variation?.value || variation || '').trim())
+            .filter(Boolean);
+    }
+
+    const values = [
+        (item as any).variant1 || (item as any).variant,
+        (item as any).variant2
+    ];
+    return values.map(value => String(value || '').trim()).filter(Boolean);
+}
+
+function buildTaskSyncPayloads(
+    orderId: string,
+    extractedItems: ExtractedItem[],
+    recordItems: any[],
+    skuString: string,
+    globalCustomerFiles: string[]
+): TaskSyncPayload[] {
+    const itemCount = Math.max(extractedItems.length, recordItems.length, normalizeSkuValue(skuString) ? 1 : 0);
+    if (itemCount === 0) return [];
+
+    const payloads: TaskSyncPayload[] = [];
+
+    for (let index = 0; index < itemCount; index++) {
+        const extractedItem = extractedItems[index];
+        const recordItem = recordItems[index] || {};
+        const taskId = itemCount > 1 ? `${orderId}-${index + 1}` : orderId;
+        const fallbackOrderSku = itemCount === 1 ? skuString : '';
+        const sku = normalizeSkuValue(extractedItem?.sku)
+            || normalizeSkuValue(recordItem.sku)
+            || normalizeSkuValue(fallbackOrderSku);
+
+        if (!sku) continue;
+
+        const extractedFiles = normalizeCustomerFiles(extractedItem?.customerFiles);
+        const recordFiles = normalizeCustomerFiles(recordItem.customerFiles);
+        const variations = variationValuesFromItem(extractedItem).length > 0
+            ? variationValuesFromItem(extractedItem)
+            : variationValuesFromItem(recordItem);
+        const listingId = String(extractedItem?.listingId || recordItem.listingId || '').trim();
+        const transactionId = String(extractedItem?.transaction_id || recordItem.transactionId || '').trim();
+
+        payloads.push({
+            taskId,
+            sku,
+            variant1: variations[0] || '',
+            variant2: variations[1] || '',
+            customerFiles: extractedFiles.length > 0 ? extractedFiles : (globalCustomerFiles.length > 0 ? globalCustomerFiles : recordFiles),
+            listingId: listingId || undefined,
+            transactionId: transactionId || undefined
+        });
+    }
+
+    return payloads;
+}
+
+async function syncTaskViaCentralApi(payload: TaskSyncPayload): Promise<void> {
+    const response = await fetch(TASK_ENRICHMENT_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new Error(`Enrichment API returned ${response.status} for task ${payload.taskId}${body ? `: ${body.slice(0, 300)}` : ''}`);
+    }
 }
 
 async function processQueue(teamId: string) {
@@ -496,181 +648,65 @@ async function processQueue(teamId: string) {
                 continue;
             }
 
-            // Central API for Enrichment & Auto-Reuse
-            const enrichmentApiUrl = 'https://vikcomltd.vercel.app/api/tasks/update-with-reuse';
+            const isObj = typeof skuResult === 'object' && skuResult !== null && !Array.isArray(skuResult);
+            const resultObj = isObj ? (skuResult as FetchSKUResult) : null;
+            const extractedItemsArray: ExtractedItem[] | string = resultObj ? resultObj.extractedItems : (skuResult as ExtractedItem[] | string);
+            const extractedItems = Array.isArray(extractedItemsArray) ? extractedItemsArray : [];
+            const globalCustomerFiles = resultObj ? normalizeCustomerFiles(resultObj.customerFiles) : [];
+            const shippingPhone = resultObj?.shippingPhone ? String(resultObj.shippingPhone).trim() : '';
+            const skuString = Array.isArray(extractedItemsArray)
+                ? extractedItemsArray.map(i => normalizeSkuValue(i.sku)).filter(Boolean).join(', ')
+                : normalizeSkuValue(extractedItemsArray);
+
+            const recordsRef = collection(db, 'user', teamId, 'records');
+            const qRecords = query(recordsRef, where('order_id', '==', job.order_id), where('source', '==', 'Etsy_Sales'));
+            const snap = await getDocs(qRecords);
+            const primaryRecord = snap.docs.find(recordDoc => Array.isArray(recordDoc.data()?.details?.items));
+            const recordItems = primaryRecord ? (primaryRecord.data().details.items || []) : [];
 
             if (skuResult !== "NULL") {
-                try {
-                    const isObj = typeof skuResult === 'object' && skuResult !== null && !Array.isArray(skuResult);
-                    const resultObj = isObj ? (skuResult as FetchSKUResult) : null;
-                    const extractedItemsArray: ExtractedItem[] | string = resultObj ? resultObj.extractedItems : (skuResult as ExtractedItem[] | string);
-                    const globalCustomerFiles: string[] = resultObj ? (resultObj.customerFiles || []) : [];
-                    const shippingPhone = resultObj?.shippingPhone ? String(resultObj.shippingPhone).trim() : '';
-
-                    const skuString = Array.isArray(extractedItemsArray) ? extractedItemsArray.map(i => i.sku).join(', ') : String(extractedItemsArray);
-
-                    // 1. Update internal records (Marketing/Ads data)
-                    const recordsRef = collection(db, 'user', teamId, 'records');
-                    const qRecords = query(recordsRef, where('order_id', '==', job.order_id), where('source', '==', 'Etsy_Sales'));
-                    const snap = await getDocs(qRecords);
-
-                    for (const recordDoc of snap.docs) {
-                        const data = recordDoc.data();
-                        if (data.details && data.details.items) {
-                            const newItems = data.details.items.map((item: any, idx: number) => {
-                                if (Array.isArray(extractedItemsArray) && extractedItemsArray[idx]) {
-                                    const extItem = extractedItemsArray[idx];
-                                    return {
-                                        ...item,
-                                        sku: extItem.sku,
-                                        ...(extItem.customerFiles && extItem.customerFiles.length > 0 ? { customerFiles: extItem.customerFiles } : {}),
-                                        ...(extItem.listingId ? { listingId: extItem.listingId } : {})
-                                    };
-                                }
-                                return { ...item, sku: skuString, ...(globalCustomerFiles.length > 0 ? { customerFiles: globalCustomerFiles } : {}) };
-                            });
-                            const recordUpdate: any = { 'details.items': newItems };
-                            if (shippingPhone && data.details?.shippingAddress) {
-                                recordUpdate['details.shippingAddress.phone'] = shippingPhone;
+                for (const recordDoc of snap.docs) {
+                    const data = recordDoc.data();
+                    if (data.details && Array.isArray(data.details.items)) {
+                        const newItems = data.details.items.map((item: any, idx: number) => {
+                            const extItem = extractedItems[idx];
+                            if (extItem) {
+                                return {
+                                    ...item,
+                                    sku: normalizeSkuValue(extItem.sku) || normalizeSkuValue(item.sku),
+                                    ...(extItem.customerFiles && extItem.customerFiles.length > 0 ? { customerFiles: normalizeCustomerFiles(extItem.customerFiles) } : {}),
+                                    ...(extItem.listingId ? { listingId: extItem.listingId } : {}),
+                                    ...(extItem.transaction_id ? { transactionId: extItem.transaction_id } : {})
+                                };
                             }
-                            await updateDoc(doc(db, 'user', teamId, 'records', recordDoc.id), recordUpdate);
+                            return {
+                                ...item,
+                                sku: normalizeSkuValue(item.sku) || skuString,
+                                ...(globalCustomerFiles.length > 0 ? { customerFiles: globalCustomerFiles } : {})
+                            };
+                        });
+                        const recordUpdate: any = { 'details.items': newItems };
+                        if (shippingPhone && data.details?.shippingAddress) {
+                            recordUpdate['details.shippingAddress.phone'] = shippingPhone;
                         }
+                        await updateDoc(doc(db, 'user', teamId, 'records', recordDoc.id), recordUpdate);
                     }
-
-                    // 2. Enrich tasks via Central API
-                    const tasksRef = collection(db, 'tasks');
-                    const qTasks = query(tasksRef, where('orderId', '==', job.order_id));
-                    const taskSnap = await getDocs(qTasks);
-                    const tasks = taskSnap.docs.map(d => ({ id: d.id, ...d.data() as any }));
-
-                    if (tasks.length > 0) {
-                        const extractedItems = Array.isArray(extractedItemsArray) ? extractedItemsArray : [];
-
-                        for (const task of tasks) {
-                            // Only enrich draft/new tasks
-                            if (task.status !== 'draft' && task.status !== 'new') continue;
-
-                            let taskSku = skuString;
-                            let taskCustomerFiles: string[] = [];
-                            let taskListingId = "";
-                            let matchedTransactionId = "";
-                            const v1 = task.variant1;
-                            const v2 = task.variant2;
-                            let matchedItem: ExtractedItem | null = null;
-
-                            const existingTaskTransactionId = task.transactionId ? String(task.transactionId) : "";
-                            if (existingTaskTransactionId) {
-                                matchedItem = extractedItems.find(ext => String(ext.transaction_id || "") === existingTaskTransactionId) || null;
-                            }
-
-                            if (!matchedItem && extractedItems.length > 0) {
-                                const taskId = String(task.id || "");
-                                const orderIdText = String(job.order_id);
-                                if (taskId === orderIdText) {
-                                    matchedItem = extractedItems[0] || null;
-                                } else if (taskId.startsWith(`${orderIdText}-`)) {
-                                    const itemNumber = Number(taskId.slice(orderIdText.length + 1));
-                                    if (Number.isInteger(itemNumber) && itemNumber > 0) {
-                                        matchedItem = extractedItems[itemNumber - 1] || null;
-                                    }
-                                }
-                            }
-
-                            if (matchedItem) {
-                                taskSku = matchedItem.sku;
-                                if (matchedItem.customerFiles && matchedItem.customerFiles.length > 0) taskCustomerFiles = matchedItem.customerFiles;
-                                if (matchedItem.listingId) taskListingId = String(matchedItem.listingId);
-                                if (matchedItem.transaction_id) matchedTransactionId = String(matchedItem.transaction_id);
-                            } else if (extractedItems.length > 1) {
-                                // Fuzzy match: score by title prefix + variant overlap
-                                let maxScore = -1;
-                                let bestMatch: ExtractedItem | null = null;
-                                for (const ext of extractedItems) {
-                                    let score = 0;
-                                    if (task.title && ext.title && ext.title.toLowerCase().includes(task.title.toLowerCase().substring(0, 10))) score += 10;
-                                    const taskVars = [(task.variant1 || "").toLowerCase(), (task.variant2 || "").toLowerCase()].filter(Boolean);
-                                    if (Array.isArray(ext.variations)) {
-                                        const extVars = ext.variations.map((v: { value?: string }) => (v.value || "").toLowerCase()).filter(Boolean);
-                                        const matches = taskVars.filter((tv: string) => extVars.some((ev: string) => ev.includes(tv) || tv.includes(ev)));
-                                        score += matches.length * 50;
-                                    }
-                                    if (score > maxScore) {
-                                        maxScore = score;
-                                        bestMatch = ext;
-                                    }
-                                }
-                                if (bestMatch) {
-                                    taskSku = bestMatch.sku;
-                                    if (bestMatch.customerFiles && bestMatch.customerFiles.length > 0) taskCustomerFiles = bestMatch.customerFiles;
-                                    if (bestMatch.listingId) taskListingId = String(bestMatch.listingId);
-                                    if (bestMatch.transaction_id) matchedTransactionId = String(bestMatch.transaction_id);
-                                }
-                            } else if (extractedItems.length === 1) {
-                                taskSku = extractedItems[0].sku;
-                                if (extractedItems[0].customerFiles && extractedItems[0].customerFiles.length > 0) {
-                                    taskCustomerFiles = extractedItems[0].customerFiles;
-                                } else if (globalCustomerFiles && globalCustomerFiles.length > 0) {
-                                    taskCustomerFiles = globalCustomerFiles;
-                                }
-                                if (extractedItems[0].listingId) taskListingId = String(extractedItems[0].listingId);
-                                if (extractedItems[0].transaction_id) matchedTransactionId = String(extractedItems[0].transaction_id);
-                            }
-
-                            // Write customerFiles & listingId directly to Firestore first
-                            const updateData: any = {};
-                            if (taskCustomerFiles && taskCustomerFiles.length > 0) updateData.customerFiles = taskCustomerFiles;
-                            if (taskListingId) updateData.listingId = taskListingId;
-                            if (matchedTransactionId) updateData.transactionId = matchedTransactionId;
-                            if (shippingPhone) updateData['shippingAddress.phone'] = shippingPhone;
-
-                            if (Object.keys(updateData).length > 0) {
-                                try {
-                                    await updateDoc(doc(db, 'tasks', task.id), updateData);
-                                } catch (e) {
-                                    console.error(`[Worker] Failed to update task ${task.id}:`, e);
-                                }
-                            }
-
-                            // Call Central Enrichment API (handles SKU + auto-reuse)
-                            try {
-                                const apiRes = await fetch(enrichmentApiUrl, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        taskId: task.id,
-                                        sku: taskSku,
-                                        variant1: v1,
-                                        variant2: v2,
-                                        customerFiles: taskCustomerFiles,
-                                        listingId: taskListingId,
-                                        transactionId: matchedTransactionId
-                                    })
-                                });
-                                if (!apiRes.ok) {
-                                    console.warn(`[Worker] Enrichment API returned ${apiRes.status} for task ${task.id}`);
-                                }
-                            } catch (apiErr) {
-                                console.error(`[Worker] Enrichment API failed for task ${task.id}:`, apiErr);
-                                // Fallback: direct Firestore update without auto-reuse
-                                await updateDoc(doc(db, 'tasks', task.id), {
-                                    sku: taskSku,
-                                    ...(taskListingId ? { listingId: taskListingId } : {}),
-                                    ...(matchedTransactionId ? { transactionId: matchedTransactionId } : {}),
-                                    ...(taskCustomerFiles.length > 0 ? { customerFiles: taskCustomerFiles } : {}),
-                                    ...(shippingPhone ? { 'shippingAddress.phone': shippingPhone } : {}),
-                                    updatedAt: new Date().toISOString()
-                                });
-                            }
-                        }
-                    }
-
-                    await deleteDoc(jobRef); 
-                } catch (innerErr) {
-                    console.error("[Worker] Inner processing error:", innerErr);
                 }
-            } else {
-                await deleteDoc(jobRef); // SKU NULL nhưng đã xử lý xong, xóa luôn
             }
+
+            const taskPayloads = buildTaskSyncPayloads(
+                String(job.order_id),
+                extractedItems,
+                recordItems,
+                skuString,
+                globalCustomerFiles
+            );
+
+            for (const payload of taskPayloads) {
+                await syncTaskViaCentralApi(payload);
+            }
+
+            await deleteDoc(jobRef);
 
         } catch (error) {
             console.error('[Worker] Job error:', error);

@@ -22,6 +22,10 @@ export interface CleanedEtsyReview {
 export interface EtsyReviewShopConfig {
     shopId: string;
     shopName: string;
+    label?: string | null;
+    email?: string | null;
+    name?: string | null;
+    etsyShopName?: string | null;
 }
 
 export interface FetchEtsyReviewsOptions {

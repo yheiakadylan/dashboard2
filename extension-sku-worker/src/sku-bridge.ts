@@ -101,13 +101,27 @@ function readEtsyReviewShops(teamId: string): any[] {
     const accounts = JSON.parse(accountsStr);
     if (!Array.isArray(accounts)) return [];
 
+    const isValidEtsyShopId = (value: any) => {
+      const text = String(value || '').trim();
+      if (!/^\d+$/.test(text)) return false;
+      const numericValue = Number(text);
+      return Number.isSafeInteger(numericValue) && numericValue > 0 && numericValue <= 2147483647;
+    };
+    const pickEtsyShopId = (acc: any) => [acc.etsy_shop_id, acc.etsyShopId, acc.shopId]
+      .map(value => String(value || '').trim())
+      .find(isValidEtsyShopId) || '';
+
     return accounts
       .filter((acc: any) => Array.isArray(acc.platforms) && acc.platforms.includes('etsy'))
       .map((acc: any) => ({
-        shopId: acc.etsy_shop_id || acc.etsyShopId || acc.shopId || acc.id,
-        shopName: acc.label || acc.shopName || acc.name || acc.email || acc.id
+        shopId: pickEtsyShopId(acc),
+        shopName: acc.label || acc.shopName || acc.name || acc.email || acc.id,
+        label: acc.label || null,
+        email: acc.email || null,
+        name: acc.name || null,
+        etsyShopName: acc.etsyShopName || acc.etsy_shop_name || null
       }))
-      .filter((shop: any) => shop.shopId && shop.shopName);
+      .filter((shop: any) => shop.shopName);
   } catch (e) {
     console.error('[SKU Bridge] Failed to parse accounts from localStorage:', e);
     return [];
@@ -142,6 +156,7 @@ setInterval(() => {
 
     const update: any = {
       teamId: config.teamId,
+      appUrl: config.appUrl || null,
       etsy_review_shops: etsyReviewShops,
       [SYNC_KEY]: newHash
     };

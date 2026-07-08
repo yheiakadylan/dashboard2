@@ -15,6 +15,20 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+function pickValidEtsyShopId(accountData: any): string {
+    const ids = [accountData.etsy_shop_id, accountData.etsyShopId, accountData.shopId];
+    for (const id of ids) {
+        const text = String(id || '').trim();
+        if (!/^\d+$/.test(text)) continue;
+
+        const numericValue = Number(text);
+        if (Number.isSafeInteger(numericValue) && numericValue > 0 && numericValue <= 2147483647) {
+            return text;
+        }
+    }
+    return '';
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     const teamIdInput = document.getElementById('teamId') as HTMLInputElement;
     const accountInput = document.getElementById('account') as HTMLInputElement;
@@ -66,7 +80,25 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             // Lưu cấu hình
-            await chrome.storage.local.set({ teamId, account, dbEmail, dbPassword });
+            const accountData = accountDoc.data() as any;
+            const shopId = pickValidEtsyShopId(accountData);
+            const shopLabel = accountData.label || accountData.shopName || accountData.name || accountData.etsyShopName || accountData.email || account;
+
+            await chrome.storage.local.set({
+                teamId,
+                account,
+                accountLabel: shopLabel,
+                dbEmail,
+                dbPassword,
+                etsy_review_shops: [{
+                    shopId,
+                    shopName: shopLabel,
+                    label: accountData.label || shopLabel,
+                    email: accountData.email || account,
+                    name: accountData.name || null,
+                    etsyShopName: accountData.etsyShopName || accountData.etsy_shop_name || null
+                }]
+            });
 
             statusMsg.textContent = 'Xác thực thành công! Đang khởi động worker...';
             statusMsg.className = 'status success';

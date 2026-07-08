@@ -41,6 +41,20 @@ const parseDateValue = (value: any): Date | null => {
   return null;
 };
 
+const pickValidEtsyShopId = (account: any): string => {
+  const ids = [account.etsy_shop_id, account.etsyShopId, account.shopId];
+  for (const id of ids) {
+    const text = String(id || "").trim();
+    if (!/^\d+$/.test(text)) continue;
+
+    const numericValue = Number(text);
+    if (Number.isSafeInteger(numericValue) && numericValue > 0 && numericValue <= 2147483647) {
+      return text;
+    }
+  }
+  return "";
+};
+
 const WorkerStatusManager: React.FC = () => {
   const { accounts, teamId } = useDashboard();
   const { addNotification } = useNotification();
@@ -77,11 +91,15 @@ const WorkerStatusManager: React.FC = () => {
       .map((acc) => {
         const raw = acc as any;
         return {
-          shopId: raw.etsy_shop_id || raw.etsyShopId || raw.shopId || acc.id,
+          shopId: pickValidEtsyShopId(raw),
           shopName: acc.label || raw.shopName || acc.email || acc.id,
+          label: acc.label || null,
+          email: acc.email || null,
+          name: raw.name || null,
+          etsyShopName: raw.etsyShopName || raw.etsy_shop_name || null,
         };
       })
-      .filter((shop) => shop.shopId && shop.shopName);
+      .filter((shop) => shop.shopName);
   }, [accounts]);
 
   const handleRunHealthCheck = useCallback(async () => {
