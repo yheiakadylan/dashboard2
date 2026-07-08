@@ -40,6 +40,7 @@ export interface OrderDetails {
     state: string;
     zip: string;
     country: string;
+    phone?: string;
   };
   items: OrderItem[];
   financials?: {

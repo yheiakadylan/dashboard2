@@ -48,18 +48,41 @@ function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error || 'Unknown error');
 }
 
+function splitWebhookUrls(value: unknown): string[] {
+    if (!value) return [];
+    if (Array.isArray(value)) {
+        return value.flatMap(item => splitWebhookUrls(item));
+    }
+    if (typeof value !== 'string') return [];
+
+    return value
+        .split(/[\s,]+/)
+        .map(url => url.trim())
+        .filter(url => /^https:\/\/open\.larksuite\.com\/open-apis\/bot\/v2\/hook\//i.test(url));
+}
+
+function maskWebhookUrl(webhookUrl: string): string {
+    return webhookUrl.replace(/\/hook\/[^/?#]+/i, '/hook/***');
+}
+
 export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
     async function triggerBadReviewWebhook(review: CleanedEtsyReview) {
-        const storage = await chrome.storage.local.get(['review_webhook_url', 'LARK_WEBHOOK_URL']);
-        const webhookUrl = (import.meta.env as any).VITE_REVIEW_WEBHOOK_URL || storage.review_webhook_url || storage.LARK_WEBHOOK_URL;
+        const storage = await chrome.storage.local.get(['review_webhook_urls', 'review_webhook_url', 'LARK_WEBHOOK_URL']);
+        const webhookUrls = Array.from(new Set([
+            ...splitWebhookUrls((import.meta.env as any).VITE_REVIEW_WEBHOOK_URLS),
+            ...splitWebhookUrls((import.meta.env as any).VITE_REVIEW_WEBHOOK_URL),
+            ...splitWebhookUrls((import.meta.env as any).VITE_REVIEW_WEBHOOK_URL_2),
+            ...splitWebhookUrls(storage.review_webhook_urls),
+            ...splitWebhookUrls(storage.review_webhook_url),
+            ...splitWebhookUrls(storage.LARK_WEBHOOK_URL)
+        ]));
 
-        if (!webhookUrl) {
+        if (webhookUrls.length === 0) {
             console.warn(`[Reviews] Bad review alert skipped: webhook URL is not configured. review=${review.transaction_id || 'unknown'} shop=${review.shop_id}`);
             return;
         }
 
-        const maskedWebhook = String(webhookUrl).replace(/\/hook\/[^/?#]+/i, '/hook/***');
-        console.log(`[Reviews] Sending bad review alert. webhook=${maskedWebhook} review=${review.transaction_id || 'unknown'} shop=${review.shop_id} rating=${review.rating}`);
+        console.log(`[Reviews] Sending bad review alert to ${webhookUrls.length} webhook(s). review=${review.transaction_id || 'unknown'} shop=${review.shop_id} rating=${review.rating}`);
 
         const ratingStars = '⭐'.repeat(review.rating || 0);
         let content = `**Shop**: **${review.shop_id}**\n**Đánh giá**: ${review.rating} ${ratingStars}\n**Khách hàng**: ${review.buyer_name || 'N/A'} (${review.buyer_login_name || 'N/A'})\n**Sản phẩm**: [${review.listing_title}](https://www.etsy.com/listing/${review.listing_id})\n**Nội dung**: *"${review.review || 'Không có nội dung'}"*`;
@@ -88,19 +111,21 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
             ]
         };
 
-        try {
-            const resp = await fetch(webhookUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ msg_type: 'interactive', card })
-            });
-            const responseText = await resp.text().catch(() => '');
-            console.log(`[Reviews] Bad review webhook response: ${resp.status} ${responseText.slice(0, 300)}`);
-            if (!resp.ok) {
-                console.error(`[Reviews] Bad review webhook failed. status=${resp.status} body=${responseText.slice(0, 500)}`);
+        for (const webhookUrl of webhookUrls) {
+            try {
+                const resp = await fetch(webhookUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ msg_type: 'interactive', card })
+                });
+                const responseText = await resp.text().catch(() => '');
+                console.log(`[Reviews] Bad review webhook response: webhook=${maskWebhookUrl(webhookUrl)} status=${resp.status} ${responseText.slice(0, 300)}`);
+                if (!resp.ok) {
+                    console.error(`[Reviews] Bad review webhook failed. webhook=${maskWebhookUrl(webhookUrl)} status=${resp.status} body=${responseText.slice(0, 500)}`);
+                }
+            } catch (e) {
+                console.error(`[Reviews] Error calling bad review webhook. webhook=${maskWebhookUrl(webhookUrl)}`, e);
             }
-        } catch (e) {
-            console.error('[Reviews] Error calling bad review webhook:', e);
         }
     }
 

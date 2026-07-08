@@ -4,6 +4,7 @@ import { resolve } from 'path';
 import obfuscator from 'rollup-plugin-javascript-obfuscator';
 
 export default defineConfig({
+  envDir: resolve(__dirname, '..'),
   plugins: [
     obfuscator({
       compact: true,

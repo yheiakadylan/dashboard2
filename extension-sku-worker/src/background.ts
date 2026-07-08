@@ -53,6 +53,7 @@ interface ExtractedItem {
 interface FetchSKUResult {
     extractedItems: ExtractedItem[] | string;
     customerFiles: string[];
+    shippingPhone?: string;
 }
 
 
@@ -358,11 +359,11 @@ async function executeRemoteReviewCommand(teamId: string, commandId: string, com
             if (shops.length > 0) {
                 await chrome.storage.local.set({ etsy_review_shops: shops });
             }
-            result = await runReviewTask('recent_25', () => etsyReviewSync.crawlRecent25Reviews());
+            result = await runReviewTask(() => etsyReviewSync.crawlRecent25Reviews());
         } else if (command.command === 'set_review_cron_hours') {
             result = await applyReviewCronHours(payload.hours);
         } else if (command.command === 'run_review_sync') {
-            result = await runReviewTask('cron', () => etsyReviewSync.runEtsyReviewCronJob());
+            result = await runReviewTask(() => etsyReviewSync.runEtsyReviewCronJob());
         } else {
             throw new Error(`Unsupported review command: ${command.command || 'unknown'}`);
         }
@@ -411,7 +412,7 @@ async function applyReviewCronHours(rawHours: any): Promise<{ hours: number[]; n
     return { hours, nextRunAt };
 }
 
-function runReviewTask(action: string, task: () => Promise<any>): Promise<any> {
+function runReviewTask(task: () => Promise<any>): Promise<any> {
     if (isReviewSyncProcessing) {
         return Promise.reject(new Error('Review worker is already running.'));
     }
@@ -428,7 +429,7 @@ function startReviewTask(action: string, task: () => Promise<any>): boolean {
         return false;
     }
 
-    runReviewTask(action, task)
+    runReviewTask(task)
         .catch((err: any) => console.error(`[Reviews] ${action} task failed:`, err))
 
     return true;
@@ -504,6 +505,7 @@ async function processQueue(teamId: string) {
                     const resultObj = isObj ? (skuResult as FetchSKUResult) : null;
                     const extractedItemsArray: ExtractedItem[] | string = resultObj ? resultObj.extractedItems : (skuResult as ExtractedItem[] | string);
                     const globalCustomerFiles: string[] = resultObj ? (resultObj.customerFiles || []) : [];
+                    const shippingPhone = resultObj?.shippingPhone ? String(resultObj.shippingPhone).trim() : '';
 
                     const skuString = Array.isArray(extractedItemsArray) ? extractedItemsArray.map(i => i.sku).join(', ') : String(extractedItemsArray);
 
@@ -527,9 +529,11 @@ async function processQueue(teamId: string) {
                                 }
                                 return { ...item, sku: skuString, ...(globalCustomerFiles.length > 0 ? { customerFiles: globalCustomerFiles } : {}) };
                             });
-                            await updateDoc(doc(db, 'user', teamId, 'records', recordDoc.id), {
-                                'details.items': newItems
-                            });
+                            const recordUpdate: any = { 'details.items': newItems };
+                            if (shippingPhone && data.details?.shippingAddress) {
+                                recordUpdate['details.shippingAddress.phone'] = shippingPhone;
+                            }
+                            await updateDoc(doc(db, 'user', teamId, 'records', recordDoc.id), recordUpdate);
                         }
                     }
 
@@ -617,6 +621,7 @@ async function processQueue(teamId: string) {
                             if (taskCustomerFiles && taskCustomerFiles.length > 0) updateData.customerFiles = taskCustomerFiles;
                             if (taskListingId) updateData.listingId = taskListingId;
                             if (matchedTransactionId) updateData.transactionId = matchedTransactionId;
+                            if (shippingPhone) updateData['shippingAddress.phone'] = shippingPhone;
 
                             if (Object.keys(updateData).length > 0) {
                                 try {
@@ -652,6 +657,7 @@ async function processQueue(teamId: string) {
                                     ...(taskListingId ? { listingId: taskListingId } : {}),
                                     ...(matchedTransactionId ? { transactionId: matchedTransactionId } : {}),
                                     ...(taskCustomerFiles.length > 0 ? { customerFiles: taskCustomerFiles } : {}),
+                                    ...(shippingPhone ? { 'shippingAddress.phone': shippingPhone } : {}),
                                     updatedAt: new Date().toISOString()
                                 });
                             }
@@ -699,10 +705,11 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
     let extractedItems: ExtractedItem[] | string = "NULL";
     let shopId = "";
     let csrfToken = "";
+    let shippingPhone = "";
 
     // 1. Fetch Etsy sold orders page to get SKU JSON, shop_id, and csrf_token
     try {
-        const searchResponse = await fetch(`https://www.etsy.com/your/orders/sold/new?search_query=${orderId}`, {
+        const searchResponse = await fetch(`https://www.etsy.com/your/orders/sold?search_query=${orderId}`, {
             headers: {
                 'Accept': 'text/html',
                 'Accept-Language': 'en-US,en;q=0.9',
@@ -744,6 +751,8 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
                         if (!shopId && currentOrder.shop_id) {
                             shopId = String(currentOrder.shop_id);
                         }
+
+                        shippingPhone = extractShippingPhone(currentOrder);
 
                         const transactions = currentOrder.transactions || [];
                         for (const tx of transactions) {
@@ -869,6 +878,32 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
 
     return {
         extractedItems,
-        customerFiles
+        customerFiles,
+        ...(shippingPhone ? { shippingPhone } : {})
     };
+}
+
+function extractShippingPhone(order: any): string {
+    const candidates = [
+        order?.fulfillment?.to_address?.phone,
+        order?.fulfillment?.verified_address?.suggested_address?.phone,
+        order?.to_address?.phone,
+        order?.shipping_address?.phone,
+        order?.shippingAddress?.phone,
+        order?.buyer?.phone,
+    ];
+
+    for (const value of candidates) {
+        const phone = normalizePhone(value);
+        if (phone) return phone;
+    }
+
+    return "";
+}
+
+function normalizePhone(value: unknown): string {
+    if (typeof value !== 'string' && typeof value !== 'number') return "";
+    const phone = String(value).trim();
+    if (!phone) return "";
+    return phone;
 }

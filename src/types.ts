@@ -61,6 +61,7 @@ export interface OrderDetails {
     state: string;
     zip: string;
     country: string;
+    phone?: string;
   };
   items: OrderItem[];
   financials?: {
@@ -145,7 +146,7 @@ export interface CostData {
   product_name?: string;
 }
 
-export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill' | 'Reviews' | 'Report';
+export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill' | 'Reviews' | 'Report' | 'Email';
 export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%

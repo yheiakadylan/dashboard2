@@ -424,7 +424,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         firstName,
         lastName,
         email: customerEmail || '',
-        phone: '',
+        phone: shippingAddress.phone || '',
         address1: shippingAddress.address1,
         address2: shippingAddress.address2 || '',
         city: shippingAddress.city,

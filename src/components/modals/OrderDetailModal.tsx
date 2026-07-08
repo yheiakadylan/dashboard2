@@ -360,6 +360,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                 {shippingAddress.address2 && <p>{shippingAddress.address2}</p>}
                 <p>{shippingAddress.city}, {shippingAddress.state} {shippingAddress.zip}</p>
                 <p className="font-medium">{shippingAddress.country}</p>
+                {shippingAddress.phone && <p>Phone: {shippingAddress.phone}</p>}
               </div>
             </div>
           </div>
