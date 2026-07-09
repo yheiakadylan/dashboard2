@@ -7,6 +7,8 @@ import { addSkuJob, listenToSkuJob } from '../../services/skuQueueService';
 import { listenToRecord } from '../../services/firebaseService';
 import { useNotification } from '../../contexts/NotificationContext';
 
+const SKU_FETCH_TIMEOUT_MS = 120_000;
+
 interface OrderDetailModalProps {
   record: Record;
   onClose: () => void;
@@ -38,6 +40,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
   const [isResyncing, setIsResyncing] = useState(false);
   const [isConfirmingResync, setIsConfirmingResync] = useState(false);
   const [skuJobStatus, setSkuJobStatus] = useState<any>(null);
+  const [skuJobResultSku, setSkuJobResultSku] = useState<string | null>(null);
   const [isFetchingSku, setIsFetchingSku] = useState(false);
   const [localFetchedSku, setLocalFetchedSku] = useState<string | null>(null);
   // Live record driven by Firestore onSnapshot — reflects SKU + listing_id updates in real-time
@@ -67,17 +70,20 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
         const newSkus = updated.details?.items?.map((i: OrderItem) => i.sku).filter(Boolean);
         if (newSkus && newSkus.length > 0 && newSkus.some((s: string | undefined) => s && s !== 'NULL')) {
           setLocalFetchedSku(newSkus[0] ?? null);
+          setIsFetchingSku(false);
+          clearFetchTimeout();
         }
       }
     });
     return () => unsubscribe();
-  }, [record.id, teamId]);
+  }, [clearFetchTimeout, record.id, teamId]);
 
 
   React.useEffect(() => {
     if (record.source === 'Etsy_Sales' && record.order_id && teamId) {
       const unsubscribe = listenToSkuJob(teamId, record.order_id, (job) => {
         setSkuJobStatus(job.status);
+        setSkuJobResultSku(job.sku || null);
 
         if (job.status === 'completed' || job.status === 'failed') {
           setIsFetchingSku(false);
@@ -101,9 +107,9 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
           if (!fetchTimeoutRef.current) {
             fetchTimeoutRef.current = setTimeout(() => {
               setIsFetchingSku(false);
-              addNotification(`Request timed out. Please check if extension is active for this shop.`, 'warning');
+              addNotification(`SKU fetch is still waiting in the extension queue. If it stays pending, check that the extension is active and logged in to Etsy.`, 'warning');
               fetchTimeoutRef.current = null;
-            }, 15000);
+            }, SKU_FETCH_TIMEOUT_MS);
           }
         }
 
@@ -119,6 +125,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
   const handleFetchSKU = async () => {
     if (!record.order_id || !record.account || !teamId) return;
     setIsFetchingSku(true);
+    setSkuJobResultSku(null);
     clearFetchTimeout(); // Clear any existing timeout before starting new one
 
     try {
@@ -216,6 +223,28 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
     [account, accounts]
   );
   const shopName = matchedAccount?.label || account;
+
+  const renderSkuStatus = (sku?: string | null) => {
+    const cleanSku = String(sku || '').trim();
+    const isNullSku = cleanSku.toUpperCase() === 'NULL';
+    const shouldShowNull = isNullSku || (skuJobStatus === 'completed' && skuJobResultSku === 'NULL');
+
+    if (cleanSku && !isNullSku) {
+      return (
+        <p className="text-xs mt-0.5 font-semibold text-green-600 dark:text-green-400">
+          SKU: {cleanSku}
+        </p>
+      );
+    }
+
+    if (!shouldShowNull) return null;
+
+    return (
+      <p className="text-xs mt-0.5 font-semibold text-red-500 dark:text-red-400">
+        SKU: NULL
+      </p>
+    );
+  };
 
   const formattedDate = React.useMemo(
     () => new Intl.DateTimeFormat('en-US', {
@@ -387,11 +416,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-white break-words">{item.name}</p>
-                      {item.sku && (
-                        <p className={`text-xs mt-0.5 font-semibold ${item.sku === 'NULL' ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                          SKU: {item.sku}
-                        </p>
-                      )}
+                      {renderSkuStatus(item.sku)}
                       {item.variant && (
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 whitespace-pre-wrap">{item.variant}</p>
                       )}
@@ -500,11 +525,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ record, onClose, on
                           )}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-gray-900 dark:text-white break-words">{item.name}</p>
-                            {item.sku && (
-                              <p className={`text-xs mt-0.5 font-semibold ${item.sku === 'NULL' ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                                SKU: {item.sku}
-                              </p>
-                            )}
+                            {renderSkuStatus(item.sku)}
                             {item.variant && (
                               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 whitespace-pre-wrap">{item.variant}</p>
                             )}

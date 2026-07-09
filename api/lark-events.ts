@@ -553,6 +553,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           account: account,
           status: 'pending',
           priority: true,
+          sku: '',
+          error: '',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }, { merge: true });

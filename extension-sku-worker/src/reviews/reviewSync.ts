@@ -383,7 +383,7 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
                     if (minCreated && createTime < minCreated) {
                         shouldStop = true;
                     } else {
-                        const cleaned = cleanEtsyReview(raw, resolvedShop.shopName);
+                        const cleaned = cleanEtsyReview(raw, resolvedShop.shopName, resolvedShop.shopId);
                         if (cleaned) cleanedReviews.push(cleaned);
                     }
                 });
@@ -439,7 +439,7 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
 
                     totalFetched += page.length;
                     page.forEach(raw => {
-                        const cleaned = cleanEtsyReview(raw, shop.shopName);
+                        const cleaned = cleanEtsyReview(raw, shop.shopName, shop.shopId);
                         if (cleaned) cleanedReviews.push(cleaned);
                     });
 
@@ -509,7 +509,7 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
         return nextRunAt;
     }
 
-    async function getLatestSavedReviewMarker(shopName: string): Promise<LatestSavedReviewMarker> {
+    async function getLatestSavedReviewMarker(shop: EtsyReviewShopConfig): Promise<LatestSavedReviewMarker> {
         const { teamId } = (await chrome.storage.local.get(['teamId'])) as { teamId?: string };
         if (!teamId) return {};
 
@@ -517,21 +517,42 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
         if (!isAuthenticated) return {};
 
         const reviewsRef = collection(deps.db, 'user', teamId, 'reviews');
-        const latestQuery = query(reviewsRef, where('shop_id', '==', shopName), orderBy('create_date', 'desc'), limit(1));
-        const snap = await getDocs(latestQuery);
-        if (snap.empty) return {};
+        const candidates = Array.from(new Set([
+            cleanText(shop.shopId),
+            cleanText(shop.shopName),
+            cleanText(shop.label),
+            cleanText(shop.email),
+            cleanText(shop.name),
+            cleanText(shop.etsyShopName)
+        ].filter(Boolean)));
+        let latestDoc: { id: string; data: () => any } | null = null;
 
-        const latest = snap.docs[0].data() as any;
+        for (const candidate of candidates) {
+            const latestQuery = query(reviewsRef, where('shop_id', '==', candidate), orderBy('create_date', 'desc'), limit(1));
+            const snap = await getDocs(latestQuery);
+            if (snap.empty) continue;
+
+            const docSnap = snap.docs[0];
+            const currentMs = Date.parse(String(docSnap.data()?.create_date || ''));
+            const latestMs = latestDoc ? Date.parse(String(latestDoc.data()?.create_date || '')) : NaN;
+            if (!latestDoc || (Number.isFinite(currentMs) && (!Number.isFinite(latestMs) || currentMs > latestMs))) {
+                latestDoc = docSnap;
+            }
+        }
+
+        if (!latestDoc) return {};
+
+        const latest = latestDoc.data() as any;
         const createMs = latest.create_date ? Date.parse(String(latest.create_date)) : undefined;
         return {
-            transactionId: latest.transaction_id ? String(latest.transaction_id) : snap.docs[0].id,
+            transactionId: latest.transaction_id ? String(latest.transaction_id) : latestDoc.id,
             createDate: latest.create_date ? String(latest.create_date) : undefined,
             createMs: Number.isFinite(createMs) ? createMs : undefined
         };
     }
 
     async function syncReviewsUntilLatestSaved(shop: EtsyReviewShopConfig): Promise<ReviewSyncResult> {
-        const marker = await getLatestSavedReviewMarker(shop.shopName);
+        const marker = await getLatestSavedReviewMarker(shop);
         const hasSavedMarker = Boolean(marker.transactionId || marker.createMs);
         const markerSeconds = marker.createMs ? Math.max(0, Math.floor(marker.createMs / 1000) - REVIEW_SYNC_LOOKBACK_SECONDS) : undefined;
         const limitPerPage = 25;
@@ -549,7 +570,7 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
             let reachedKnownReview = false;
 
             for (const raw of page) {
-                const cleaned = cleanEtsyReview(raw, shop.shopName);
+                const cleaned = cleanEtsyReview(raw, shop.shopName, shop.shopId);
                 if (!cleaned) continue;
 
                 const createMs = Date.parse(cleaned.create_date);

@@ -13,6 +13,12 @@ export interface Account {
   scan_start_date?: string; // Ngày bắt đầu của lịch sử email, được tìm thấy bởi giai đoạn dò tìm
   lastKnownHistoryId?: string; // ID cuối cùng mà webhook đã xử lý
   platforms?: string[]; // 'etsy', 'ebay'
+  etsy_shop_id?: string | number | null;
+  etsyShopId?: string | number | null;
+  shopId?: string | number | null;
+  shopName?: string | null;
+  etsyShopName?: string | null;
+  name?: string | null;
   etsy_review_average?: number | null;
   etsy_review_count?: number | null;
   etsy_suspended?: boolean;
@@ -126,6 +132,7 @@ export interface EtsyReview {
   transaction_id: string;
   order_id: string;
   shop_id: string;
+  shop_label?: string | null;
   rating: number | null;
   review: string;
   create_date: string;

@@ -8,6 +8,7 @@ export interface CleanedEtsyReview {
     transaction_id: string;
     order_id: string;
     shop_id: string;
+    shop_label?: string | null;
     rating: number | null;
     review: string;
     create_date: string;

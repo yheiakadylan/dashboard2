@@ -44,16 +44,19 @@ function toIsoUtc(value: any): string {
     return new Date(numeric < 10_000_000_000 ? numeric * 1000 : numeric).toISOString();
 }
 
-export function cleanEtsyReview(raw: any, shopName: string): CleanedEtsyReview | null {
+export function cleanEtsyReview(raw: any, shopName: string, shopId?: string): CleanedEtsyReview | null {
     if (!raw?.transaction_id) return null;
 
     const rawPhoto = raw.review_photo_detailed || raw.review_photo || (Array.isArray(raw.Images) ? raw.Images[0] : raw.Images) || null;
     const reviewPhoto = pickReviewPhotoUrls(rawPhoto);
+    const normalizedShopId = shopId || String(raw.shop_id || '').trim();
+    const normalizedShopName = String(shopName || '').trim();
 
     return {
         transaction_id: String(raw.transaction_id),
         order_id: raw.receipt_id ? String(raw.receipt_id) : '',
-        shop_id: shopName || String(raw.shop_id || ''),
+        shop_id: normalizedShopId || normalizedShopName,
+        shop_label: normalizedShopName || null,
         rating: typeof raw.rating === 'number' ? raw.rating : Number(raw.rating || 0) || null,
         review: String(raw.review || ''),
         create_date: toIsoUtc(raw.create_date),

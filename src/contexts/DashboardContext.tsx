@@ -20,6 +20,7 @@ import { useRecordFiltering } from '../hooks/useRecordFiltering';
 import { useExchangeRates } from '../hooks/useExchangeRates';
 import type { ProcessingScope } from '../utils/dataProcessing';
 import { startMeasure } from '../utils/perfMarks';
+import { getAccountShopIdentifiers } from '../utils/accountLabels';
 
 
 // Default Tab List
@@ -348,9 +349,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     if (role === 'owner' && !selectedBoardId) return etsyReviews;
 
     const permittedShopIds = new Set(
-      visibleAccounts.flatMap(acc => [acc.email, acc.label])
-        .filter((value): value is string => Boolean(value))
-        .map(value => value.trim().toLowerCase())
+      visibleAccounts.flatMap(getAccountShopIdentifiers)
+        .filter(value => value !== null && value !== undefined && String(value).trim() !== '')
+        .map(value => String(value).trim().toLowerCase())
     );
 
     if (permittedShopIds.size === 0) return [];

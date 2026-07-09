@@ -1,13 +1,14 @@
 /// <reference types="chrome" />
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, setPersistence, indexedDBLocalPersistence, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, query, where, doc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
+import { getFirestore, collection, query, where, doc, updateDoc, getDocs } from 'firebase/firestore';
 import { createEtsyReviewSync, ETSY_REVIEW_ALARM } from './reviews/reviewSync';
 
 const DEFAULT_APP_URL = 'https://dashboardvikcom.vercel.app';
 const EXTENSION_API_PATH = '/api/extension-shop-health';
 const TASK_ENRICHMENT_API_URL = 'https://vikcomltd.xyz/api/tasks/update-with-reuse';
 const INVALID_SKU_VALUES = new Set(['', 'NULL']);
+const STALE_PROCESSING_JOB_MS = 5 * 60 * 1000;
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -249,10 +250,23 @@ async function scanPendingJobs(): Promise<void> {
                 where('account', '==', data.account),
                 where('status', '==', 'pending')
             );
-            const snap = await getDocs(q);
+            const processingQuery = query(
+                jobsRef,
+                where('account', '==', data.account),
+                where('status', '==', 'processing')
+            );
+            const [snap, processingSnap] = await Promise.all([getDocs(q), getDocs(processingQuery)]);
+            const staleBefore = Date.now() - STALE_PROCESSING_JOB_MS;
+            const docsToQueue = [
+                ...snap.docs,
+                ...processingSnap.docs.filter(docSnap => {
+                    const updatedAt = Date.parse(String(docSnap.data()?.updated_at || ''));
+                    return !Number.isFinite(updatedAt) || updatedAt < staleBefore;
+                })
+            ];
 
             let addedCount = 0;
-            snap.docs.forEach(docSnap => {
+            docsToQueue.forEach(docSnap => {
                 const job = { id: docSnap.id, ...docSnap.data() };
                 // Kiểm tra trùng lặp để không push 2 lần
                 const isExists = localQueue.some(j => j.id === job.id);
@@ -636,14 +650,20 @@ async function processQueue(teamId: string) {
 
             if (skuResult === "NULL_AUTH_REQUIRED") {
                 isEtsyLoggedOut = true;
-                await updateDoc(jobRef, { status: 'failed', error: 'Etsy Account Logged Out', sku: 'NULL', updated_at: new Date().toISOString() });
+                await updateDoc(jobRef, { status: 'failed', error: 'Etsy Account Logged Out', sku: '', updated_at: new Date().toISOString() });
                 reportHeartbeat();
                 continue;
             }
 
             if (skuResult === "NULL_RATE_LIMIT") {
-                await updateDoc(jobRef, { status: 'failed', error: '429 Rate Limit', sku: 'NULL', updated_at: new Date().toISOString() });
+                await updateDoc(jobRef, { status: 'failed', error: '429 Rate Limit', sku: '', updated_at: new Date().toISOString() });
                 localQueue.push(job); // Re-queue để thử lại
+                reportHeartbeat();
+                continue;
+            }
+
+            if (skuResult === "NULL_FETCH_FAILED") {
+                await updateDoc(jobRef, { status: 'failed', error: 'Could not fetch Etsy order or parse SKU data. Please retry after checking the extension/Etsy session.', sku: '', updated_at: new Date().toISOString() });
                 reportHeartbeat();
                 continue;
             }
@@ -671,9 +691,10 @@ async function processQueue(teamId: string) {
                         const newItems = data.details.items.map((item: any, idx: number) => {
                             const extItem = extractedItems[idx];
                             if (extItem) {
+                                const fetchedSku = String(extItem.sku || '').trim();
                                 return {
                                     ...item,
-                                    sku: normalizeSkuValue(extItem.sku) || normalizeSkuValue(item.sku),
+                                    sku: fetchedSku || normalizeSkuValue(item.sku),
                                     ...(extItem.customerFiles && extItem.customerFiles.length > 0 ? { customerFiles: normalizeCustomerFiles(extItem.customerFiles) } : {}),
                                     ...(extItem.listingId ? { listingId: extItem.listingId } : {}),
                                     ...(extItem.transaction_id ? { transactionId: extItem.transaction_id } : {})
@@ -706,13 +727,18 @@ async function processQueue(teamId: string) {
                 await syncTaskViaCentralApi(payload);
             }
 
-            await deleteDoc(jobRef);
+            await updateDoc(jobRef, {
+                status: 'completed',
+                sku: skuString || 'NULL',
+                ...(skuString ? {} : { error: 'SKU not found' }),
+                updated_at: new Date().toISOString()
+            });
 
         } catch (error) {
             console.error('[Worker] Job error:', error);
             try {
                 const jobRef = doc(db, 'user', teamId, 'sku_jobs', job.id);
-                await updateDoc(jobRef, { status: 'failed', error: String(error), sku: 'NULL', updated_at: new Date().toISOString() });
+                await updateDoc(jobRef, { status: 'failed', error: String(error), sku: '', updated_at: new Date().toISOString() });
             } catch (_) {
                 // Permission or network error, nothing we can do
             }
@@ -742,6 +768,7 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
     let shopId = "";
     let csrfToken = "";
     let shippingPhone = "";
+    let fetchFailureReason = "";
 
     // 1. Fetch Etsy sold orders page to get SKU JSON, shop_id, and csrf_token
     try {
@@ -805,14 +832,23 @@ async function fetchSKU(orderId: string): Promise<FetchSKUResult | string> {
                         }
                     }
                     if (items.length > 0) extractedItems = items;
+                    else fetchFailureReason = `No transactions found for order ${orderId}.`;
                 }
             }
         } else if (searchResponse.status === 429) {
             rateLimitUntil = Date.now() + 15 * 60 * 1000; // 15 min cooldown
             return "NULL_RATE_LIMIT";
+        } else {
+            fetchFailureReason = `Etsy sold orders page returned ${searchResponse.status}.`;
         }
     } catch (e) {
         console.error("[Worker] fetchSKU HTML fetch error:", e);
+        fetchFailureReason = e instanceof Error ? e.message : String(e || 'Unknown fetch error');
+    }
+
+    if (!Array.isArray(extractedItems)) {
+        console.warn(`[Worker] SKU fetch failed for order ${orderId}: ${fetchFailureReason || 'Order data was not found in Etsy response.'}`);
+        return "NULL_FETCH_FAILED";
     }
 
     // 2. Fetch Personalization Files via API v3

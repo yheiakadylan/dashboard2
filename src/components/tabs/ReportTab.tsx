@@ -4,7 +4,7 @@ import { useDashboard } from '../../contexts/DashboardContext';
 import { useUIFilters } from '../../contexts/UIContext';
 import DateRangePicker from '../ui/DateRangePicker';
 import { fetchOperationReportData, fetchReportRecords, fetchReportReviews, normalizeDateValue, type OperationReportData, type OperationTask, type OperationUser, type ReportOrderRecord, type ReportReview } from '../../services/reportService';
-import { buildAccountLabelMap, resolveAccountLabel } from '../../utils/accountLabels';
+import { buildAccountLabelMap, getAccountShopIdentifiers, resolveAccountLabel } from '../../utils/accountLabels';
 import { startMeasure } from '../../utils/perfMarks';
 import { calculateItemNetRevenue, getOrderItemRevenueContext } from '../../utils/revenueUtils';
 
@@ -354,9 +354,13 @@ const ReportTab: React.FC = () => {
 
   const reportData = useMemo(() => {
     const accountLabelMap = buildAccountLabelMap(accounts);
+    const getCanonicalShopKey = (shopId?: string | number | null) => {
+      const label = resolveAccountLabel(accountLabelMap, shopId, '');
+      return normalizeShopKey(label || shopId || 'Unknown Shop');
+    };
     const permittedAccounts = new Set(accounts.map(account => account.email));
     const permittedShopKeys = new Set(
-      accounts.flatMap(account => [account.id, account.email, account.label])
+      accounts.flatMap(getAccountShopIdentifiers)
         .map(normalizeShopKey)
         .filter(Boolean)
     );
@@ -369,7 +373,7 @@ const ReportTab: React.FC = () => {
         suspended: account.etsy_suspended === true
       };
 
-      [account.id, account.email, account.label]
+      getAccountShopIdentifiers(account)
         .map(normalizeShopKey)
         .filter(Boolean)
         .forEach(key => shopHealthByKey.set(key, health));
@@ -452,7 +456,7 @@ const ReportTab: React.FC = () => {
     let totalRatedReviews = 0;
     reportReviews.forEach((review: ReportReview) => {
       if (!review.rating) return;
-      const shopKey = normalizeShopKey(review.shop_id);
+      const shopKey = getCanonicalShopKey(review.shop_id);
       if (hasAccountScope && !permittedShopKeys.has(shopKey)) return;
       const shop = resolveAccountLabel(accountLabelMap, review.shop_id);
       const current = shopRatingsMap.get(shop) || { total: 0, count: 0 };

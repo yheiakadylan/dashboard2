@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useUIFilters } from '../../contexts/UIContext';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import ImagePreviewModal from '../modals/ImagePreviewModal';
-import { buildAccountLabelMap, resolveAccountLabel } from '../../utils/accountLabels';
+import { buildAccountLabelMap, getAccountShopIdentifiers, resolveAccountLabel } from '../../utils/accountLabels';
 import KpiCard from '../ui/KpiCard';
 import { getEtsyReviewsForDateRange } from '../../services/firebaseService';
 import { EtsyReview } from '../../types';
@@ -95,7 +95,11 @@ const ReviewsTab: React.FC = () => {
     const reviewFeedRef = useRef<HTMLDivElement | null>(null);
 
     const accountLabelMap = useMemo(() => buildAccountLabelMap(accounts), [accounts]);
-    const getShopLabel = (shopId?: string | number | null) => resolveAccountLabel(accountLabelMap, shopId);
+    const getShopLabel = useCallback((shopId?: string | number | null) => resolveAccountLabel(accountLabelMap, shopId), [accountLabelMap]);
+    const getCanonicalShopKey = useCallback((shopId?: string | number | null) => {
+        const label = resolveAccountLabel(accountLabelMap, shopId, '');
+        return normalizeShopKey(label || shopId || 'Unknown Shop');
+    }, [accountLabelMap]);
     const previousRange = useMemo(() => getPreviousDateRange(filterDateRange), [filterDateRange]);
     const previousLabel = useMemo(() => getPreviousPeriodLabel(filterDateRange), [filterDateRange]);
 
@@ -103,9 +107,9 @@ const ReviewsTab: React.FC = () => {
         if (!selectedAccountId || selectedAccountId === 'all') return null;
         const selectedAccount = accounts.find(account => account.email === selectedAccountId);
         return new Set(
-            [selectedAccountId, selectedAccount?.id, selectedAccount?.label]
-                .filter((value): value is string => Boolean(value))
-                .map(value => value.trim().toLowerCase())
+            [selectedAccountId, ...(selectedAccount ? getAccountShopIdentifiers(selectedAccount) : [])]
+                .map(normalizeShopKey)
+                .filter(Boolean)
         );
     }, [accounts, selectedAccountId]);
 
@@ -125,7 +129,7 @@ const ReviewsTab: React.FC = () => {
                 suspended: account.etsy_suspended === true
             };
 
-            [account.id, account.email, account.label]
+            getAccountShopIdentifiers(account)
                 .map(normalizeShopKey)
                 .filter(Boolean)
                 .forEach(key => map.set(key, health));
@@ -144,7 +148,7 @@ const ReviewsTab: React.FC = () => {
             .filter(row => typeof row.average === 'number')
             .filter(account => {
                 if (!selectedShopKeys) return true;
-                return [account.account.id, account.account.email, account.account.label]
+                return getAccountShopIdentifiers(account.account)
                     .map(normalizeShopKey)
                     .filter(Boolean)
                     .some(key => selectedShopKeys.has(key));
@@ -211,7 +215,7 @@ const ReviewsTab: React.FC = () => {
     // Apply filters
     const filteredReviews = useMemo(() => {
         return etsyReviews.filter(review => {
-            const shopKey = String(review.shop_id || '').trim().toLowerCase();
+            const shopKey = getCanonicalShopKey(review.shop_id);
             if (selectedShopKeys && !selectedShopKeys.has(shopKey)) {
                 return false;
             }
@@ -229,11 +233,11 @@ const ReviewsTab: React.FC = () => {
             }
             return true;
         }).sort((a, b) => new Date(b.create_date).getTime() - new Date(a.create_date).getTime());
-    }, [etsyReviews, reviewRatingFilter, selectedProductFilter, selectedShopKeys, showBadReviewsOnly, showImagesOnly]);
+    }, [etsyReviews, getCanonicalShopKey, reviewRatingFilter, selectedProductFilter, selectedShopKeys, showBadReviewsOnly, showImagesOnly]);
 
     const reviewKpis = useMemo(() => {
         const filterByShop = (review: EtsyReview) => {
-            const shopKey = String(review.shop_id || '').trim().toLowerCase();
+            const shopKey = getCanonicalShopKey(review.shop_id);
             if (selectedShopKeys && !selectedShopKeys.has(shopKey)) return false;
             if (selectedProductFilter && getProductKey(review) !== selectedProductFilter.productKey) return false;
             return true;
@@ -266,9 +270,9 @@ const ReviewsTab: React.FC = () => {
         const previousBadReviews = previousBaseReviews?.filter(isBadReview).length;
         const currentWithImages = currentBaseReviews.filter(review => !!review.review_photo_detailed).length;
         const previousWithImages = previousBaseReviews?.filter(review => !!review.review_photo_detailed).length;
-        const currentReviewedShops = new Set(filteredReviews.map(review => String(review.shop_id || '').trim()).filter(Boolean)).size;
+        const currentReviewedShops = new Set(filteredReviews.map(review => getCanonicalShopKey(review.shop_id)).filter(Boolean)).size;
         const previousReviewedShops = previousFilteredReviews
-            ? new Set(previousFilteredReviews.map(review => String(review.shop_id || '').trim()).filter(Boolean)).size
+            ? new Set(previousFilteredReviews.map(review => getCanonicalShopKey(review.shop_id)).filter(Boolean)).size
             : undefined;
 
         return {
@@ -284,7 +288,7 @@ const ReviewsTab: React.FC = () => {
             badReviews: buildNumericKpi(currentBadReviews, previousBadReviews, String, previousLabel),
             withImages: buildNumericKpi(currentWithImages, previousWithImages, String, previousLabel)
         };
-    }, [etsyReviews, filteredReviews, previousLabel, previousReviews, reviewRatingFilter, selectedProductFilter, selectedShopKeys, showBadReviewsOnly, showImagesOnly]);
+    }, [etsyReviews, filteredReviews, getCanonicalShopKey, previousLabel, previousReviews, reviewRatingFilter, selectedProductFilter, selectedShopKeys, showBadReviewsOnly, showImagesOnly]);
 
     const reviewHighlights = useMemo(() => {
         let lowestReview: EtsyReview | null = null;
@@ -350,7 +354,7 @@ const ReviewsTab: React.FC = () => {
         }
 
         const productReviewSource = etsyReviews.filter(review => {
-            const shopKey = String(review.shop_id || '').trim().toLowerCase();
+            const shopKey = getCanonicalShopKey(review.shop_id);
             if (selectedShopKeys && !selectedShopKeys.has(shopKey)) return false;
             return true;
         });
@@ -469,7 +473,7 @@ const ReviewsTab: React.FC = () => {
             goodProduct,
             badProduct
         };
-    }, [accountLabelMap, etsyReviews, filteredReviews, selectedShopKeys]);
+    }, [accountLabelMap, etsyReviews, filteredReviews, getCanonicalShopKey, selectedShopKeys]);
 
     const shopBreakdownRows = useMemo(() => {
         const shopsDataMap = new Map<string, {
@@ -484,9 +488,9 @@ const ReviewsTab: React.FC = () => {
             shopKeys: Set<string>;
         }>();
 
-        const ensureRow = (shopName: string, keys: Array<string | number | null | undefined> = []) => {
-            if (!shopsDataMap.has(shopName)) {
-                shopsDataMap.set(shopName, {
+        const ensureRow = (shopKey: string, shopName: string, keys: Array<string | number | null | undefined> = []) => {
+            if (!shopsDataMap.has(shopKey)) {
+                shopsDataMap.set(shopKey, {
                     shopName,
                     total: 0,
                     previousTotal: 0,
@@ -498,7 +502,10 @@ const ReviewsTab: React.FC = () => {
                     shopKeys: new Set()
                 });
             }
-            const row = shopsDataMap.get(shopName)!;
+            const row = shopsDataMap.get(shopKey)!;
+            if (row.shopName === shopKey && shopName !== shopKey) {
+                row.shopName = shopName;
+            }
             [shopName, ...keys]
                 .map(normalizeShopKey)
                 .filter(Boolean)
@@ -508,17 +515,18 @@ const ReviewsTab: React.FC = () => {
 
         accounts.forEach(account => {
             if (parseFiniteNumber(account.etsy_review_average) === null) return;
-            const accountKeys = [account.id, account.email, account.label]
+            const accountKeys = getAccountShopIdentifiers(account)
                 .map(normalizeShopKey)
                 .filter(Boolean);
             if (selectedShopKeys && !accountKeys.some(key => selectedShopKeys.has(key))) return;
 
-            ensureRow(account.label || account.email || account.id, [account.id, account.email, account.label]);
+            const shopName = account.label || account.email || account.id;
+            ensureRow(normalizeShopKey(shopName), shopName, getAccountShopIdentifiers(account));
         });
 
         filteredReviews.forEach(review => {
             const shopName = getShopLabel(review.shop_id) || 'Unknown Shop';
-            const data = ensureRow(shopName, [review.shop_id]);
+            const data = ensureRow(getCanonicalShopKey(review.shop_id), shopName, [review.shop_id]);
             data.total += 1;
             if (typeof review.rating === 'number') {
                 data.ratings.push(review.rating);
@@ -531,7 +539,7 @@ const ReviewsTab: React.FC = () => {
         });
 
         const previousFilter = (review: EtsyReview) => {
-            const shopKey = String(review.shop_id || '').trim().toLowerCase();
+            const shopKey = getCanonicalShopKey(review.shop_id);
             if (selectedShopKeys && !selectedShopKeys.has(shopKey)) return false;
             if (showBadReviewsOnly && !isBadReview(review)) return false;
             if (showImagesOnly && !review.review_photo_detailed) return false;
@@ -541,7 +549,7 @@ const ReviewsTab: React.FC = () => {
 
         (previousReviews || []).filter(previousFilter).forEach(review => {
             const shopName = getShopLabel(review.shop_id) || 'Unknown Shop';
-            const data = ensureRow(shopName, [review.shop_id]);
+            const data = ensureRow(getCanonicalShopKey(review.shop_id), shopName, [review.shop_id]);
             data.previousTotal += 1;
         });
 
@@ -582,7 +590,7 @@ const ReviewsTab: React.FC = () => {
 
                 return b.total - a.total || b.delta - a.delta || a.shopName.localeCompare(b.shopName);
             });
-    }, [accounts, filteredReviews, getShopLabel, previousReviews, reviewRatingFilter, selectedShopKeys, shopBreakdownSort, shopHealthByKey, showBadReviewsOnly, showImagesOnly]);
+    }, [accounts, filteredReviews, getCanonicalShopKey, getShopLabel, previousReviews, reviewRatingFilter, selectedShopKeys, shopBreakdownSort, shopHealthByKey, showBadReviewsOnly, showImagesOnly]);
 
     if (isLoading) {
         return <LoadingSpinner variant="card" count={5} />;
