@@ -7,7 +7,7 @@ import { createEtsyReviewSync, ETSY_REVIEW_ALARM } from './reviews/reviewSync';
 const DEFAULT_APP_URL = 'https://dashboardvikcom.vercel.app';
 const EXTENSION_API_PATH = '/api/extension-shop-health';
 const TASK_ENRICHMENT_API_URL = 'https://vikcomltd.xyz/api/tasks/update-with-reuse';
-const INVALID_SKU_VALUES = new Set(['', 'NULL']);
+const INVALID_SKU_VALUES = new Set(['']);
 const STALE_PROCESSING_JOB_MS = 5 * 60 * 1000;
 
 const firebaseConfig = {

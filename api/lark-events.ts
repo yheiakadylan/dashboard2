@@ -151,7 +151,7 @@ function verifyToken(kind: Parsed['kind'], incoming?: string): boolean {
   if (kind === 'text') return incoming === msgToken || incoming === cardToken;
   return true;
 }
-const INVALID_SKU_VALUES = new Set(['', 'NULL']);
+const INVALID_SKU_VALUES = new Set(['']);
 
 function normalizeSkuForSync(value: unknown): string {
   const raw = String(value ?? '').trim();

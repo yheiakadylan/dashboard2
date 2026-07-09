@@ -17,6 +17,14 @@ import FilterPopover from '../ui/FilterPopover';
 import ActiveFilterTags from '../ui/ActiveFilterTags';
 import { useNotification } from '../../contexts/NotificationContext';
 import CustomSelect from '../ui/CustomSelect';
+import { ORDER_LIST_INDICES } from '../../constants/dataIndices';
+
+const INVALID_FETCH_SKU_VALUES = new Set(['', 'NULL_RATE_LIMIT']);
+
+const isMissingSkuForFetch = (value?: string | null) => {
+  const normalized = String(value || '').trim().toUpperCase();
+  return INVALID_FETCH_SKU_VALUES.has(normalized);
+};
 
 const Header: React.FC = () => {
   const {
@@ -86,6 +94,23 @@ const Header: React.FC = () => {
   const [isApiLoading, setIsApiLoading] = useState(false);
   const [showActionButtons, setShowActionButtons] = useState(false);
 
+  const visibleOrderRecords = useMemo(() => {
+    const currentOrders = processedData.orders.rows;
+    if (currentOrders.length === 0) return [];
+    const orderIds = new Set(currentOrders.map(r => r[ORDER_LIST_INDICES.RECORD_ID]));
+    return records.filter(r => r.id && orderIds.has(r.id) && r.status !== 'Refunded');
+  }, [processedData.orders.rows, records]);
+
+  const recordsMissingSku = useMemo(() => {
+    return visibleOrderRecords.filter(record => {
+      const items = record.details?.items;
+      if (!items || items.length === 0) return true;
+      return items.some(item => isMissingSkuForFetch(item.sku));
+    });
+  }, [visibleOrderRecords]);
+
+  const missingSkuCount = recordsMissingSku.length;
+
   const triggerBulkSyncSkuToTasks = async () => {
     if (isApiLoading) return;
     const currentOrders = processedData.orders.rows;
@@ -96,9 +121,7 @@ const Header: React.FC = () => {
     
     setIsApiLoading(true);
     try {
-      const { ORDER_LIST_INDICES } = await import('../../constants/dataIndices');
-      const orderIds = new Set(currentOrders.map(r => r[ORDER_LIST_INDICES.RECORD_ID])); // RECORD_ID index
-      const targetRecords = records.filter(r => r.id && orderIds.has(r.id) && r.status !== 'Refunded');
+      const targetRecords = visibleOrderRecords;
       
       if (targetRecords.length === 0) {
         addNotification('No valid orders to sync.', 'info');
@@ -163,13 +186,7 @@ const Header: React.FC = () => {
     
     setIsApiLoading(true);
     try {
-      const { ORDER_LIST_INDICES } = await import('../../constants/dataIndices');
-      const orderIds = new Set(currentOrders.map(r => r[ORDER_LIST_INDICES.RECORD_ID]));
-      const targetRecords = records.filter(r => {
-        if (!r.id || !orderIds.has(r.id) || r.status === 'Refunded') return false;
-        if (!r.details?.items || r.details.items.length === 0) return true;
-        return r.details.items.some(item => !item.sku || item.sku.trim() === '');
-      });
+      const targetRecords = recordsMissingSku;
       
       if (targetRecords.length === 0) {
         addNotification('No valid orders to fetch (all have SKUs).', 'info');
@@ -526,9 +543,15 @@ const Header: React.FC = () => {
                   <button 
                     onClick={triggerBulkFetchSku} 
                     disabled={isApiLoading}
-                    className="hidden lg:block px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-md text-sm font-medium shadow-sm transition-colors whitespace-nowrap"
+                    className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-md text-sm font-medium shadow-sm transition-colors whitespace-nowrap"
+                    title={`${missingSkuCount} visible order${missingSkuCount === 1 ? '' : 's'} not fetched yet. SKU: NULL is treated as fetched/no SKU on Etsy.`}
                   >
-                    {isApiLoading ? 'Fetching...' : 'Bulk Fetch SKU'}
+                    <span>{isApiLoading ? 'Fetching...' : 'Bulk Fetch SKU'}</span>
+                    {missingSkuCount > 0 && (
+                      <span className="min-w-5 rounded-full bg-white/95 px-1.5 py-0.5 text-[11px] font-black leading-none text-green-700 shadow-sm">
+                        {missingSkuCount > 99 ? '99+' : missingSkuCount}
+                      </span>
+                    )}
                   </button>
                 </>
               )}
@@ -687,10 +710,15 @@ const Header: React.FC = () => {
                   <button 
                     onClick={triggerBulkFetchSku} 
                     disabled={isApiLoading}
-                    className="p-1.5 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-800 disabled:opacity-50 rounded-md transition-colors mr-1"
-                    title="Bulk Fetch SKU"
+                    className="relative p-1.5 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-800 disabled:opacity-50 rounded-md transition-colors mr-1"
+                    title={`${missingSkuCount} visible order${missingSkuCount === 1 ? '' : 's'} not fetched yet. SKU: NULL is treated as fetched/no SKU on Etsy.`}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    {missingSkuCount > 0 && (
+                      <span className="absolute -right-1.5 -top-1.5 min-w-4 rounded-full bg-red-500 px-1 text-[10px] font-black leading-4 text-white shadow">
+                        {missingSkuCount > 99 ? '99+' : missingSkuCount}
+                      </span>
+                    )}
                   </button>
                 </>
               )}
