@@ -492,6 +492,15 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     searchTerm
   });
 
+  const filteredPreviousRecords = useRecordFiltering({
+    records: previousPeriodRecords || [],
+    accounts: stableProcessingAccounts as Account[],
+    selectedAccountId,
+    searchTerm
+  });
+
+  const scopedPreviousPeriodRecords = previousPeriodRecords ? filteredPreviousRecords : null;
+
   // Track the last trigger state for worker to prevent redundant runs
   const lastTriggeredRef = useRef<{
     records: any;
@@ -558,7 +567,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
     // Optimized comparison to avoid redundant worker runs
     const prevTrigger = lastTriggeredRef.current;
-    const relevantPreviousRecords = scopeNeedsPreviousPeriod(processingScope) ? previousPeriodRecords : null;
+    const relevantPreviousRecords = scopeNeedsPreviousPeriod(processingScope) ? scopedPreviousPeriodRecords : null;
     const relevantManualCosts = scopeNeedsManualCosts(processingScope) ? stableManualCosts : null;
     const relevantRates = scopeNeedsExchangeRates(processingScope) ? stableRates : null;
     const relevantCategories = scopeNeedsCategories(processingScope) ? categories : null;
@@ -598,7 +607,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
     const debounceTimer = setTimeout(() => {
         const workerRecords = getWorkerRecordsForScope(filteredRecords, processingScope);
-        const workerPreviousRecords = getWorkerPreviousRecordsForScope(previousPeriodRecords, processingScope);
+        const workerPreviousRecords = getWorkerPreviousRecordsForScope(scopedPreviousPeriodRecords, processingScope);
         const workerManualCosts = relevantManualCosts || [];
         const workerRates = relevantRates;
         const workerCategories = relevantCategories || [];
@@ -658,7 +667,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }, 300); // reduced to 300ms to allow smooth UI transition without long skeleton flashes
 
     return () => clearTimeout(debounceTimer);
-  }, [activeTab, filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, categories, visibleEtsyReviews, isFetchingNewRange, currentDataKey, clearWorkerSafetyTimeout]);
+  }, [activeTab, filteredRecords, scopedPreviousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, categories, visibleEtsyReviews, isFetchingNewRange, currentDataKey, clearWorkerSafetyTimeout]);
 
 
 
@@ -711,7 +720,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
         requestId,
         scope: 'all',
         records: filteredRecords,
-        previousRecords: previousPeriodRecords,
+        previousRecords: scopedPreviousPeriodRecords,
         accounts: stableProcessingAccounts,
         filterDateRange,
         timeZone,
@@ -723,7 +732,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
         etsyReviews: visibleEtsyReviews
       });
     });
-  }, [filteredRecords, previousPeriodRecords, stableProcessingAccounts, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, categories, visibleEtsyReviews]);
+  }, [filteredRecords, scopedPreviousPeriodRecords, stableProcessingAccounts, filterDateRange, timeZone, role, permissions, stableManualCosts, stableRates, categories, visibleEtsyReviews]);
 
   // --- Action Handlers ---
 

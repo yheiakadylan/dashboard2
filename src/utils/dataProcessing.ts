@@ -197,6 +197,29 @@ function calculatePercentageChange(current: number, previous: number) {
     return { change: Math.abs(change), direction: (change > 0 ? 'up' : (change < 0 ? 'down' : 'neutral')) as 'up' | 'down' | 'neutral' };
 }
 
+type ShopSummaryAccumulator = {
+    revenue: Map<string, number>;
+    orders: Set<string>;
+    funds: Map<string, number>;
+    cost: Map<string, number>;
+    refund: Map<string, number>;
+    refOrderIds: Set<string>;
+};
+
+const createShopSummaryAccumulator = (): ShopSummaryAccumulator => ({
+    revenue: new Map(),
+    orders: new Set(),
+    funds: new Map(),
+    cost: new Map(),
+    refund: new Map(),
+    refOrderIds: new Set(),
+});
+
+const getShopSummaryAccumulator = (map: Map<string, ShopSummaryAccumulator>, shopEmail: string) => {
+    if (!map.has(shopEmail)) map.set(shopEmail, createShopSummaryAccumulator());
+    return map.get(shopEmail)!;
+};
+
 // --- Main Process Function ---
 export function processData(
     records: Record[],
@@ -301,7 +324,7 @@ export function processData(
     }
 
     const kpiRaw = { orderIds: new Set<string>(), shops: new Set<string>(), revenue: new Map<string, number>(), funds: new Map<string, number>(), cost: new Map<string, number>(), refOrderIds: new Set<string>(), refund: new Map<string, number>() };
-    const shopSummaryData = new Map<string, { revenue: Map<string, number>, orders: Set<string>, funds: Map<string, number>, cost: Map<string, number>, refund: Map<string, number>, refOrderIds: Set<string> }>();
+    const shopSummaryData = new Map<string, ShopSummaryAccumulator>();
     
     const pByShop = new Map<string, Map<string, any>>();
     const pByCat = new Map<string, Map<string, any>>();
@@ -373,8 +396,7 @@ export function processData(
 
                 // Shop Summary Meta data
                 if (needsKpiSummary) {
-                    if (!shopSummaryData.has(shopEmail)) shopSummaryData.set(shopEmail, { revenue: new Map(), orders: new Set(), funds: new Map(), cost: new Map(), refund: new Map(), refOrderIds: new Set() });
-                    const sd = shopSummaryData.get(shopEmail)!;
+                    const sd = getShopSummaryAccumulator(shopSummaryData, shopEmail);
                     if (r.order_id) sd.orders.add(r.order_id);
                     if (r.amount > 0) sd.revenue.set(currency, (sd.revenue.get(currency) || 0) + r.amount);
                     if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) sd.cost.set('USD', (sd.cost.get('USD') || 0) + r.cost_total);
@@ -535,8 +557,7 @@ export function processData(
                 kpiRaw.refOrderIds.add(r.order_id);
                 kpiRaw.refund.set(refundCurr, (kpiRaw.refund.get(refundCurr) || 0) + refundAmt);
                 
-                if (!shopSummaryData.has(shopEmail)) shopSummaryData.set(shopEmail, { revenue: new Map(), orders: new Set(), funds: new Map(), cost: new Map(), refund: new Map(), refOrderIds: new Set() });
-                const sd = shopSummaryData.get(shopEmail)!;
+                const sd = getShopSummaryAccumulator(shopSummaryData, shopEmail);
                 sd.refOrderIds.add(r.order_id);
                 sd.refund.set(refundCurr, (sd.refund.get(refundCurr) || 0) + refundAmt);
                 }
@@ -550,8 +571,7 @@ export function processData(
             if (needsKpiSummary) {
             kpiRaw.funds.set(currency, (kpiRaw.funds.get(currency) || 0) + r.amount);
             
-            if (!shopSummaryData.has(shopEmail)) shopSummaryData.set(shopEmail, { revenue: new Map(), orders: new Set(), funds: new Map(), cost: new Map(), refund: new Map(), refOrderIds: new Set() });
-            const sd = shopSummaryData.get(shopEmail)!;
+            const sd = getShopSummaryAccumulator(shopSummaryData, shopEmail);
             sd.funds.set(currency, (sd.funds.get(currency) || 0) + r.amount);
             }
 
@@ -587,14 +607,21 @@ export function processData(
 
     // --- 4. Previous Period KPIs Loop ---
     const pKpiRaw = { orderIds: new Set<string>(), revenue: new Map<string, number>(), funds: new Map<string, number>(), cost: new Map<string, number>() };
+    const previousShopSummaryData = new Map<string, ShopSummaryAccumulator>();
     if (needsKpiSummary) uniquePrevRecords.forEach(r => {
         const cur = r.currency || 'USD';
         if (r.kind === 'order' && r.source !== 'Etsy_Refunded') {
+            const previousShop = getShopSummaryAccumulator(previousShopSummaryData, r.account);
             if (r.order_id) pKpiRaw.orderIds.add(r.order_id);
             if (r.amount > 0) pKpiRaw.revenue.set(cur, (pKpiRaw.revenue.get(cur) || 0) + r.amount);
             if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) pKpiRaw.cost.set('USD', (pKpiRaw.cost.get('USD') || 0) + r.cost_total);
+            if (r.order_id) previousShop.orders.add(r.order_id);
+            if (r.amount > 0) previousShop.revenue.set(cur, (previousShop.revenue.get(cur) || 0) + r.amount);
+            if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) previousShop.cost.set('USD', (previousShop.cost.get('USD') || 0) + r.cost_total);
         } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewKpiFunds)) {
+            const previousShop = getShopSummaryAccumulator(previousShopSummaryData, r.account);
             pKpiRaw.funds.set(cur, (pKpiRaw.funds.get(cur) || 0) + r.amount);
+            previousShop.funds.set(cur, (previousShop.funds.get(cur) || 0) + r.amount);
         }
     });
 
@@ -784,20 +811,110 @@ export function processData(
         return { value: t, display: disp, map: Object.fromEntries(m) };
     };
 
-    const summaryRows = Array.from(shopSummaryData.entries()).map(([acc, data]) => {
+    const sumMap = (m: Map<string, number>) => Array.from(m.values()).reduce((sum, value) => sum + value, 0);
+    const getDeltaDirection = (current: number, previous: number) => calculatePercentageChange(current, previous).direction;
+    const getDeltaSuffix = (current: number, previous: number) => {
+        const delta = calculatePercentageChange(current, previous);
+        if (delta.direction === 'neutral') return '0.0%';
+        if (delta.change === Infinity) return 'New';
+        return `${delta.change.toFixed(1)}%`;
+    };
+    const makePreviousSubtitle = (previousDisplay: string, currentValue: number, previousValue: number) =>
+        `${previousPeriodLabel}: ${previousDisplay} (${getDeltaSuffix(currentValue, previousValue)})`;
+    const withPreviousSubtitle = (
+        cell: any,
+        currentValue: number,
+        previousDisplay: string,
+        previousValue: number,
+        previousAmountMap?: { [c: string]: number }
+    ) => {
+        if (!hasPreviousPeriod) return cell;
+        const subtitle = makePreviousSubtitle(previousDisplay, currentValue, previousValue);
+        const trendDirection = getDeltaDirection(currentValue, previousValue);
+        const currentClass = 'text-gray-900 dark:text-white';
+        const previousClass = 'text-gray-400 dark:text-gray-500 font-medium';
+
+        if (cell && typeof cell === 'object' && cell.type === 'text_with_subtitle') {
+            return {
+                ...cell,
+                mainClass: currentClass,
+                trendDirection,
+                subtitle,
+                subtitleClass: previousClass,
+                subtitleLabel: previousPeriodLabel,
+                subtitleValue: previousDisplay,
+                subtitleAmountMap: previousAmountMap,
+                subtitleDelta: getDeltaSuffix(currentValue, previousValue),
+                subtitleDeltaDirection: trendDirection,
+                extraSubtitle: cell.subtitle,
+                extraSubtitleClass: cell.subtitleClass,
+                extraSubtitleLabel: 'Refund',
+                extraSubtitleAmountMap: cell.subtitleAmountMap
+            };
+        }
+
+        if (cell && typeof cell === 'object' && cell.type === 'value_with_unit') {
+            return {
+                type: 'text_with_subtitle' as const,
+                main: cell.display,
+                mainClass: currentClass,
+                trendDirection,
+                subtitle,
+                subtitleClass: previousClass,
+                mainAmountMap: cell.amountMap,
+                subtitleAmountMap: previousAmountMap,
+                subtitleLabel: previousPeriodLabel,
+                subtitleValue: previousDisplay,
+                subtitleDelta: getDeltaSuffix(currentValue, previousValue),
+                subtitleDeltaDirection: trendDirection,
+                value: currentValue
+            };
+        }
+
+        return {
+            type: 'text_with_subtitle' as const,
+            main: String(cell),
+            mainClass: currentClass,
+            trendDirection,
+            subtitle,
+            subtitleClass: previousClass,
+            subtitleLabel: previousPeriodLabel,
+            subtitleValue: previousDisplay,
+            subtitleDelta: getDeltaSuffix(currentValue, previousValue),
+            subtitleDeltaDirection: trendDirection,
+            value: currentValue
+        };
+    };
+
+    const summaryShopKeys = new Set([...Array.from(shopSummaryData.keys()), ...Array.from(previousShopSummaryData.keys())]);
+    const summaryRows = Array.from(summaryShopKeys).map((acc) => {
+        const data = shopSummaryData.get(acc) || createShopSummaryAccumulator();
+        const previousData = previousShopSummaryData.get(acc) || createShopSummaryAccumulator();
         const rev = formatMix(data.revenue), ref = formatMix(data.refund), funds = formatMix(data.funds);
+        const previousRev = formatMix(previousData.revenue);
+        const previousFunds = formatMix(previousData.funds);
+        const costValue = sumMap(data.cost);
+        const previousCostValue = sumMap(previousData.cost);
+        const earnValue = (funds.value || 0) - costValue;
+        const previousEarnValue = (previousFunds.value || 0) - previousCostValue;
+        const orderCell = data.refOrderIds.size > 0
+            ? { type: 'text_with_subtitle' as const, main: data.orders.size.toString(), subtitle: `Refund: ${data.refOrderIds.size}`, subtitleClass: 'text-red-500 font-medium' }
+            : data.orders.size;
+        const revenueCell = ref.value > 0
+            ? { type: 'text_with_subtitle' as const, main: rev.display, subtitle: `Refund: ${ref.display}`, subtitleClass: 'text-red-500 font-medium', mainAmountMap: rev.map, subtitleAmountMap: ref.map }
+            : { type: 'value_with_unit' as const, value: rev.value, display: rev.display, amountMap: rev.map };
         return [
             accountLabelMap.get(acc) || acc,
-            data.refOrderIds.size > 0 ? { type: 'text_with_subtitle' as const, main: data.orders.size.toString(), subtitle: `Refund: ${data.refOrderIds.size}`, subtitleClass: 'text-red-500 font-medium' } : data.orders.size,
-            ref.value > 0 ? { type: 'text_with_subtitle' as const, main: rev.display, subtitle: `Refund: ${ref.display}`, subtitleClass: 'text-red-500 font-medium', mainAmountMap: rev.map, subtitleAmountMap: ref.map } : { type: 'value_with_unit' as const, value: rev.value, display: rev.display, amountMap: rev.map },
-            ...((role === 'owner' || permissions.viewKpiFunds) ? [{ type: 'value_with_unit' as const, value: funds.value, display: funds.display, amountMap: funds.map }] : []),
-            ...((role === 'owner' || permissions.viewKpiCost) ? [Object.values(Object.fromEntries(data.cost)).reduce((a: any, b: any) => a + b, 0)] : []),
-            ...((role === 'owner' || permissions.viewKpiEarn) ? [{ 
+            withPreviousSubtitle(orderCell, data.orders.size, previousData.orders.size.toString(), previousData.orders.size),
+            withPreviousSubtitle(revenueCell, rev.value, previousRev.display, previousRev.value, previousRev.map),
+            ...((role === 'owner' || permissions.viewKpiFunds) ? [withPreviousSubtitle({ type: 'value_with_unit' as const, value: funds.value, display: funds.display, amountMap: funds.map }, funds.value, previousFunds.display, previousFunds.value, previousFunds.map)] : []),
+            ...((role === 'owner' || permissions.viewKpiCost) ? [withPreviousSubtitle({ type: 'value_with_unit' as const, value: costValue, display: formatCurrency(costValue), amountMap: { 'USD': costValue } }, costValue, formatCurrency(previousCostValue), previousCostValue, { 'USD': previousCostValue })] : []),
+            ...((role === 'owner' || permissions.viewKpiEarn) ? [withPreviousSubtitle({ 
                 type: 'value_with_unit' as const, 
-                value: (funds.value || 0) - (Object.values(Object.fromEntries(data.cost)).reduce((a: any, b: any) => a + b, 0)), 
-                display: formatCurrency((funds.value || 0) - (Object.values(Object.fromEntries(data.cost)).reduce((a: any, b: any) => a + b, 0))), 
-                amountMap: { 'USD': (funds.value || 0) - (Object.values(Object.fromEntries(data.cost)).reduce((a: any, b: any) => a + b, 0)) } 
-            }] : [])
+                value: earnValue, 
+                display: formatCurrency(earnValue), 
+                amountMap: { 'USD': earnValue } 
+            }, earnValue, formatCurrency(previousEarnValue), previousEarnValue, { 'USD': previousEarnValue })] : [])
         ];
     }).sort((a: any, b: any) => {
         const getV = (v: any) => (typeof v === 'object' && v !== null ? (v.main ? parseInt(v.main) : (v.value || 0)) : v);

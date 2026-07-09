@@ -31,9 +31,21 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
     const hiddenValue: KpiValue = { value: '---', direction: 'neutral' };
     const isOverviewDataStale = processedDataKeys.overview !== currentDataKey;
     const showLoadingState = isLoading || isFetchingNewRange || isProcessing || isOverviewDataStale;
+    const [activeTable, setActiveTable] = React.useState<'daily' | 'shops'>('shops');
+    const visibleTable = isSingleDay ? 'shops' : activeTable;
 
     // Permission helper - checks new permissions with fallback to legacy
     const can = (permission: keyof typeof permissions) => hasPermission(role, permissions, permission);
+
+    const hasKpiData = React.useCallback((value: any): boolean => {
+        if (!value) return false;
+        if (typeof value !== 'object') return true;
+        if ('value' in value) {
+            const rawValue = String(value.value ?? '').trim();
+            return rawValue !== '' && rawValue !== '---' && rawValue !== '--';
+        }
+        return Object.values(value).some(hasKpiData);
+    }, []);
 
     // Memoize KPI values with permission checks
     const kpiValues = React.useMemo(() => ({
@@ -73,46 +85,61 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
 
     const { updateRate, refreshRates, resetRates, exchangeRates } = useDashboard();
 
-    const handleCopyFunds = React.useCallback(() => {
-        try {
-            const rawHeaders = processedData.overview.table.headers;
-            const rawRows = [...processedData.overview.table.rows];
-            
-            // Sort from oldest to newest (by Date string at index 0)
-            rawRows.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-            
-            let fundsText = '';
-            
-            if (globalUsdMode && exchangeRates) {
-                const fundsIndices: { idx: number, curr: string }[] = [];
-                rawHeaders.forEach((h, i) => {
-                    if (h.startsWith('Funds (')) {
-                        fundsIndices.push({ idx: i, curr: h.match(/\(([^)]+)\)/)?.[1] || 'USD' });
-                    }
-                });
-                
-                fundsText = rawRows.map(row => {
-                    const sum = fundsIndices.reduce((acc, item) => {
-                        const val = (row[item.idx] as number) || 0;
-                        const rate = item.curr === 'USD' ? 1 : (exchangeRates[item.curr] || 0);
-                        return acc + (val * rate);
-                    }, 0);
-                    return Number(sum.toFixed(2));
-                }).join('\n');
-            } else {
-                const fundsIndices = rawHeaders.map((h, i) => h.startsWith('Funds (') ? i : -1).filter(i => i !== -1);
-                fundsText = rawRows.map(row => {
-                    const sum = fundsIndices.reduce((acc, idx) => acc + ((row[idx] as number) || 0), 0);
-                    return Number(sum.toFixed(2));
-                }).join('\n');
-            }
-            
-            navigator.clipboard.writeText(fundsText);
-            addNotification('Copied funds to clipboard', 'success');
-        } catch (err) {
-            addNotification('Failed to copy funds', 'error');
+    const kpiCards = React.useMemo(() => [
+        {
+            key: 'orders',
+            visible: can('viewKpiOrders'),
+            title: 'Total Orders',
+            value: kpiValues.orders,
+            refundInfo: getRefundInfo(kpiValues.orders)
+        },
+        {
+            key: 'shops',
+            visible: can('viewKpiShops'),
+            title: 'Shops',
+            value: kpiValues.shops
+        },
+        {
+            key: 'revenue',
+            visible: can('viewKpiRevenue'),
+            title: 'Total Revenue',
+            value: kpiValues.revenue,
+            onRateUpdate: updateRate,
+            onRefresh: refreshRates,
+            onReset: resetRates
+        },
+        {
+            key: 'funds',
+            visible: can('viewKpiFunds'),
+            title: 'Funds',
+            value: kpiValues.funds,
+            onRateUpdate: updateRate,
+            onRefresh: refreshRates,
+            onReset: resetRates
+        },
+        {
+            key: 'cost',
+            visible: can('viewKpiCost'),
+            title: 'Cost',
+            value: kpiValues.cost
+        },
+        {
+            key: 'earn',
+            visible: can('viewKpiEarn'),
+            title: 'Earn',
+            value: kpiValues.earn,
+            onRateUpdate: updateRate,
+            onRefresh: refreshRates,
+            onReset: resetRates
         }
-    }, [processedData.overview.table, globalUsdMode, exchangeRates, addNotification]);
+    ].filter(card => card.visible && hasKpiData(card.value)), [kpiValues, role, permissions, updateRate, refreshRates, resetRates, hasKpiData]);
+
+    const kpiGridColumnsClass = React.useMemo(() => {
+        if (kpiCards.length >= 6) return 'xl:grid-cols-5 2xl:grid-cols-6';
+        if (kpiCards.length === 5) return 'xl:grid-cols-5';
+        if (kpiCards.length === 4) return 'xl:grid-cols-4';
+        return '';
+    }, [kpiCards.length]);
 
     const dailyBreakdownTable = React.useMemo(() => {
         const rawHeaders = processedData.overview.table.headers;
@@ -181,6 +208,62 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
         return { headers, rows };
     }, [processedData.overview.table, globalUsdMode, exchangeRates, filterDateRange]);
 
+    const handleCopyFunds = React.useCallback(() => {
+        try {
+            const fundsIndices = dailyBreakdownTable.headers
+                .map((header, index) => header.startsWith('Funds (') ? index : -1)
+                .filter(index => index !== -1);
+
+            if (fundsIndices.length === 0) {
+                addNotification('No funds column in the visible table', 'info');
+                return;
+            }
+
+            const formatCell = (value: unknown) => {
+                const numericValue = typeof value === 'number' ? value : Number(value || 0);
+                if (!Number.isFinite(numericValue)) return String(value ?? '');
+                return numericValue === 0 ? '0' : numericValue.toFixed(2);
+            };
+
+            const dateIndex = dailyBreakdownTable.headers.indexOf(DATE_COLUMN);
+            const rowsForCopy = [...dailyBreakdownTable.rows].sort((a, b) => {
+                if (dateIndex === -1) return 0;
+                return String(a[dateIndex] || '').localeCompare(String(b[dateIndex] || ''));
+            });
+
+            const fundsText = rowsForCopy
+                .map(row => fundsIndices.map(index => formatCell(row[index])).join('\t'))
+                .join('\n');
+
+            navigator.clipboard.writeText(fundsText);
+            addNotification(`Copied ${rowsForCopy.length} visible funds row(s) oldest to newest`, 'success');
+        } catch (err) {
+            addNotification('Failed to copy funds', 'error');
+        }
+    }, [dailyBreakdownTable, addNotification]);
+
+    const dailyHeaderActions = React.useMemo(() => {
+        const actions: { [header: string]: React.ReactNode } = {};
+        dailyBreakdownTable.headers.forEach(header => {
+            if (!header.startsWith('Funds (')) return;
+            actions[header] = (
+                <button
+                    type="button"
+                    onClick={handleCopyFunds}
+                    className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+                    title="Copy visible funds column"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                    Copy
+                </button>
+            );
+        });
+        return actions;
+    }, [dailyBreakdownTable.headers, handleCopyFunds]);
+
     const summaryRows = React.useMemo(() => {
         const rows = processedData.summary.table.rows;
         if (!globalUsdMode || !exchangeRates) return rows;
@@ -197,17 +280,26 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
 
         return rows.map(row => row.map(cell => {
             if (cell && typeof cell === 'object' && 'type' in cell && cell.type === 'text_with_subtitle') {
-                if (cell.mainAmountMap || cell.subtitleAmountMap) {
+                const nextCell = { ...cell };
+                if (cell.mainAmountMap) {
                     const mainUsd = calcUsdVal(cell.mainAmountMap);
-                    const subUsd = calcUsdVal(cell.subtitleAmountMap);
-                    return {
-                        ...cell,
-                        main: formatUsd(mainUsd),
-                        subtitle: subUsd > 0 ? `Refund: ${formatUsd(subUsd)}` : cell.subtitle,
-                        value: mainUsd
-                    };
+                    nextCell.main = formatUsd(mainUsd);
+                    nextCell.value = mainUsd;
                 }
-                return cell;
+                if (cell.subtitleAmountMap) {
+                    const subUsd = calcUsdVal(cell.subtitleAmountMap);
+                    const label = cell.subtitleLabel || 'Refund';
+                    const delta = cell.subtitleDelta ? ` (${cell.subtitleDelta})` : '';
+                    nextCell.subtitleValue = formatUsd(subUsd);
+                    nextCell.subtitle = `${label}: ${formatUsd(subUsd)}${delta}`;
+                }
+                if (cell.extraSubtitleAmountMap) {
+                    const extraUsd = calcUsdVal(cell.extraSubtitleAmountMap);
+                    const label = cell.extraSubtitleLabel || 'Refund';
+                    const delta = cell.extraSubtitleDelta ? ` (${cell.extraSubtitleDelta})` : '';
+                    nextCell.extraSubtitle = `${label}: ${formatUsd(extraUsd)}${delta}`;
+                }
+                return nextCell;
             }
 
             if (cell && typeof cell === 'object' && 'type' in cell && cell.type === 'value_with_unit') {
@@ -242,39 +334,25 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
         <div className="p-2 md:p-6 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
 
             {/* 1. KPIs Section - Conditionally render based on permissions */}
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-4 md:gap-6 mb-6">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${kpiGridColumnsClass} gap-3 md:gap-4 mb-6`}>
                 {showLoadingState ? (
                     <SkeletonLoader
                         variant="kpi-card"
-                        count={[
-                            can('viewKpiOrders'),
-                            can('viewKpiShops'),
-                            can('viewKpiRevenue'),
-                            can('viewKpiFunds'),
-                            can('viewKpiCost'),
-                            can('viewKpiEarn')
-                        ].filter(Boolean).length || 1}
+                        count={kpiCards.length || 1}
                     />
                 ) : (
                     <>
-                        {can('viewKpiOrders') && (
-                            <KpiCard title="Total Orders" value={kpiValues.orders} refundInfo={getRefundInfo(kpiValues.orders)} />
-                        )}
-                        {can('viewKpiShops') && (
-                            <KpiCard title="Shops" value={kpiValues.shops} />
-                        )}
-                        {can('viewKpiRevenue') && (
-                            <KpiCard title="Total Revenue" value={kpiValues.revenue} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
-                        )}
-                        {can('viewKpiFunds') && (
-                            <KpiCard title="Funds" value={kpiValues.funds} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
-                        )}
-                        {can('viewKpiCost') && (
-                            <KpiCard title="Cost" value={kpiValues.cost} />
-                        )}
-                        {can('viewKpiEarn') && (
-                            <KpiCard title="Earn" value={kpiValues.earn} onRateUpdate={updateRate} onRefresh={refreshRates} onReset={resetRates} />
-                        )}
+                        {kpiCards.map(card => (
+                            <KpiCard
+                                key={card.key}
+                                title={card.title}
+                                value={card.value}
+                                refundInfo={card.refundInfo}
+                                onRateUpdate={card.onRateUpdate}
+                                onRefresh={card.onRefresh}
+                                onReset={card.onReset}
+                            />
+                        ))}
                     </>
                 )}
             </div>
@@ -309,54 +387,52 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                 </ChartErrorBoundary>
             </div>
 
-            {/* 3. Detailed Tables - Split View */}
-            <div className={`grid grid-cols-1 ${isSingleDay ? '' : 'xl:grid-cols-2'} gap-6 items-start`}>
-                {/* Left: Daily Breakdown (Card View) - Hide if single day */}
-                {!isSingleDay && (
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-                        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Daily Breakdown</h3>
-                            {can('viewKpiFunds') && (
-                                <button 
-                                    onClick={handleCopyFunds} 
-                                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md shadow-sm transition-colors flex items-center gap-1.5"
-                                    title="Copy funds (oldest to newest)"
+            {/* 3. Detailed Tables - Full Width Toggle */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                    <div className="min-w-0">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                            {visibleTable === 'daily' ? 'Daily Breakdown' : 'Shop Summary'}
+                        </h3>
+                        {!isSingleDay && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Switch between daily view and shop view.</p>
+                        )}
+                    </div>
+                    <div className="flex flex-col items-stretch sm:items-end gap-2">
+                        {!isSingleDay && (
+                            <div className="inline-flex rounded-lg bg-gray-100 dark:bg-gray-900 p-1 border border-gray-200 dark:border-gray-700">
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveTable('shops')}
+                                    className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-colors ${visibleTable === 'shops' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'}`}
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                    </svg>
-                                    Copy Funds
+                                    Shop Summary
                                 </button>
-                            )}
-                        </div>
-                        <div className="">
-                            {showLoadingState ? (
-                                <div className="p-4"><SkeletonLoader variant="table-row" count={5} /></div>
-                            ) : (
-                            <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
-                                <DataTable
-                                    headers={dailyBreakdownTable.headers}
-                                    data={dailyBreakdownTable.rows}
-                                    onViewDayDetails={handleViewDayDetails}
-                                    autoHeight={true}
-                                    forceCardView={true}
-                                />
-                            </Suspense>
-                            )}
-                        </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveTable('daily')}
+                                    className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-colors ${visibleTable === 'daily' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'}`}
+                                >
+                                    Daily Breakdown
+                                </button>
+                            </div>
+                        )}
                     </div>
-                )}
-
-                {/* Right: Shop Summary (Table View) */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-                    <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Shop Summary</h3>
-                    </div>
-                    <div className="min-h-[400px]">
-                        {showLoadingState ? (
-                            <div className="p-4"><SkeletonLoader variant="table-row" count={5} /></div>
-                        ) : (
+                </div>
+                <div className="min-h-[400px]">
+                    {showLoadingState ? (
+                        <div className="p-4"><SkeletonLoader variant="table-row" count={5} /></div>
+                    ) : visibleTable === 'daily' ? (
+                        <Suspense fallback={<LoadingSpinner variant="table-row" count={5} />}>
+                            <DataTable
+                                headers={dailyBreakdownTable.headers}
+                                data={dailyBreakdownTable.rows}
+                                onViewDayDetails={handleViewDayDetails}
+                                autoHeight={true}
+                                headerActions={dailyHeaderActions}
+                            />
+                        </Suspense>
+                    ) : (
                         <Suspense fallback={<LoadingSpinner variant="table-row" count={5} />}>
                             <DataTable
                                 headers={processedData.summary.table.headers}
@@ -366,8 +442,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ processedData, isSingleDay, h
                                 onRowClick={handleSummaryRowClick}
                             />
                         </Suspense>
-                        )}
-                    </div>
+                    )}
                 </div>
             </div>
         </div>

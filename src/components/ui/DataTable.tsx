@@ -71,7 +71,7 @@ const useContainerSize = (ref: React.RefObject<HTMLDivElement>) => {
 
 // SortDirection type imported from utils now
 
-const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, autoHeight = false, mobileRowHeight, forceCardView = false, mobileBreakpoint = 768, columnWidths, scrollParentId, onRowClick, onItemsRendered, selectedKeys, onToggleSelect }) => {
+const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, autoHeight = false, mobileRowHeight, forceCardView = false, mobileBreakpoint = 768, columnWidths, headerActions, scrollParentId, onRowClick, onItemsRendered, selectedKeys, onToggleSelect }) => {
     const [sortColumn, setSortColumn] = useState<number | null>(null);
     const [sortDirection, setSortDirection] = useState<SortDirection>(null);
     const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set());
@@ -249,6 +249,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
             if (typeof val === 'object' && val.type === 'text_with_subtitle') {
                 str = String(val.main || '');
                 if (val.subtitle) subtitleExtra = lineH;
+                if (val.extraSubtitle) subtitleExtra += lineH;
             } else {
                 str = String(val);
             }
@@ -419,8 +420,9 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                         const isHidden = isHiddenOnDesktopMobileView(header);
                         const canSort = header !== 'Image' && header !== 'Actions';
                         
-                        let headerCellClass = `${isHidden ? 'hidden lg:flex' : 'flex'} min-w-0 items-center h-full px-4 py-2 ${canSort ? 'cursor-pointer hover:bg-indigo-500/5 dark:hover:bg-indigo-500/10' : ''} transition-all duration-200 group `;
+                        let headerCellClass = `${isHidden ? 'hidden lg:flex' : 'flex'} min-w-0 items-center h-full px-4 py-2 border-r border-gray-200 dark:border-gray-700 last:border-r-0 ${canSort ? 'cursor-pointer hover:bg-indigo-500/5 dark:hover:bg-indigo-500/10' : ''} transition-all duration-200 group `;
                         if (config.justify) headerCellClass += `justify-${config.justify} `;
+                        if (header.toLowerCase().includes('funds')) headerCellClass += 'text-emerald-700 dark:text-emerald-300 ';
 
                         const customHeaderStyle = {
                             flexGrow: config.flexGrow ?? 1,
@@ -436,8 +438,13 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
                                 onClick={() => canSort && handleSort(index)}
                                 style={customHeaderStyle}
                             >
-                                <div className="flex items-center">
+                                <div className="flex items-center gap-2 min-w-0">
                                     {header}
+                                    {headerActions?.[header] && (
+                                        <span onClick={(event) => event.stopPropagation()} className="inline-flex shrink-0">
+                                            {headerActions[header]}
+                                        </span>
+                                    )}
                                     {sortColumn === index && (
                                         <span className="ml-2">
                                             {sortDirection === 'asc' ? '▲' : '▼'}

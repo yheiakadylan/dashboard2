@@ -179,9 +179,30 @@ export interface KpiData {
 }
 
 // FIX: Allowed null in TableData rows to support records with missing cost data.
+export interface TextWithSubtitleCell {
+  type: 'text_with_subtitle';
+  main: string;
+  subtitle: string;
+  subtitleClass?: string;
+  mainClass?: string;
+  trendDirection?: 'up' | 'down' | 'neutral';
+  mainAmountMap?: { [c: string]: number };
+  subtitleAmountMap?: { [c: string]: number };
+  subtitleLabel?: string;
+  subtitleValue?: string;
+  subtitleDelta?: string;
+  subtitleDeltaDirection?: 'up' | 'down' | 'neutral';
+  extraSubtitle?: string;
+  extraSubtitleClass?: string;
+  extraSubtitleAmountMap?: { [c: string]: number };
+  extraSubtitleLabel?: string;
+  extraSubtitleDelta?: string;
+  value?: number;
+}
+
 export interface TableData {
   headers: string[];
-  rows: (string | number | null | any | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc?: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string, amountMap?: { [c: string]: number } } | { type: 'action_group', actions: any[] } | { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string, mainAmountMap?: { [c: string]: number }, subtitleAmountMap?: { [c: string]: number } })[][];
+  rows: (string | number | null | any | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc?: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string, amountMap?: { [c: string]: number } } | { type: 'action_group', actions: any[] } | TextWithSubtitleCell)[][];
 }
 
 export interface OverviewChartData {

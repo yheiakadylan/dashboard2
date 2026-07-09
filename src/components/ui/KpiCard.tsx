@@ -172,27 +172,38 @@ const formatCurrency = (value: number): string => {
   }).format(value);
 };
 
-const renderComparison = (kpiValue: KpiValue, trendPolarity: 'higher-is-better' | 'lower-is-better' = 'higher-is-better') => {
-  if (typeof kpiValue.change !== 'number' || !kpiValue.direction || kpiValue.direction === 'neutral') {
+const renderComparison = (kpiValue: KpiValue, trendPolarity: 'higher-is-better' | 'lower-is-better' = 'higher-is-better', showNeutral = false) => {
+  if (typeof kpiValue.change !== 'number' || !kpiValue.direction || (!showNeutral && kpiValue.direction === 'neutral')) {
     return null;
   }
 
   const isUp = kpiValue.direction === 'up';
-  const isGood = trendPolarity === 'higher-is-better' ? isUp : !isUp;
-  const color = isGood ? 'text-green-500' : 'text-red-500';
+  const isNeutral = kpiValue.direction === 'neutral';
+  const isGood = !isNeutral && (trendPolarity === 'higher-is-better' ? isUp : !isUp);
+  const color = isNeutral ? 'text-gray-500 dark:text-gray-400' : (isGood ? 'text-green-500' : 'text-red-500');
   // Use Lucide or Heroicons for indicators
   const Arrow = () => isUp
     ? <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
-    : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>;
+    : isNeutral
+      ? <span className="h-3 w-3 text-center leading-3">=</span>
+      : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>;
 
   const changeText = isFinite(kpiValue.change) ? `${Math.abs(kpiValue.change).toFixed(1)}%` : 'New';
+  const badgeBg = isNeutral ? 'bg-gray-50 dark:bg-gray-900/30' : (isGood ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20');
 
   return (
-    <div className={`mt-1 text-xs font-bold ${color} flex items-center gap-0.5 bg-opacity-10 rounded-full px-2 py-0.5 ${isGood ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+    <div className={`mt-1 text-xs font-bold ${color} flex items-center gap-0.5 bg-opacity-10 rounded-full px-2 py-0.5 ${badgeBg}`}>
       <Arrow />
       <span>{changeText}</span>
     </div>
   );
+};
+
+const getOverviewTrendValueClass = (kpiValue: KpiValue, isOverview: boolean) => {
+  if (!isOverview || !kpiValue.direction) return '';
+  if (kpiValue.direction === 'up') return 'text-emerald-600 dark:text-emerald-400';
+  if (kpiValue.direction === 'down') return 'text-red-600 dark:text-red-400';
+  return 'text-gray-900 dark:text-white';
 };
 
 const getRatingToneText = (title: string, value: KpiValue | { [currency: string]: KpiValue }) => {
@@ -211,7 +222,7 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
   const { icon, bg, text } = getIcon(title);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
-  const { setActiveTab } = useUITabs();
+  const { activeTab, setActiveTab } = useUITabs();
   const { setStatusFilter } = useUIFilters();
   const { globalUsdMode } = useUISettings();
   const { role, permissions } = useDashboard(); // Check role/permissions
@@ -229,6 +240,10 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
     }
   }
   const ratingToneText = getRatingToneText(title, displayValue);
+  const isOverviewTab = activeTab === 'Overview';
+  const overviewTrendValueClass = 'value' in displayValue
+    ? getOverviewTrendValueClass(displayValue as KpiValue, isOverviewTab)
+    : '';
 
   const handleRefundClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -336,13 +351,13 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
             <div className="flex flex-col gap-1">
               <div className="flex items-baseline gap-2">
                 <p
-                  className={`${displayValue.value.length > 8 ? 'text-base font-bold' : 'text-2xl font-black'} ${ratingToneText || 'text-gray-900 dark:text-white'} tracking-tight ${((displayValue as KpiValue).conversionDetails || (displayValue as KpiValue).shopBreakdown) ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-b-2 border-dotted border-gray-300 dark:border-gray-600' : ''}`}
+                  className={`${displayValue.value.length > 8 ? 'text-base font-bold' : 'text-2xl font-black'} ${ratingToneText || overviewTrendValueClass || 'text-gray-900 dark:text-white'} tracking-tight ${((displayValue as KpiValue).conversionDetails || (displayValue as KpiValue).shopBreakdown) ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-b-2 border-dotted border-gray-300 dark:border-gray-600' : ''}`}
                   onClick={((displayValue as KpiValue).conversionDetails || (displayValue as KpiValue).shopBreakdown) ? handleValueClick : undefined}
                   title={(displayValue as KpiValue).conversionDetails ? "Click to view conversion details" : (displayValue as KpiValue).shopBreakdown ? "Click to view shop breakdown" : ""}
                 >
                   {displayValue.value}
                 </p>
-                {renderComparison(displayValue as KpiValue, trendPolarity)}
+                {renderComparison(displayValue as KpiValue, trendPolarity, isOverviewTab)}
 
                 {(displayValue as KpiValue).conversionDetails && (
                   <ConversionModal
@@ -366,7 +381,7 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, refundInfo, onRateUpdat
               </div>
 
               {(displayValue as KpiValue).previousValue && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+                <p className="text-xs text-gray-400 dark:text-gray-500 font-medium">
                   {(displayValue as KpiValue).previousLabel || 'Previous period'}: {(displayValue as KpiValue).previousValue}
                 </p>
               )}

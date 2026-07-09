@@ -138,6 +138,44 @@ const renderTextContent = (cell: any, selectedKeys?: Set<string>, onToggleSelect
         : (typeof cell === 'string' ? cell : cell); // Fallback to cell itself if it's a React Node or unknown object
 }
 
+const renderTrendArrow = (direction?: 'up' | 'down' | 'neutral') => {
+    if (direction === 'up') {
+        return <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>;
+    }
+    if (direction === 'down') {
+        return <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>;
+    }
+    return null;
+};
+
+const getTrendDeltaClass = (direction?: 'up' | 'down' | 'neutral') => {
+    if (direction === 'up') return 'text-emerald-600 dark:text-emerald-400';
+    if (direction === 'down') return 'text-red-500 dark:text-red-400';
+    return 'text-gray-500 dark:text-gray-400';
+};
+
+const renderTrendDelta = (cell: any, className = '') => {
+    const direction = cell.subtitleDeltaDirection || cell.trendDirection;
+    if (!cell.subtitleDelta) return null;
+
+    return (
+        <span className={`inline-flex items-center gap-0.5 font-bold ${getTrendDeltaClass(direction)} ${className}`}>
+            {renderTrendArrow(direction)}
+            <span>{cell.subtitleDelta}</span>
+        </span>
+    );
+};
+
+const renderStructuredSubtitle = (cell: any) => {
+    if (!cell.subtitleLabel || cell.subtitleValue === undefined) {
+        return cell.subtitle;
+    }
+
+    return (
+        <span className="truncate">{cell.subtitleLabel}: {cell.subtitleValue}</span>
+    );
+};
+
 const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) => {
     const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, columnWidths, onRowClick } = data;
     const row = items[index];
@@ -171,7 +209,7 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
 
                 const hiddenClass = isHidden ? 'hidden lg:flex' : 'flex';
 
-                const cellClassBase = `${hiddenClass} text-sm items-center h-full overflow-hidden px-3 py-2 text-gray-700 dark:text-gray-300 min-w-0 `;
+                const cellClassBase = `${hiddenClass} text-sm items-center h-full overflow-hidden px-3 py-2 text-gray-700 dark:text-gray-300 min-w-0 border-r border-gray-100 dark:border-gray-700/70 last:border-r-0 `;
                 let cellClass = cellClassBase;
 
                 // Use centralized column config
@@ -183,6 +221,8 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     cellClass += 'font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200';
                 } else if (header === 'Order Number' || header === 'Order ID') {
                     cellClass += 'font-semibold text-gray-500 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200';
+                } else if (header.toLowerCase().includes('funds')) {
+                    cellClass += 'font-semibold !text-emerald-700 dark:!text-emerald-300 transition-colors';
                 } else if (['Revenue', 'Cost', 'Cost (USD)', 'Currency', 'Curren'].includes(header)) {
                     cellClass += `font-medium group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors ${isRefunded ? 'text-gray-400 dark:text-gray-500' : ''}`;
                 } else if (header === 'Message' || header === 'Help Kind') {
@@ -229,10 +269,18 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                          return (
                             <div key={cellIndex} className={cellClass} style={customStyle}>
                                 <div className="flex flex-col min-w-0">
-                                    <span className="font-semibold truncate">{cell.main}</span>
-                                    <span className={`text-[10px] mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis ${cell.subtitleClass || 'text-gray-500 dark:text-gray-400'}`}>
-                                        {cell.subtitle}
+                                    <span className="flex items-center gap-1.5 min-w-0">
+                                        <span className={`text-[15px] font-bold truncate ${cell.mainClass || ''}`}>{cell.main}</span>
+                                        {renderTrendDelta(cell, 'text-[11px] shrink-0')}
                                     </span>
+                                    <span className={`text-[10px] mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis ${cell.subtitleClass || 'text-gray-500 dark:text-gray-400'}`}>
+                                        {renderStructuredSubtitle(cell)}
+                                    </span>
+                                    {cell.extraSubtitle && (
+                                        <span className={`text-[10px] mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis ${cell.extraSubtitleClass || 'text-gray-500 dark:text-gray-400'}`}>
+                                            {cell.extraSubtitle}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         );

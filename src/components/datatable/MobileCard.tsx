@@ -75,6 +75,45 @@ const renderActionCell = (cell: any, _cellIndex: number, loadingItems: Set<strin
 
     return null;
 }
+
+const renderTrendArrow = (direction?: 'up' | 'down' | 'neutral') => {
+    if (direction === 'up') {
+        return <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>;
+    }
+    if (direction === 'down') {
+        return <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>;
+    }
+    return null;
+};
+
+const getTrendDeltaClass = (direction?: 'up' | 'down' | 'neutral') => {
+    if (direction === 'up') return 'text-emerald-600 dark:text-emerald-400';
+    if (direction === 'down') return 'text-red-500 dark:text-red-400';
+    return 'text-gray-500 dark:text-gray-400';
+};
+
+const renderTrendDelta = (cell: any, className = '') => {
+    const direction = cell.subtitleDeltaDirection || cell.trendDirection;
+    if (!cell.subtitleDelta) return null;
+
+    return (
+        <span className={`inline-flex items-center gap-0.5 font-bold ${getTrendDeltaClass(direction)} ${className}`}>
+            {renderTrendArrow(direction)}
+            <span>{cell.subtitleDelta}</span>
+        </span>
+    );
+};
+
+const renderStructuredSubtitle = (cell: any) => {
+    if (!cell.subtitleLabel || cell.subtitleValue === undefined) {
+        return cell.subtitle;
+    }
+
+    return (
+        <span className="truncate">{cell.subtitleLabel}: {cell.subtitleValue}</span>
+    );
+};
+
 const renderTextContent = (cell: any, selectedKeys?: Set<string>, onToggleSelect?: (key: string) => void) => {
     if (cell && typeof cell === 'object') {
         if (cell.type === 'checkbox') {
@@ -105,10 +144,18 @@ const renderTextContent = (cell: any, selectedKeys?: Set<string>, onToggleSelect
         if (cell.type === 'text_with_subtitle') {
             return (
                 <span className="flex flex-col items-start leading-tight group">
-                    <span>{cell.main}</span>
+                    <span className="inline-flex items-center gap-1.5 min-w-0">
+                        <span className={`text-[15px] font-bold truncate ${cell.mainClass || ''}`}>{cell.main}</span>
+                        {renderTrendDelta(cell, 'text-[11px] shrink-0')}
+                    </span>
                     {cell.subtitle && (
                         <span className={`text-[10px] ${cell.subtitleClass || 'text-gray-500'}`}>
-                            {cell.subtitle}
+                            {renderStructuredSubtitle(cell)}
+                        </span>
+                    )}
+                    {cell.extraSubtitle && (
+                        <span className={`text-[10px] ${cell.extraSubtitleClass || 'text-gray-500'}`}>
+                            {cell.extraSubtitle}
                         </span>
                     )}
                 </span>
@@ -387,9 +434,9 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             let containerClass = 'flex flex-col min-w-0';
 
                             if (item.isFunds) {
-                                valueClass = 'text-green-800 dark:text-green-200 font-bold';
-                                headerClass = 'text-[10px] text-green-700 dark:text-green-400 uppercase font-bold tracking-wide truncate';
-                                containerClass = 'flex flex-col min-w-0 bg-green-100 dark:bg-green-900/60 px-2.5 py-1.5 -mx-2 -my-1 rounded-md border border-green-400 dark:border-green-500 shadow-sm justify-self-start';
+                                valueClass = 'text-emerald-700 dark:text-emerald-300 font-bold';
+                                headerClass = 'text-[10px] text-emerald-700 dark:text-emerald-400 uppercase font-bold tracking-wide truncate';
+                                containerClass = 'flex flex-col min-w-0 bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1.5 -mx-2 -my-1 rounded-md border border-emerald-200 dark:border-emerald-700 shadow-sm justify-self-start';
                             }
 
                             return (
