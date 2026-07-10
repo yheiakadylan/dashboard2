@@ -78,6 +78,15 @@ function isEmailLike(value: unknown): boolean {
     return EMAIL_PATTERN.test(cleanText(value));
 }
 
+function isShopIdLike(value: unknown): boolean {
+    return /^\d+$/.test(cleanText(value));
+}
+
+function isHumanReadableShopName(value: unknown): boolean {
+    const text = cleanText(value);
+    return Boolean(text) && !isEmailLike(text) && !isShopIdLike(text);
+}
+
 function pickPreferredShopName(shop: Partial<EtsyReviewShopConfig> & Record<string, any>, fallback?: string): string {
     const preferred = [
         shop.label,
@@ -89,14 +98,15 @@ function pickPreferredShopName(shop: Partial<EtsyReviewShopConfig> & Record<stri
         shop.shopName
     ].map(cleanText).filter(Boolean);
 
-    const nonEmail = preferred.find(value => !isEmailLike(value));
-    if (nonEmail) return nonEmail;
+    const humanReadable = preferred.find(isHumanReadableShopName);
+    if (humanReadable) return humanReadable;
 
     const fallbackText = cleanText(fallback);
-    if (fallbackText && !isEmailLike(fallbackText)) return fallbackText;
+    if (isHumanReadableShopName(fallbackText)) return fallbackText;
 
-    return preferred[0]
+    return preferred.find(value => !isShopIdLike(value))
         || fallbackText
+        || preferred[0]
         || cleanText(shop.email)
         || cleanText(shop.shopId);
 }
@@ -154,8 +164,28 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
         });
     }
 
+    async function resolveAccountLabelByShopId(teamId: string, shopId: string): Promise<string> {
+        if (!teamId || !isValidEtsyShopId(shopId)) return '';
+
+        const isAuthenticated = await deps.ensureAuth();
+        if (!isAuthenticated) return '';
+
+        const accountsRef = collection(deps.db, 'user', teamId, 'accounts');
+        const snapshot = await getDocs(accountsRef);
+        const accountDoc = snapshot.docs.find(account => {
+            const data = account.data() as any;
+            return [data.etsy_shop_id, data.etsyShopId, data.shopId]
+                .some(value => cleanText(value) === shopId);
+        });
+        if (!accountDoc) return '';
+
+        const data = accountDoc.data() as any;
+        return pickPreferredShopName(data, accountDoc.id);
+    }
+
     async function resolveReviewShopDisplayName(review: CleanedEtsyReview): Promise<string> {
-        const storage = (await chrome.storage.local.get(['account', 'accountLabel', 'etsy_review_shops'])) as {
+        const storage = (await chrome.storage.local.get(['teamId', 'account', 'accountLabel', 'etsy_review_shops'])) as {
+            teamId?: string;
             account?: string;
             accountLabel?: string;
             etsy_review_shops?: EtsyReviewShopConfig[];
@@ -176,11 +206,18 @@ export function createEtsyReviewSync(deps: EtsyReviewSyncDeps) {
         const matchedName = matchedShop ? pickPreferredShopName(matchedShop) : '';
         const accountLabel = cleanText(storage.accountLabel);
         const account = cleanText(storage.account);
+        const savedReviewLabel = cleanText(review.shop_label);
+        const firestoreLabel = await resolveAccountLabelByShopId(cleanText(storage.teamId), reviewShop)
+            .catch(error => {
+                console.warn(`[Reviews] Failed to resolve account label for shop_id=${reviewShop}:`, error);
+                return '';
+            });
 
-        if (matchedName && !isEmailLike(matchedName)) return matchedName;
-        if (accountLabel && !isEmailLike(accountLabel)) return accountLabel;
-        if (reviewShop && !isEmailLike(reviewShop)) return reviewShop;
-        return matchedName || reviewShop || accountLabel || account || 'Unknown Shop';
+        if (isHumanReadableShopName(matchedName)) return matchedName;
+        if (isHumanReadableShopName(firestoreLabel)) return firestoreLabel;
+        if (isHumanReadableShopName(accountLabel)) return accountLabel;
+        if (isHumanReadableShopName(savedReviewLabel)) return savedReviewLabel;
+        return matchedName || firestoreLabel || accountLabel || savedReviewLabel || account || reviewShop || 'Unknown Shop';
     }
 
     async function triggerBadReviewWebhook(review: CleanedEtsyReview) {

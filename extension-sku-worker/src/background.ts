@@ -453,9 +453,12 @@ function pickReviewShopName(shop: any): string {
         shop?.displayName,
         shop?.shopName
     ].map(value => String(value || '').trim()).filter(Boolean);
-    return preferred.find(value => !EMAIL_PATTERN.test(value))
+    const humanReadable = preferred.find(value => !EMAIL_PATTERN.test(value) && !/^\d+$/.test(value));
+    return humanReadable
+        || preferred.find(value => !/^\d+$/.test(value))
+        || String(shop?.email || '').trim()
         || preferred[0]
-        || String(shop?.email || shop?.shopId || '').trim();
+        || String(shop?.shopId || '').trim();
 }
 
 function normalizeReviewShops(rawShops: any): Array<{ shopId: string; shopName: string; label?: string | null; email?: string | null; name?: string | null; etsyShopName?: string | null }> {
