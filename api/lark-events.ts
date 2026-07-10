@@ -170,6 +170,14 @@ function normalizeCustomerFilesForSync(value: unknown): string[] | undefined {
   return Array.from(new Set(files));
 }
 
+function hasOwnField(value: unknown, field: string): boolean {
+  return Boolean(value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, field));
+}
+
+function taskTextForSync(value: unknown): string {
+  return String(value ?? '');
+}
+
 function shouldPreferRecordForSkuSync(
   current: { data: any } | undefined,
   candidate: { ref: any; data: any },
@@ -608,6 +616,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         listingId?: string;
         transactionId?: string;
         customerFiles?: string[];
+        variant1?: string;
+        variant2?: string;
+        personalization?: string;
         variations?: string[];
         quantity?: number;
       }[];
@@ -694,12 +705,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const existingItem = existingItems[index] || {};
             const nextSku = normalizeSkuForSync(payloadItem.sku) || normalizeSkuForSync(existingItem.sku);
             const payloadCustomerFiles = normalizeCustomerFilesForSync(payloadItem.customerFiles);
+            const variant1 = hasOwnField(payloadItem, 'variant1')
+              ? taskTextForSync(payloadItem.variant1)
+              : taskTextForSync(payloadItem.variations?.[0] ?? existingItem.variant ?? '');
+            const variant2 = hasOwnField(payloadItem, 'variant2')
+              ? taskTextForSync(payloadItem.variant2)
+              : taskTextForSync(payloadItem.variations?.[1] ?? existingItem.variant2 ?? '');
             return {
               ...existingItem,
               name: payloadItem.title || existingItem.name || "",
               sku: nextSku || "",
-              variant: payloadItem.variations?.[0] || existingItem.variant || "",
-              variant2: payloadItem.variations?.[1] || existingItem.variant2 || "",
+              variant: variant1,
+              variant2,
+              ...(hasOwnField(payloadItem, 'personalization')
+                ? { personalization: taskTextForSync(payloadItem.personalization) }
+                : {}),
               quantity: existingItem.quantity || payloadItem.quantity || 1,
               price: existingItem.price || 0,
               ...(payloadItem.listingId ? { listingId: payloadItem.listingId } : {}),
@@ -724,6 +744,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const payloadCustomerFiles = normalizeCustomerFilesForSync(item.customerFiles);
           const recordCustomerFiles = normalizeCustomerFilesForSync(existingRecordItem.customerFiles);
           const customerFilesToSync = payloadCustomerFiles ?? recordCustomerFiles;
+          const variant1 = hasOwnField(item, 'variant1')
+            ? taskTextForSync(item.variant1)
+            : taskTextForSync(item.variations?.[0] ?? '');
+          const variant2 = hasOwnField(item, 'variant2')
+            ? taskTextForSync(item.variant2)
+            : taskTextForSync(item.variations?.[1] ?? '');
           const SKU_REGEX = /^([^-]+)-([^-]+)-(.*)$/;
           let productType = '';
           let ideaEmpId = '';
@@ -740,8 +766,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const taskExists = existingTaskIds.has(taskId);
 
           const taskUpdate: Record<string, unknown> = {
-            variant1: item.variations?.[0] || '',
-            variant2: item.variations?.[1] || '',
+            variant1,
+            variant2,
+            ...(hasOwnField(item, 'personalization')
+              ? { personalization: taskTextForSync(item.personalization) }
+              : {}),
             updatedAt: new Date().toISOString(),
             // Always sync listingId regardless of task status
             ...(item.listingId ? { listingId: item.listingId } : {}),

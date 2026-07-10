@@ -142,6 +142,9 @@ const Header: React.FC = () => {
                 transactionId: i.transactionId || '',
                 customerFiles: Array.isArray(i.customerFiles) ? i.customerFiles : [],
                 quantity: i.quantity || 1,
+                variant1: i.variant || '',
+                variant2: i.variant2 || '',
+                personalization: i.personalization || '',
                 variations
             };
         }) || [];

@@ -531,20 +531,71 @@ function normalizeCustomerFiles(value: unknown): string[] {
         : [];
 }
 
-function variationValuesFromItem(item: Partial<ExtractedItem> | Record<string, any> | undefined): string[] {
-    if (!item) return [];
+interface TaskVariantFields {
+    variant1: string;
+    variant2: string;
+}
+
+function isPersonalizationVariation(name: unknown): boolean {
+    return /^(personalization|personalisation|personnalisation|wunschtext|personalizzazioni|personalizaci[oó]n|personaliza[cç][aã]o|personalisatie|peronalizacja|personaliz[aá]cia|personaliseer|personalized|personalised)$/i
+        .test(String(name || '').trim());
+}
+
+function taskVariantsFromRecordItem(item: Record<string, any>): TaskVariantFields {
+    return {
+        variant1: String(item.variant1 ?? item.variant ?? ''),
+        variant2: String(item.variant2 ?? '')
+    };
+}
+
+function taskVariantsFromExtractedItem(item: Partial<ExtractedItem> | undefined): TaskVariantFields {
+    if (!item) return { variant1: '', variant2: '' };
 
     if (Array.isArray(item.variations)) {
-        return item.variations
-            .map((variation: any) => String(variation?.value || variation || '').trim())
+        const variants = item.variations
+            .filter((variation: any) => !isPersonalizationVariation(variation?.name))
+            .map((variation: any) => {
+                if (!variation || typeof variation !== 'object') {
+                    return String(variation || '').trim();
+                }
+
+                const name = String(variation.name || '').trim();
+                const value = String(variation.value || '').trim();
+                if (name && value) return `${name}: ${value}`;
+                return value || name;
+            })
             .filter(Boolean);
+
+        return {
+            variant1: variants[0] || '',
+            variant2: variants[1] || ''
+        };
     }
 
-    const values = [
-        (item as any).variant1 || (item as any).variant,
-        (item as any).variant2
-    ];
-    return values.map(value => String(value || '').trim()).filter(Boolean);
+    if (typeof item.variations === 'string') {
+        return {
+            variant1: item.variations.trim(),
+            variant2: ''
+        };
+    }
+
+    return { variant1: '', variant2: '' };
+}
+
+function matchExtractedItem(
+    extractedItems: ExtractedItem[],
+    recordItem: Record<string, any> | undefined,
+    index: number
+): ExtractedItem | undefined {
+    const recordTransactionId = String(recordItem?.transactionId || '').trim();
+    if (recordTransactionId) {
+        const transactionMatch = extractedItems.find(item =>
+            String(item.transaction_id || '').trim() === recordTransactionId
+        );
+        if (transactionMatch) return transactionMatch;
+    }
+
+    return extractedItems[index];
 }
 
 function buildTaskSyncPayloads(
@@ -554,14 +605,18 @@ function buildTaskSyncPayloads(
     skuString: string,
     globalCustomerFiles: string[]
 ): TaskSyncPayload[] {
-    const itemCount = Math.max(extractedItems.length, recordItems.length, normalizeSkuValue(skuString) ? 1 : 0);
+    const itemCount = recordItems.length > 0
+        ? recordItems.length
+        : Math.max(extractedItems.length, normalizeSkuValue(skuString) ? 1 : 0);
     if (itemCount === 0) return [];
 
     const payloads: TaskSyncPayload[] = [];
 
     for (let index = 0; index < itemCount; index++) {
-        const extractedItem = extractedItems[index];
-        const recordItem = recordItems[index] || {};
+        const sourceRecordItem = recordItems[index];
+        const extractedItem = matchExtractedItem(extractedItems, sourceRecordItem, index);
+        const recordItem = sourceRecordItem || {};
+        const hasRecordItem = recordItems[index] !== undefined;
         const taskId = itemCount > 1 ? `${orderId}-${index + 1}` : orderId;
         const fallbackOrderSku = itemCount === 1 ? skuString : '';
         const sku = normalizeSkuValue(extractedItem?.sku)
@@ -572,17 +627,17 @@ function buildTaskSyncPayloads(
 
         const extractedFiles = normalizeCustomerFiles(extractedItem?.customerFiles);
         const recordFiles = normalizeCustomerFiles(recordItem.customerFiles);
-        const variations = variationValuesFromItem(extractedItem).length > 0
-            ? variationValuesFromItem(extractedItem)
-            : variationValuesFromItem(recordItem);
+        const taskVariants = hasRecordItem
+            ? taskVariantsFromRecordItem(recordItem)
+            : taskVariantsFromExtractedItem(extractedItem);
         const listingId = String(extractedItem?.listingId || recordItem.listingId || '').trim();
         const transactionId = String(extractedItem?.transaction_id || recordItem.transactionId || '').trim();
 
         payloads.push({
             taskId,
             sku,
-            variant1: variations[0] || '',
-            variant2: variations[1] || '',
+            variant1: taskVariants.variant1,
+            variant2: taskVariants.variant2,
             customerFiles: extractedFiles.length > 0 ? extractedFiles : (globalCustomerFiles.length > 0 ? globalCustomerFiles : recordFiles),
             listingId: listingId || undefined,
             transactionId: transactionId || undefined
