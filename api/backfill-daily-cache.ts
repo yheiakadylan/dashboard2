@@ -48,6 +48,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const from = typeof req.query.from === 'string' ? req.query.from : '';
     const to = typeof req.query.to === 'string' ? req.query.to : '';
+    const isScheduledRun = !from && !to;
+    const effectiveForce = force || isScheduledRun;
 
     if (from && to) {
       const dates = listDates(from, to);
@@ -71,12 +73,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    console.log(`[backfill-daily-cache] team=${teamId} jobs=${jobs.length} force=${force} collections=${collections.join(',')}`);
+    console.log(`[backfill-daily-cache] team=${teamId} jobs=${jobs.length} force=${effectiveForce} collections=${collections.join(',')}`);
 
     const results = [];
     for (const job of jobs) {
       try {
-        results.push(await buildDailyCacheForDay(db, { teamId, ...job, force }));
+        results.push(await buildDailyCacheForDay(db, { teamId, ...job, force: effectiveForce }));
       } catch (error: any) {
         console.error('[backfill-daily-cache] Job failed:', job, error);
         results.push({
@@ -100,7 +102,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({
       ok: true,
       teamId,
-      force,
+      force: effectiveForce,
       jobCount: jobs.length,
       summary,
       results,

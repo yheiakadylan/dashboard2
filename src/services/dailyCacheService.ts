@@ -71,6 +71,8 @@ const CACHE_WRITE_CONCURRENCY = 1;
 const CACHE_WRITE_QUEUE_LIMIT = 30;
 const CACHE_READ_TIMEOUT_MS = 20000;
 const LIVE_DAY_QUERY_TIMEOUT_MS = 60000;
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const EMPTY_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
 const DAILY_CACHE_COLLECTION = 'daily_cache';
 const SUPPORTED_OFFSET_KEYS: DailyCacheOffsetKey[] = ['p7', 'm7', 'm8'];
 
@@ -163,6 +165,41 @@ export const getTimezoneOffsetStringForDate = (timeZone: string, dateStr: string
   }
 };
 
+const getTimezoneOffsetMinutesAtInstant = (timeZone: string, instant: Date): number => {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    timeZoneName: 'longOffset',
+  });
+  const offset = formatter.formatToParts(instant).find(part => part.type === 'timeZoneName')?.value;
+  const match = offset?.match(/^GMT([+-])(\d{2}):(\d{2})$/);
+  if (!match) return 0;
+  const minutes = Number(match[2]) * 60 + Number(match[3]);
+  return match[1] === '-' ? -minutes : minutes;
+};
+
+const getUtcForLocalMidnight = (timeZone: string, dateStr: string): Date => {
+  const localMidnightAsUTC = Date.parse(`${dateStr}T00:00:00.000Z`);
+  let utcMs = localMidnightAsUTC;
+
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    const offsetMinutes = getTimezoneOffsetMinutesAtInstant(timeZone, new Date(utcMs));
+    const nextUtcMs = localMidnightAsUTC - offsetMinutes * 60 * 1000;
+    if (nextUtcMs === utcMs) break;
+    utcMs = nextUtcMs;
+  }
+
+  return new Date(utcMs);
+};
+
+const buildIsoRangeForTimezoneDay = (date: string, timeZone: string) => {
+  const from = getUtcForLocalMidnight(timeZone, date);
+  const nextDayFrom = getUtcForLocalMidnight(timeZone, addDays(date, 1));
+  return {
+    fromISO: from.toISOString(),
+    toISO: new Date(nextDayFrom.getTime() - 1).toISOString(),
+  };
+};
+
 export const getSupportedOffsetKeyForDate = (timeZone: string, dateStr: string): DailyCacheOffsetKey | null => {
   return OFFSET_KEY_BY_VALUE[getTimezoneOffsetStringForDate(timeZone, dateStr)] || null;
 };
@@ -192,13 +229,11 @@ const splitRangeIntoDays = (startDate: string, endDate: string, timeZone: string
   let cursor = startDate;
 
   while (cursor <= endDate) {
-    const offsetKey = getSupportedOffsetKeyForDate(timeZone, cursor);
-    const range = offsetKey
-      ? buildIsoRangeForOffsetDay(cursor, offsetKey)
-      : {
-        fromISO: new Date(`${cursor}T00:00:00.000${getTimezoneOffsetStringForDate(timeZone, cursor)}`).toISOString(),
-        toISO: new Date(`${cursor}T23:59:59.999${getTimezoneOffsetStringForDate(timeZone, cursor)}`).toISOString(),
-      };
+    const range = buildIsoRangeForTimezoneDay(cursor, timeZone);
+    const durationMs = new Date(range.toISO).getTime() + 1 - new Date(range.fromISO).getTime();
+    const offsetKey = durationMs === 24 * 60 * 60 * 1000
+      ? getSupportedOffsetKeyForDate(timeZone, cursor)
+      : null;
 
     segments.push({
       date: cursor,
@@ -328,6 +363,21 @@ const readDailyCache = async <T extends CacheableData>(
     meta.offsetKey !== offsetKey ||
     meta.date !== date
   ) {
+    return null;
+  }
+
+  const builtAtMs = Date.parse(meta.builtAt || meta.updatedAt || '');
+  const cacheAgeMs = Date.now() - builtAtMs;
+  const maxAgeMs = Number(meta.itemCount || 0) === 0 ? EMPTY_CACHE_MAX_AGE_MS : CACHE_MAX_AGE_MS;
+  if (!Number.isFinite(builtAtMs) || cacheAgeMs > maxAgeMs) {
+    logCacheQuery(Number(meta.itemCount || 0) === 0 ? 'cache-read:expired-empty' : 'cache-read:expired', {
+      collectionName,
+      date,
+      offsetKey,
+      builtAt: meta.builtAt || null,
+      count: Number(meta.itemCount || 0),
+      ageMs: Number.isFinite(cacheAgeMs) ? cacheAgeMs : null,
+    });
     return null;
   }
 
