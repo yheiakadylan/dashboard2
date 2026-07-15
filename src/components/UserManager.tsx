@@ -1,30 +1,38 @@
-
 // components/UserManager.tsx
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useDashboard } from '../contexts/DashboardContext';
-import { db, auth } from '../services/firebaseService';
-import { collection, getDocs, query, where, doc, writeBatch } from 'firebase/firestore';
-import { Account } from '../types';
-import Spinner from './Spinner';
+import React, { useState, useEffect, useCallback } from "react";
+import { useDashboard } from "../contexts/DashboardContext";
+import { db, auth } from "../services/firebaseService";
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  doc,
+  writeBatch,
+} from "firebase/firestore";
+import { Account } from "../types";
+import Spinner from "./Spinner";
 
 // Định nghĩa kiểu dữ liệu cho User Role
 interface UserRole {
   id: string; // Document ID (chính là user.uid)
   email: string;
-  role: 'owner' | 'user';
+  role: "owner" | "user";
   permissions: {
     viewSales: boolean;
     viewFunds: boolean;
     viewFulfill: boolean;
     canManageSettings: boolean;
+    canAddDesign: boolean;
+    canProcessDesign: boolean;
   };
   allowedAccounts?: string[];
-  display_name?: string;          // Tên hiển thị trên Leaderboard/KPI
-  is_kpi?: boolean;               // Tham gia tính KPI / xuất hiện trên Leaderboard
+  display_name?: string; // Tên hiển thị trên Leaderboard/KPI
+  is_kpi?: boolean; // Tham gia tính KPI / xuất hiện trên Leaderboard
   can_view_leaderboard?: boolean; // Có quyền xem Leaderboard toàn team
-  kpi_team?: string;              // Team KPI
-  viewable_kpi_teams?: string[];  // Các team được phép xem
+  kpi_team?: string; // Team KPI
+  viewable_kpi_teams?: string[]; // Các team được phép xem
 }
 
 // --- BẮT ĐẦU: Component Modal mới để chọn Account ---
@@ -35,31 +43,47 @@ interface AccountSelectionModalProps {
   onClose: () => void;
 }
 
-const AccountSelectionModal: React.FC<AccountSelectionModalProps> = ({ user, allMailAccounts, onSave, onClose }) => {
-  const [selectedAccounts, setSelectedAccounts] = useState<string[]>(() => user.allowedAccounts || []);
-  const [searchTerm, setSearchTerm] = useState('');
+const AccountSelectionModal: React.FC<AccountSelectionModalProps> = ({
+  user,
+  allMailAccounts,
+  onSave,
+  onClose,
+}) => {
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>(
+    () => user.allowedAccounts || [],
+  );
+  const [searchTerm, setSearchTerm] = useState("");
 
   const handleToggleAccount = (email: string) => {
-    setSelectedAccounts(prev =>
-      prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]
+    setSelectedAccounts((prev) =>
+      prev.includes(email) ? prev.filter((e) => e !== email) : [...prev, email],
     );
   };
 
-  const filteredAccounts = allMailAccounts.filter(acc =>
-    (acc.label || acc.email).toLowerCase().includes(searchTerm.toLowerCase()) ||
-    acc.email.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredAccounts = allMailAccounts.filter(
+    (acc) =>
+      (acc.label || acc.email)
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase()) ||
+      acc.email.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
   const handleSelectAllFiltered = (isChecked: boolean) => {
-    const filteredEmails = new Set(filteredAccounts.map(a => a.email));
+    const filteredEmails = new Set(filteredAccounts.map((a) => a.email));
     if (isChecked) {
-      setSelectedAccounts(prev => Array.from(new Set([...prev, ...filteredEmails])));
+      setSelectedAccounts((prev) =>
+        Array.from(new Set([...prev, ...filteredEmails])),
+      );
     } else {
-      setSelectedAccounts(prev => prev.filter(email => !filteredEmails.has(email)));
+      setSelectedAccounts((prev) =>
+        prev.filter((email) => !filteredEmails.has(email)),
+      );
     }
   };
 
-  const isAllFilteredSelected = filteredAccounts.length > 0 && filteredAccounts.every(acc => selectedAccounts.includes(acc.email));
+  const isAllFilteredSelected =
+    filteredAccounts.length > 0 &&
+    filteredAccounts.every((acc) => selectedAccounts.includes(acc.email));
 
   const handleDone = () => {
     onSave(user.id, selectedAccounts);
@@ -68,16 +92,38 @@ const AccountSelectionModal: React.FC<AccountSelectionModalProps> = ({ user, all
   const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg border border-gray-200 dark:border-gray-700 flex flex-col h-[600px] max-h-[85vh]" onClick={stopPropagation}>
+    <div
+      className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg border border-gray-200 dark:border-gray-700 flex flex-col h-[600px] max-h-[85vh]"
+        onClick={stopPropagation}
+      >
         <div className="flex justify-between items-start p-4 border-b border-gray-200 dark:border-gray-700">
           <div>
-            <h3 className="font-semibold text-lg text-gray-900 dark:text-white">Allowed accounts for</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{user.email}</p>
+            <h3 className="font-semibold text-lg text-gray-900 dark:text-white">
+              Allowed accounts for
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">
+              {user.email}
+            </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-full text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-gray-800 focus:ring-blue-500">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+          <button
+            onClick={onClose}
+            className="p-1 rounded-full text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-gray-800 focus:ring-blue-500"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-5 w-5"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fillRule="evenodd"
+                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
             </svg>
           </button>
         </div>
@@ -85,15 +131,24 @@ const AccountSelectionModal: React.FC<AccountSelectionModalProps> = ({ user, all
         <div className="p-4 space-y-3 border-b border-gray-200 dark:border-gray-700">
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+              <svg
+                className="h-5 w-5 text-gray-400"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+                  clipRule="evenodd"
+                />
               </svg>
             </div>
             <input
               type="text"
               placeholder="Search by name or email..."
               value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+              onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
@@ -101,7 +156,7 @@ const AccountSelectionModal: React.FC<AccountSelectionModalProps> = ({ user, all
             <input
               type="checkbox"
               checked={isAllFilteredSelected}
-              onChange={e => handleSelectAllFiltered(e.target.checked)}
+              onChange={(e) => handleSelectAllFiltered(e.target.checked)}
               className="rounded text-blue-600 focus:ring-blue-500"
             />
             <span>Select all ({filteredAccounts.length})</span>
@@ -109,44 +164,88 @@ const AccountSelectionModal: React.FC<AccountSelectionModalProps> = ({ user, all
         </div>
 
         <div className="flex-grow overflow-y-auto p-2 space-y-1">
-          {filteredAccounts.map(account => {
+          {filteredAccounts.map((account) => {
             const isSelected = selectedAccounts.includes(account.email);
             return (
-              <label key={account.id} className={`flex items-center space-x-3 p-2 rounded-md border cursor-pointer transition-colors duration-150 ${isSelected ? 'bg-blue-50 dark:bg-blue-900/40 border-blue-400 dark:border-blue-600' : 'bg-transparent border-transparent hover:bg-gray-100 dark:hover:bg-gray-700/50'}`}>
+              <label
+                key={account.id}
+                className={`flex items-center space-x-3 p-2 rounded-md border cursor-pointer transition-colors duration-150 ${isSelected ? "bg-blue-50 dark:bg-blue-900/40 border-blue-400 dark:border-blue-600" : "bg-transparent border-transparent hover:bg-gray-100 dark:hover:bg-gray-700/50"}`}
+              >
                 <input
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => handleToggleAccount(account.email)}
                   className="rounded h-4 w-4 text-blue-600 focus:ring-blue-500"
                 />
-                {account.provider === 'gmail' ? (
-                  <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-5 h-5 flex-shrink-0" />
+                {account.provider === "gmail" ? (
+                  <img
+                    src="https://www.svgrepo.com/show/475656/google-color.svg"
+                    alt="Google"
+                    className="w-5 h-5 flex-shrink-0"
+                  />
                 ) : (
-                  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/512px-Microsoft_logo.svg.png?20210729021049" alt="Microsoft" className="w-5 h-5 flex-shrink-0" />
+                  <img
+                    src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/512px-Microsoft_logo.svg.png?20210729021049"
+                    alt="Microsoft"
+                    className="w-5 h-5 flex-shrink-0"
+                  />
                 )}
                 <div className="flex-grow min-w-0">
-                  <p className="font-medium text-gray-800 dark:text-gray-100 truncate" title={account.label || account.email}>{account.label || account.email}</p>
-                  {account.label && <p className="text-xs text-gray-500 dark:text-gray-400 truncate" title={account.email}>{account.email}</p>}
+                  <p
+                    className="font-medium text-gray-800 dark:text-gray-100 truncate"
+                    title={account.label || account.email}
+                  >
+                    {account.label || account.email}
+                  </p>
+                  {account.label && (
+                    <p
+                      className="text-xs text-gray-500 dark:text-gray-400 truncate"
+                      title={account.email}
+                    >
+                      {account.email}
+                    </p>
+                  )}
                 </div>
               </label>
-            )
+            );
           })}
           {filteredAccounts.length === 0 && (
             <div className="text-center py-10 px-4">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              <svg
+                className="mx-auto h-12 w-12 text-gray-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-200">No accounts found</h3>
-              <p className="mt-1 text-sm text-gray-500">No accounts match your search term.</p>
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-200">
+                No accounts found
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                No accounts match your search term.
+              </p>
             </div>
           )}
         </div>
 
         <div className="p-4 flex justify-end gap-3 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700">
-          <button onClick={onClose} className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md font-semibold text-gray-800 dark:text-gray-100">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md font-semibold text-gray-800 dark:text-gray-100"
+          >
             Cancel
           </button>
-          <button onClick={handleDone} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-semibold">
+          <button
+            onClick={handleDone}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-semibold"
+          >
             Done
           </button>
         </div>
@@ -155,7 +254,6 @@ const AccountSelectionModal: React.FC<AccountSelectionModalProps> = ({ user, all
   );
 };
 // --- KẾT THÚC: Component Modal mới ---
-
 
 const UserManager: React.FC = () => {
   const { teamId, accounts: allMailAccounts } = useDashboard();
@@ -167,58 +265,71 @@ const UserManager: React.FC = () => {
   const [isManagingTeams, setIsManagingTeams] = useState(false);
 
   // State cho việc tạo user mới
-  const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserPassword, setNewUserPassword] = useState('');
-  const [newUserRole, setNewUserRole] = useState<'user' | 'owner'>('user');
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState<"user" | "owner">("user");
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
   // --- State để quản lý modal ---
-  const [editingAccountsForUser, setEditingAccountsForUser] = useState<UserRole | null>(null);
+  const [editingAccountsForUser, setEditingAccountsForUser] =
+    useState<UserRole | null>(null);
 
   // --- State cho Delete User ---
-  const [confirmDeleteUser, setConfirmDeleteUser] = useState<UserRole | null>(null);
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState<UserRole | null>(
+    null,
+  );
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
-
 
   // Hàm tải danh sách user
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const q = query(collection(db, 'user_roles'), where('teamId', '==', teamId));
+      const q = query(
+        collection(db, "user_roles"),
+        where("teamId", "==", teamId),
+      );
       const querySnapshot = await getDocs(q);
-      const userList = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        allowedAccounts: doc.data().allowedAccounts || [],
-      } as UserRole));
+      const userList = querySnapshot.docs.map(
+        (doc) =>
+          ({
+            id: doc.id,
+            ...doc.data(),
+            allowedAccounts: doc.data().allowedAccounts || [],
+          }) as UserRole,
+      );
 
-      userList.forEach(u => {
-        if (u.role === 'user' && !u.permissions) {
+      userList.forEach((u) => {
+        if (u.role === "user" && !u.permissions) {
           u.permissions = {
             viewSales: false,
             viewFunds: false,
             viewFulfill: false,
-
             canManageSettings: false,
+            canAddDesign: false,
+            canProcessDesign: false,
           };
         }
       });
-      setUsers(userList.sort((a, b) => a.role.localeCompare(b.role) || a.email.localeCompare(b.email)));
-
+      setUsers(
+        userList.sort(
+          (a, b) =>
+            a.role.localeCompare(b.role) || a.email.localeCompare(b.email),
+        ),
+      );
     } catch (err: any) {
       console.error(err);
-      setError('Failed to load users. Check Firestore rules.');
+      setError("Failed to load users. Check Firestore rules.");
     }
     setLoading(false);
   }, [teamId]);
 
   useEffect(() => {
     fetchUsers();
-    
+
     // Listen for KPI Teams changes
-    import('../services/firebaseService').then(({ listenForSettings }) => {
+    import("../services/firebaseService").then(({ listenForSettings }) => {
       const unsubscribe = listenForSettings(teamId, (settings) => {
         setKpiTeams(settings.kpiTeams || []);
       });
@@ -237,13 +348,13 @@ const UserManager: React.FC = () => {
       setSaving(true);
       const batch = writeBatch(db);
 
-      users.forEach(user => {
-        if (user.role === 'user') {
-          const docRef = doc(db, 'user_roles', user.id);
+      users.forEach((user) => {
+        if (user.role === "user") {
+          const docRef = doc(db, "user_roles", user.id);
           batch.update(docRef, {
             permissions: user.permissions,
             allowedAccounts: user.allowedAccounts || [],
-            display_name: user.display_name || '',
+            display_name: user.display_name || "",
             is_kpi: !!user.is_kpi,
             can_view_leaderboard: !!user.can_view_leaderboard,
             kpi_team: user.kpi_team || null,
@@ -252,10 +363,11 @@ const UserManager: React.FC = () => {
         }
       });
 
-      batch.commit()
+      batch
+        .commit()
         .catch((err: any) => {
           console.error(err);
-          setError('Failed to save changes. Check Firestore rules.');
+          setError("Failed to save changes. Check Firestore rules.");
         })
         .finally(() => {
           setSaving(false);
@@ -266,40 +378,55 @@ const UserManager: React.FC = () => {
   }, [users]);
 
   // Hàm xử lý khi tick checkbox permission
-  const handlePermissionChange = (userId: string, key: string, value: boolean) => {
-    setUsers(prevUsers =>
-      prevUsers.map(u =>
+  const handlePermissionChange = (
+    userId: string,
+    key: string,
+    value: boolean,
+  ) => {
+    setUsers((prevUsers) =>
+      prevUsers.map((u) =>
         u.id === userId
           ? { ...u, permissions: { ...u.permissions, [key]: value } }
-          : u
-      )
+          : u,
+      ),
     );
   };
 
-  const handleUserFieldChange = (userId: string, field: 'display_name' | 'is_kpi' | 'can_view_leaderboard' | 'kpi_team', value: string | boolean) => {
-    setUsers(prevUsers =>
-      prevUsers.map(u => {
+  const handleUserFieldChange = (
+    userId: string,
+    field: "display_name" | "is_kpi" | "can_view_leaderboard" | "kpi_team",
+    value: string | boolean,
+  ) => {
+    setUsers((prevUsers) =>
+      prevUsers.map((u) => {
         if (u.id === userId) {
           const updated = { ...u, [field]: value };
           // If assigning a specific KPI team, restrict their viewable teams to ONLY that team
-          if (field === 'kpi_team' && value) {
-            updated.viewable_kpi_teams = updated.viewable_kpi_teams?.filter(t => t === value) || [];
+          if (field === "kpi_team" && value) {
+            updated.viewable_kpi_teams =
+              updated.viewable_kpi_teams?.filter((t) => t === value) || [];
           }
           return updated as UserRole;
         }
         return u;
-      })
+      }),
     );
   };
 
-  const handleViewableTeamsChange = (userId: string, team: string, checked: boolean) => {
-    setUsers(prevUsers =>
-      prevUsers.map(u => {
+  const handleViewableTeamsChange = (
+    userId: string,
+    team: string,
+    checked: boolean,
+  ) => {
+    setUsers((prevUsers) =>
+      prevUsers.map((u) => {
         if (u.id !== userId) return u;
         const current = u.viewable_kpi_teams || [];
-        const next = checked ? [...current, team] : current.filter(t => t !== team);
+        const next = checked
+          ? [...current, team]
+          : current.filter((t) => t !== team);
         return { ...u, viewable_kpi_teams: next };
-      })
+      }),
     );
   };
 
@@ -307,34 +434,45 @@ const UserManager: React.FC = () => {
     if (!newTeamName.trim() || kpiTeams.includes(newTeamName.trim())) return;
     try {
       const updatedTeams = [...kpiTeams, newTeamName.trim()];
-      const { saveSettings } = await import('../services/firebaseService');
+      const { saveSettings } = await import("../services/firebaseService");
       await saveSettings(teamId, { kpiTeams: updatedTeams });
       setKpiTeams(updatedTeams);
     } catch (e) {
       console.error(e);
-      alert('Error adding KPI team');
+      alert("Error adding KPI team");
     }
   };
 
   const handleRemoveKpiTeam = async (teamToRemove: string) => {
     try {
-      const updatedTeams = kpiTeams.filter(t => t !== teamToRemove);
-      const { saveSettings } = await import('../services/firebaseService');
+      const updatedTeams = kpiTeams.filter((t) => t !== teamToRemove);
+      const { saveSettings } = await import("../services/firebaseService");
       await saveSettings(teamId, { kpiTeams: updatedTeams });
       setKpiTeams(updatedTeams);
-      
+
       // Remove from users' viewable_kpi_teams
-      setUsers(prevUsers => prevUsers.map(u => {
-        if (!u.viewable_kpi_teams?.includes(teamToRemove) && u.kpi_team !== teamToRemove) return u;
-        const nextViewable = u.viewable_kpi_teams?.filter(t => t !== teamToRemove) || [];
-        const nextKpiTeam = u.kpi_team === teamToRemove ? null : u.kpi_team;
-        
-        // Trigger auto-save will pick this up
-        return { ...u, viewable_kpi_teams: nextViewable, kpi_team: nextKpiTeam };
-      }));
+      setUsers((prevUsers) =>
+        prevUsers.map((u) => {
+          if (
+            !u.viewable_kpi_teams?.includes(teamToRemove) &&
+            u.kpi_team !== teamToRemove
+          )
+            return u;
+          const nextViewable =
+            u.viewable_kpi_teams?.filter((t) => t !== teamToRemove) || [];
+          const nextKpiTeam = u.kpi_team === teamToRemove ? null : u.kpi_team;
+
+          // Trigger auto-save will pick this up
+          return {
+            ...u,
+            viewable_kpi_teams: nextViewable,
+            kpi_team: nextKpiTeam,
+          };
+        }),
+      );
     } catch (e) {
       console.error(e);
-      alert('Error removing KPI team');
+      alert("Error removing KPI team");
     }
   };
 
@@ -347,21 +485,24 @@ const UserManager: React.FC = () => {
     setEditingAccountsForUser(null);
   };
 
-  const handleSaveAllowedAccounts = (userId: string, newAllowedAccounts: string[]) => {
-    setUsers(prevUsers =>
-      prevUsers.map(user =>
-        user.id === userId ? { ...user, allowedAccounts: newAllowedAccounts } : user
-      )
+  const handleSaveAllowedAccounts = (
+    userId: string,
+    newAllowedAccounts: string[],
+  ) => {
+    setUsers((prevUsers) =>
+      prevUsers.map((user) =>
+        user.id === userId
+          ? { ...user, allowedAccounts: newAllowedAccounts }
+          : user,
+      ),
     );
     handleCloseAccountModal();
   };
 
-
-
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserEmail || !newUserPassword) {
-      setCreateError('Email and Password are required.');
+      setCreateError("Email and Password are required.");
       return;
     }
     setIsCreating(true);
@@ -370,11 +511,11 @@ const UserManager: React.FC = () => {
     try {
       const idToken = await auth.currentUser!.getIdToken();
 
-      const response = await fetch('/api/users', {
-        method: 'POST',
+      const response = await fetch("/api/users", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
           email: newUserEmail,
@@ -386,14 +527,13 @@ const UserManager: React.FC = () => {
 
       const result = await response.json();
       if (!response.ok) {
-        throw new Error(result.message || 'Failed to create user.');
+        throw new Error(result.message || "Failed to create user.");
       }
 
-      setNewUserEmail('');
-      setNewUserPassword('');
-      setNewUserRole('user');
+      setNewUserEmail("");
+      setNewUserPassword("");
+      setNewUserRole("user");
       await fetchUsers();
-
     } catch (err: any) {
       console.error(err);
       setCreateError(err.message);
@@ -407,11 +547,11 @@ const UserManager: React.FC = () => {
     try {
       const idToken = await auth.currentUser!.getIdToken();
 
-      const response = await fetch('/api/users', {
-        method: 'DELETE',
+      const response = await fetch("/api/users", {
+        method: "DELETE",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({ userId }),
       });
@@ -419,13 +559,12 @@ const UserManager: React.FC = () => {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.message || 'Failed to delete user.');
+        throw new Error(result.message || "Failed to delete user.");
       }
 
       // Success → Refresh user list
       await fetchUsers();
       setConfirmDeleteUser(null);
-
     } catch (err: any) {
       console.error(err);
       alert(`Error deleting user: ${err.message}`);
@@ -434,7 +573,6 @@ const UserManager: React.FC = () => {
     }
   };
 
-
   if (loading) {
     return <div className="text-center p-4">Loading users...</div>;
   }
@@ -442,11 +580,21 @@ const UserManager: React.FC = () => {
     return <div className="text-center p-4 text-red-500">{error}</div>;
   }
 
-  const permissionKeys: (keyof UserRole['permissions'])[] = [
-    'viewSales', 'viewFunds', 'viewFulfill', 'canManageSettings',
+  const permissionKeys: (keyof UserRole["permissions"])[] = [
+    "viewSales",
+    "viewFunds",
+    "viewFulfill",
+    "canManageSettings",
+    "canAddDesign",
+    "canProcessDesign",
   ];
   const permissionLabels: { [key: string]: string } = {
-    viewSales: 'Sales', viewFunds: 'Funds', viewFulfill: 'Cost', canManageSettings: 'Mail Edit',
+    viewSales: "Sales",
+    viewFunds: "Funds",
+    viewFulfill: "Cost",
+    canManageSettings: "Mail Edit",
+    canAddDesign: "Add Design",
+    canProcessDesign: "Process Design",
   };
 
   return (
@@ -462,12 +610,17 @@ const UserManager: React.FC = () => {
           </button>
         </div>
         <div className="space-y-4">
-          {users.map(user => (
-            <div key={user.id} className="bg-gray-100 dark:bg-gray-700 p-3 rounded">
+          {users.map((user) => (
+            <div
+              key={user.id}
+              className="bg-gray-100 dark:bg-gray-700 p-3 rounded"
+            >
               <div className="flex justify-between items-center mb-2">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">{user.email}</span>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium uppercase ${user.role === 'owner' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' : 'bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-200'}`}>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium uppercase ${user.role === "owner" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" : "bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-200"}`}
+                  >
                     {user.role}
                   </span>
                 </div>
@@ -478,21 +631,40 @@ const UserManager: React.FC = () => {
                   className="px-3 py-1 text-sm font-semibold text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
                   title="Delete User"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                    />
                   </svg>
                 </button>
               </div>
 
-              {user.role === 'user' && (
+              {user.role === "user" && (
                 <div className="space-y-3">
                   {/* Display Name */}
                   <div>
-                    <label className="text-sm font-medium mb-1 text-gray-600 dark:text-gray-300 block">Display Name (Leaderboard)</label>
+                    <label className="text-sm font-medium mb-1 text-gray-600 dark:text-gray-300 block">
+                      Display Name (Leaderboard)
+                    </label>
                     <input
                       type="text"
-                      value={user.display_name || ''}
-                      onChange={e => handleUserFieldChange(user.id, 'display_name', e.target.value)}
+                      value={user.display_name || ""}
+                      onChange={(e) =>
+                        handleUserFieldChange(
+                          user.id,
+                          "display_name",
+                          e.target.value,
+                        )
+                      }
                       placeholder="Nhập tên hiển thị..."
                       className="w-full px-3 py-1.5 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md text-sm"
                     />
@@ -500,89 +672,160 @@ const UserManager: React.FC = () => {
 
                   {/* Permissions */}
                   <div>
-                    <h4 className="text-sm font-medium mb-2 text-gray-600 dark:text-gray-300">Permissions</h4>
+                    <h4 className="text-sm font-medium mb-2 text-gray-600 dark:text-gray-300">
+                      Permissions
+                    </h4>
                     <div className="grid grid-cols-4 gap-2">
-                      {permissionKeys.map(key => (
-                        <label key={key} className="flex items-center space-x-2 text-sm">
-                          <input type="checkbox" checked={user.permissions[key] || false} onChange={e => handlePermissionChange(user.id, key, e.target.checked)} className="rounded" />
+                      {permissionKeys.map((key) => (
+                        <label
+                          key={key}
+                          className="flex items-center space-x-2 text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={user.permissions[key] || false}
+                            onChange={(e) =>
+                              handlePermissionChange(
+                                user.id,
+                                key,
+                                e.target.checked,
+                              )
+                            }
+                            className="rounded"
+                          />
                           <span>{permissionLabels[key]}</span>
                         </label>
                       ))}
                     </div>
                   </div>
 
-                    <div className="pt-2 border-t border-gray-200 dark:border-gray-600">
-                      <h4 className="text-sm font-medium mb-2 text-gray-600 dark:text-gray-300">KPI Settings</h4>
-                      <div className="flex gap-6 mb-3">
-                        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={!!user.is_kpi}
-                            onChange={e => handleUserFieldChange(user.id, 'is_kpi', e.target.checked)}
-                            className="rounded text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="font-medium">Tham gia KPI</span>
-                        </label>
-                        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={!!user.can_view_leaderboard}
-                            onChange={e => handleUserFieldChange(user.id, 'can_view_leaderboard', e.target.checked)}
-                            className="rounded text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="font-medium">Xem Leaderboard</span>
-                        </label>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Selected KPI Team */}
-                        <div>
-                          <label className={`text-xs font-medium block mb-1 ${!user.is_kpi ? 'text-gray-400 dark:text-gray-500' : 'text-gray-500 dark:text-gray-400'}`}>Assigned KPI Team</label>
-                          <select
-                            value={user.kpi_team || ''}
-                            onChange={e => handleUserFieldChange(user.id, 'kpi_team', e.target.value)}
-                            disabled={!user.is_kpi}
-                            className={`w-full px-2 py-1.5 text-sm rounded-md border ${!user.is_kpi ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-600 cursor-not-allowed' : 'bg-white dark:bg-gray-600 border-gray-300 dark:border-gray-500 text-gray-900 dark:text-white'}`}
-                          >
-                            <option value="">-- No Team --</option>
-                            {kpiTeams.map(t => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Viewable KPI Teams (only if can_view_leaderboard is true) */}
-                        {user.can_view_leaderboard && (
-                          <div>
-                            <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Viewable Teams</label>
-                            <div className="max-h-24 overflow-y-auto border border-gray-300 dark:border-gray-500 rounded-md p-2 bg-white dark:bg-gray-600">
-                              {kpiTeams.length === 0 ? (
-                                <span className="text-xs text-gray-400">No teams created.</span>
-                              ) : (
-                                kpiTeams.map(t => (
-                                  <label key={t} className="flex items-center gap-2 text-sm mb-1">
-                                    <input
-                                      type="checkbox"
-                                      checked={user.viewable_kpi_teams?.includes(t) || false}
-                                      disabled={user.kpi_team ? user.kpi_team !== t : false}
-                                      onChange={e => handleViewableTeamsChange(user.id, t, e.target.checked)}
-                                      className="rounded text-blue-600 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    />
-                                    <span className={`truncate ${user.kpi_team && user.kpi_team !== t ? 'text-gray-400 dark:text-gray-500' : ''}`}>{t}</span>
-                                  </label>
-                                ))
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                  <div className="pt-2 border-t border-gray-200 dark:border-gray-600">
+                    <h4 className="text-sm font-medium mb-2 text-gray-600 dark:text-gray-300">
+                      KPI Settings
+                    </h4>
+                    <div className="flex gap-6 mb-3">
+                      <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={!!user.is_kpi}
+                          onChange={(e) =>
+                            handleUserFieldChange(
+                              user.id,
+                              "is_kpi",
+                              e.target.checked,
+                            )
+                          }
+                          className="rounded text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="font-medium">Tham gia KPI</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={!!user.can_view_leaderboard}
+                          onChange={(e) =>
+                            handleUserFieldChange(
+                              user.id,
+                              "can_view_leaderboard",
+                              e.target.checked,
+                            )
+                          }
+                          className="rounded text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="font-medium">Xem Leaderboard</span>
+                      </label>
                     </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Selected KPI Team */}
+                      <div>
+                        <label
+                          className={`text-xs font-medium block mb-1 ${!user.is_kpi ? "text-gray-400 dark:text-gray-500" : "text-gray-500 dark:text-gray-400"}`}
+                        >
+                          Assigned KPI Team
+                        </label>
+                        <select
+                          value={user.kpi_team || ""}
+                          onChange={(e) =>
+                            handleUserFieldChange(
+                              user.id,
+                              "kpi_team",
+                              e.target.value,
+                            )
+                          }
+                          disabled={!user.is_kpi}
+                          className={`w-full px-2 py-1.5 text-sm rounded-md border ${!user.is_kpi ? "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-600 cursor-not-allowed" : "bg-white dark:bg-gray-600 border-gray-300 dark:border-gray-500 text-gray-900 dark:text-white"}`}
+                        >
+                          <option value="">-- No Team --</option>
+                          {kpiTeams.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Viewable KPI Teams (only if can_view_leaderboard is true) */}
+                      {user.can_view_leaderboard && (
+                        <div>
+                          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">
+                            Viewable Teams
+                          </label>
+                          <div className="max-h-24 overflow-y-auto border border-gray-300 dark:border-gray-500 rounded-md p-2 bg-white dark:bg-gray-600">
+                            {kpiTeams.length === 0 ? (
+                              <span className="text-xs text-gray-400">
+                                No teams created.
+                              </span>
+                            ) : (
+                              kpiTeams.map((t) => (
+                                <label
+                                  key={t}
+                                  className="flex items-center gap-2 text-sm mb-1"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      user.viewable_kpi_teams?.includes(t) ||
+                                      false
+                                    }
+                                    disabled={
+                                      user.kpi_team
+                                        ? user.kpi_team !== t
+                                        : false
+                                    }
+                                    onChange={(e) =>
+                                      handleViewableTeamsChange(
+                                        user.id,
+                                        t,
+                                        e.target.checked,
+                                      )
+                                    }
+                                    className="rounded text-blue-600 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  />
+                                  <span
+                                    className={`truncate ${user.kpi_team && user.kpi_team !== t ? "text-gray-400 dark:text-gray-500" : ""}`}
+                                  >
+                                    {t}
+                                  </span>
+                                </label>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
                   {/* Allowed Mail Accounts */}
                   <div className="pt-3 border-t border-gray-200 dark:border-gray-600">
                     <div className="flex justify-between items-center">
-                      <h4 className="text-sm font-medium text-gray-600 dark:text-gray-300">Allowed Mail Accounts</h4>
-                      <button onClick={() => handleOpenAccountModal(user)} className="px-3 py-1 text-xs font-semibold bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md hover:bg-gray-50 dark:hover:bg-gray-500">
+                      <h4 className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                        Allowed Mail Accounts
+                      </h4>
+                      <button
+                        onClick={() => handleOpenAccountModal(user)}
+                        className="px-3 py-1 text-xs font-semibold bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md hover:bg-gray-50 dark:hover:bg-gray-500"
+                      >
                         Manage ({user.allowedAccounts?.length || 0} selected)
                       </button>
                     </div>
@@ -603,19 +846,43 @@ const UserManager: React.FC = () => {
       </div>
 
       <div className="flex-shrink-0 mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-        <h3 className="text-lg font-semibold mb-3 border-b pb-2">Create New User</h3>
+        <h3 className="text-lg font-semibold mb-3 border-b pb-2">
+          Create New User
+        </h3>
         <form onSubmit={handleCreateUser} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input type="email" placeholder="New User Email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md" />
-            <input type="password" placeholder="New User Password" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md" />
+            <input
+              type="email"
+              placeholder="New User Email"
+              value={newUserEmail}
+              onChange={(e) => setNewUserEmail(e.target.value)}
+              className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"
+            />
+            <input
+              type="password"
+              placeholder="New User Password"
+              value={newUserPassword}
+              onChange={(e) => setNewUserPassword(e.target.value)}
+              className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"
+            />
           </div>
           <div className="flex items-center justify-end gap-4">
-            <select value={newUserRole} onChange={e => setNewUserRole(e.target.value as 'user' | 'owner')} className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md">
+            <select
+              value={newUserRole}
+              onChange={(e) =>
+                setNewUserRole(e.target.value as "user" | "owner")
+              }
+              className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"
+            >
               <option value="user">User</option>
               <option value="owner">Owner</option>
             </select>
-            <button type="submit" disabled={isCreating} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold disabled:opacity-50">
-              {isCreating ? 'Creating...' : 'Create User'}
+            <button
+              type="submit"
+              disabled={isCreating}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold disabled:opacity-50"
+            >
+              {isCreating ? "Creating..." : "Create User"}
             </button>
           </div>
           {createError && <p className="text-red-500 text-sm">{createError}</p>}
@@ -644,8 +911,18 @@ const UserManager: React.FC = () => {
           >
             {/* Warning Icon */}
             <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 dark:bg-red-900/30 rounded-full">
-              <svg className="h-6 w-6 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              <svg
+                className="h-6 w-6 text-red-600 dark:text-red-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
               </svg>
             </div>
 
@@ -699,7 +976,7 @@ const UserManager: React.FC = () => {
                     Deleting...
                   </>
                 ) : (
-                  'Yes, Delete'
+                  "Yes, Delete"
                 )}
               </button>
             </div>
@@ -721,7 +998,10 @@ const UserManager: React.FC = () => {
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">
                 Manage KPI Teams
               </h3>
-              <button onClick={() => setIsManagingTeams(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl font-bold">
+              <button
+                onClick={() => setIsManagingTeams(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl font-bold"
+              >
                 ✕
               </button>
             </div>
@@ -733,18 +1013,20 @@ const UserManager: React.FC = () => {
                 placeholder="Enter team name..."
                 className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-sm"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                  if (e.key === "Enter") {
                     e.preventDefault();
                     handleAddKpiTeam(e.currentTarget.value);
-                    e.currentTarget.value = '';
+                    e.currentTarget.value = "";
                   }
                 }}
               />
               <button
                 onClick={() => {
-                  const input = document.getElementById('new-team-input') as HTMLInputElement;
+                  const input = document.getElementById(
+                    "new-team-input",
+                  ) as HTMLInputElement;
                   handleAddKpiTeam(input.value);
-                  input.value = '';
+                  input.value = "";
                 }}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-semibold"
               >
@@ -754,11 +1036,18 @@ const UserManager: React.FC = () => {
 
             <div className="flex-1 overflow-y-auto space-y-2 border border-gray-200 dark:border-gray-600 rounded-md p-2 min-h-[150px]">
               {kpiTeams.length === 0 ? (
-                <div className="text-center text-gray-400 text-sm py-4">No teams created.</div>
+                <div className="text-center text-gray-400 text-sm py-4">
+                  No teams created.
+                </div>
               ) : (
-                kpiTeams.map(t => (
-                  <div key={t} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700 p-2 rounded-md">
-                    <span className="font-medium text-sm text-gray-800 dark:text-gray-200">{t}</span>
+                kpiTeams.map((t) => (
+                  <div
+                    key={t}
+                    className="flex justify-between items-center bg-gray-50 dark:bg-gray-700 p-2 rounded-md"
+                  >
+                    <span className="font-medium text-sm text-gray-800 dark:text-gray-200">
+                      {t}
+                    </span>
                     <button
                       onClick={() => handleRemoveKpiTeam(t)}
                       className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm font-medium px-2 py-1 bg-red-50 dark:bg-red-900/20 rounded"
@@ -769,7 +1058,7 @@ const UserManager: React.FC = () => {
                 ))
               )}
             </div>
-            
+
             <div className="mt-4 flex justify-end pt-3 border-t border-gray-200 dark:border-gray-700">
               <button
                 onClick={() => setIsManagingTeams(false)}

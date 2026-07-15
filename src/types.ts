@@ -2,7 +2,7 @@ export interface Account {
   id: string;
   email: string;
   label: string;
-  provider: 'gmail' | 'outlook';
+  provider: "gmail" | "outlook";
   token: string; // For Google: stringified credentials. For MSAL: homeAccountId.
   last_synced_at?: string; // ISO string of the last successful NORMAL sync time
   order?: number; // Field to store the user-defined sort order
@@ -17,7 +17,7 @@ export interface Account {
 
 export interface FulfillmentAccount {
   id: string;
-  provider: 'printway' | 'merchize';
+  provider: "printway" | "merchize";
   name: string;
   base_url: string;
   api_token: string;
@@ -78,7 +78,7 @@ export interface Record {
   currency: string | null;
   source: string;
   account: string;
-  kind: 'order' | 'Funds' | 'case' | 'help';
+  kind: "order" | "Funds" | "case" | "help";
   case_msg?: string | null;
   help_kind?: string | null;
   cost_total?: number;
@@ -99,11 +99,45 @@ export interface CostData {
   product_name?: string;
 }
 
-export type Tab = 'Overview' | 'Order List' | 'Products' | 'Support' | 'Fulfill' | 'KPI';
+export type Tab =
+  | "Overview"
+  | "Order List"
+  | "Products"
+  | "Support"
+  | "Fulfill"
+  | "KPI"
+  | "Design";
+
+export type DesignStatus = "new" | "todo" | "in_review" | "need_fix" | "done";
+
+export interface DesignTask {
+  id: string;
+  title: string;
+  description?: string;
+  status: DesignStatus;
+  attachments: string[];
+  imageUrls: string[];
+  designUrls: string[];
+  createdBy: string;
+  createdByName: string;
+  createdAt: any;
+  updatedAt: any;
+  assignedTo?: string;
+  assignedToName?: string;
+}
+
+export interface DesignComment {
+  id: string;
+  content: string;
+  attachmentUrl?: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: any;
+}
 export interface KpiValue {
   value: string;
   change?: number; // e.g., 5.2 for 5.2%
-  direction?: 'up' | 'down' | 'neutral';
+  direction?: "up" | "down" | "neutral";
   refundInfo?: string;
 }
 
@@ -114,7 +148,30 @@ export interface KpiData {
 // FIX: Allowed null in TableData rows to support records with missing cost data.
 export interface TableData {
   headers: string[];
-  rows: (string | number | boolean | null | { type: 'button', label: string, id: string } | { type: 'image', src: string | null, fullSrc: string | null, alt: string } | { type: 'value_with_unit', value: number, display: string } | { type: 'action_group', actions: any[] } | { type: 'editable_cost', value: number | null, recordId: string, isManual: boolean } | { type: 'editable_ffcode', value: string | null, recordId: string } | { type: 'editable_provider', value: string | null, recordId: string } | { type: 'text_with_subtitle', main: string, subtitle: string, subtitleClass?: string })[][];
+  rows: (
+    | string
+    | number
+    | boolean
+    | null
+    | { type: "button"; label: string; id: string }
+    | { type: "image"; src: string | null; fullSrc: string | null; alt: string }
+    | { type: "value_with_unit"; value: number; display: string }
+    | { type: "action_group"; actions: any[] }
+    | {
+        type: "editable_cost";
+        value: number | null;
+        recordId: string;
+        isManual: boolean;
+      }
+    | { type: "editable_ffcode"; value: string | null; recordId: string }
+    | { type: "editable_provider"; value: string | null; recordId: string }
+    | {
+        type: "text_with_subtitle";
+        main: string;
+        subtitle: string;
+        subtitleClass?: string;
+      }
+  )[][];
 }
 
 export interface OverviewChartData {
