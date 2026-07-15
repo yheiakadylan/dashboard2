@@ -1,24 +1,25 @@
-import { Tab } from '../types';
+import { Tab } from "../types";
 
 export const getPermittedTabs = (
-    tabs: Tab[],
-    role: 'owner' | 'user',
-    permissions: { [key: string]: boolean }
+  tabs: Tab[],
+  role: "owner" | "user",
+  permissions: { [key: string]: boolean },
 ): Tab[] => {
-    return tabs.filter(tab => {
-        if (role === 'owner') return true;
-        switch (tab) {
-            case 'Overview':
-            case 'Order List':
-            case 'Products':
-            case 'Support':
-                return permissions.viewSales;
-            case 'Fulfill':
-                return permissions.viewFulfill;
-            case 'KPI':
-                return true;
-            default:
-                return false;
-        }
-    });
+  return tabs.filter((tab) => {
+    if (role === "owner") return true;
+    switch (tab) {
+      case "Overview":
+      case "Order List":
+      case "Products":
+      case "Support":
+        return permissions.viewSales;
+      case "Fulfill":
+        return permissions.viewFulfill;
+      case "KPI":
+      case "Design":
+        return true;
+      default:
+        return false;
+    }
+  });
 };
