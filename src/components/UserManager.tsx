@@ -525,9 +525,20 @@ const UserManager: React.FC = () => {
         }),
       });
 
-      const result = await response.json();
+      let result: any = {};
+      const text = await response.text();
+      if (text) {
+        try {
+          result = JSON.parse(text);
+        } catch {
+          // Server returned non-JSON (e.g. empty body on timeout/crash)
+        }
+      }
       if (!response.ok) {
-        throw new Error(result.message || "Failed to create user.");
+        throw new Error(
+          result.message ||
+            `Server error (${response.status}). Check Vercel logs.`,
+        );
       }
 
       setNewUserEmail("");

@@ -106,15 +106,31 @@ export type Tab =
   | "Support"
   | "Fulfill"
   | "KPI"
-  | "Design";
+  | "Design"
+  | "Templete";
 
-export type DesignStatus = "new" | "todo" | "in_review" | "need_fix" | "done";
+export interface Template {
+  id: string;
+  title: string;
+  providerName: string;
+  url?: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: any;
+  updatedAt: any;
+}
+
+export type DesignStatus =
+  "new" | "todo" | "in_review" | "need_fix" | "done" | "overdue";
+
+export type DesignPriority = "low" | "normal" | "high";
 
 export interface DesignTask {
   id: string;
   title: string;
   description?: string;
   status: DesignStatus;
+  priority?: DesignPriority;
   attachments: string[];
   imageUrls: string[];
   designUrls: string[];
@@ -124,6 +140,8 @@ export interface DesignTask {
   updatedAt: any;
   assignedTo?: string;
   assignedToName?: string;
+  overdueAt?: any;
+  templateId?: string;
 }
 
 export interface DesignComment {

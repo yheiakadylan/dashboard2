@@ -13,6 +13,7 @@ const STATUSES: DesignStatus[] = [
   "in_review",
   "need_fix",
   "done",
+  "overdue",
 ];
 
 const STATUS_LABELS: Record<DesignStatus, string> = {
@@ -21,6 +22,7 @@ const STATUS_LABELS: Record<DesignStatus, string> = {
   in_review: "In Review",
   need_fix: "Need Fix",
   done: "Done",
+  overdue: "Over Due Date",
 };
 
 const STATUS_COLORS: Record<DesignStatus, string> = {
@@ -31,6 +33,8 @@ const STATUS_COLORS: Record<DesignStatus, string> = {
   need_fix:
     "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-700",
   done: "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-green-200 dark:border-green-700",
+  overdue:
+    "bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 border-orange-200 dark:border-orange-700",
 };
 
 const STATUS_TAB_ACTIVE: Record<DesignStatus, string> = {
@@ -41,6 +45,32 @@ const STATUS_TAB_ACTIVE: Record<DesignStatus, string> = {
   need_fix:
     "border-b-2 border-red-500 text-red-700 dark:text-red-400 font-semibold",
   done: "border-b-2 border-green-600 text-green-700 dark:text-green-400 font-semibold",
+  overdue:
+    "border-b-2 border-orange-500 text-orange-700 dark:text-orange-400 font-semibold",
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  low: "Low",
+  normal: "Normal",
+  high: "High",
+};
+
+const PRIORITY_COLORS: Record<string, string> = {
+  low: "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400",
+  normal: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+  high: "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+};
+
+const formatDate = (ts: any): string => {
+  if (!ts) return "—";
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 };
 
 const TaskCard: React.FC<{
@@ -50,6 +80,7 @@ const TaskCard: React.FC<{
   onDelete: (t: DesignTask) => void;
 }> = ({ task, isOwner, onOpen, onDelete }) => {
   const thumbnail = task.attachments?.[0] || task.imageUrls?.[0] || null;
+  const priority = task.priority ?? "normal";
 
   return (
     <div
@@ -87,28 +118,47 @@ const TaskCard: React.FC<{
       {/* Card body */}
       <div className="p-3">
         <h3
-          className="font-medium text-gray-900 dark:text-white text-sm truncate mb-1"
+          className="font-medium text-gray-900 dark:text-white text-sm truncate mb-0.5"
           title={task.title}
         >
           {task.title}
         </h3>
         {task.description && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-2">
+          <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-1">
             {task.description}
           </p>
         )}
 
-        <div className="flex items-center justify-between gap-2">
+        {/* Creator */}
+        <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
+          By: {task.createdByName}
+        </p>
+
+        {/* Status + Priority badges */}
+        <div className="flex items-center gap-1.5 flex-wrap mb-2">
           <span
             className={`px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLORS[task.status]}`}
           >
             {STATUS_LABELS[task.status]}
           </span>
-          {task.assignedToName && (
-            <span className="text-xs text-gray-400 dark:text-gray-500 truncate">
-              {task.assignedToName}
-            </span>
-          )}
+          <span
+            className={`px-2 py-0.5 rounded-full text-xs font-medium ${PRIORITY_COLORS[priority]}`}
+          >
+            {PRIORITY_LABELS[priority]}
+          </span>
+        </div>
+
+        {/* Designer */}
+        {task.assignedToName && (
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+            Designer: {task.assignedToName}
+          </p>
+        )}
+
+        {/* Dates */}
+        <div className="text-xs text-gray-400 dark:text-gray-500 space-y-0.5">
+          <p>Created: {formatDate(task.createdAt)}</p>
+          <p>Updated: {formatDate(task.updatedAt)}</p>
         </div>
 
         {task.designUrls?.length > 0 && (
@@ -119,7 +169,7 @@ const TaskCard: React.FC<{
         )}
       </div>
 
-      {/* Delete button (owner only) */}
+      {/* Delete button — owner only */}
       {isOwner && (
         <div className="px-3 pb-3">
           <button
@@ -224,9 +274,11 @@ const DesignTab: React.FC = () => {
             {counts[s] > 0 && (
               <span
                 className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${
-                  activeStatus === s
-                    ? "bg-current/10"
-                    : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
+                  s === "overdue"
+                    ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                    : activeStatus === s
+                      ? "bg-current/10"
+                      : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
                 }`}
               >
                 {counts[s]}

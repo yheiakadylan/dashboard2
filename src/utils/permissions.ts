@@ -17,6 +17,7 @@ export const getPermittedTabs = (
         return permissions.viewFulfill;
       case "KPI":
       case "Design":
+      case "Templete":
         return true;
       default:
         return false;
