@@ -8,6 +8,7 @@ export const TABS: Tab[] = [
   "Fulfill",
   "KPI",
   "Design",
+  "Templete",
 ];
 
 export const TABS_TO_HIDE_ON_MOBILE: Tab[] = ["Support", "Fulfill"];
@@ -21,6 +22,7 @@ export const DEFAULT_TAB_ORDER: Tab[] = [
   "Fulfill",
   "KPI",
   "Design",
+  "Templete",
 ];
 export const DEFAULT_VISIBLE_TABS: Tab[] = [
   "Overview",
@@ -30,6 +32,7 @@ export const DEFAULT_VISIBLE_TABS: Tab[] = [
   "Fulfill",
   "KPI",
   "Design",
+  "Templete",
 ];
 
 export const HIDDEN_MOBILE_HEADERS = [

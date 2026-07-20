@@ -11,6 +11,7 @@ import {
   TagIcon,
   ChartBarIcon,
   PaintBrushIcon,
+  DocumentDuplicateIcon,
 } from "@heroicons/react/24/outline";
 
 interface SidebarProps {
@@ -49,6 +50,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
         return <TagIcon className={className} />;
       case "Design":
         return <PaintBrushIcon className={className} />;
+      case "Templete":
+        return <DocumentDuplicateIcon className={className} />;
       case "KPI":
         return <ChartBarIcon className={className} />;
       default:

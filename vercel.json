@@ -1,6 +1,8 @@
 {
   "crons": [
-
+    {
+      "path": "/api/design-overdue-check",
+      "schedule": "0 * * * *"
+    }
   ]
 }
-

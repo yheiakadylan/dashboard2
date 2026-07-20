@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useDashboard } from "../contexts/DashboardContext";
-import { DesignTask, DesignComment, DesignStatus } from "../types";
+import { DesignTask, DesignComment, DesignStatus, Template } from "../types";
 import {
   createDesignTask,
   updateDesignTask,
@@ -11,7 +11,17 @@ import {
   uploadCommentAttachment,
   generateTaskId,
 } from "../services/designService";
+import { listenTemplates } from "../services/templateService";
 import Spinner from "./Spinner";
+
+const isSafeUrl = (url: string): boolean => {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+};
 
 interface Props {
   task: DesignTask | null; // null = create mode
@@ -24,6 +34,7 @@ const STATUS_LABELS: Record<string, string> = {
   in_review: "In Review",
   need_fix: "Need Fix",
   done: "Done",
+  overdue: "Over Due Date",
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -33,6 +44,8 @@ const STATUS_COLORS: Record<string, string> = {
     "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
   need_fix: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
   done: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  overdue:
+    "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
 };
 
 const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
@@ -42,6 +55,7 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
   const canAddDesign = isOwner || !!permissions?.canAddDesign;
   const canProcess = isOwner || !!permissions?.canProcessDesign;
   const isAssignee = !!task && task.assignedTo === user?.uid;
+  const isOverdue = task?.status === "overdue";
 
   // Pre-generate ID for create mode so we can upload before saving
   const [pendingTaskId] = useState<string>(() =>
@@ -49,14 +63,34 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
   );
   const activeTaskId = task?.id ?? pendingTaskId;
 
-  // Status dropdown — statuses this user can select
-  const allowedStatuses: DesignStatus[] = isOwner
-    ? ["new", "todo", "in_review", "need_fix", "done"]
-    : canProcess
-      ? ["todo", "in_review"]
-      : ["need_fix", "done"];
+  const allowedStatuses: DesignStatus[] = [
+    "new",
+    "todo",
+    "in_review",
+    "need_fix",
+    "done",
+  ];
   const [statusDraft, setStatusDraft] = useState<DesignStatus>(
     task?.status ?? "new",
+  );
+  const [priority, setPriority] = useState<"low" | "normal" | "high">(
+    task?.priority ?? "normal",
+  );
+
+  // Templates
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
+    task?.templateId ?? "",
+  );
+  const selectedTemplate =
+    templates.find((t) => t.id === selectedTemplateId) ?? null;
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
+  const templateDropdownRef = useRef<HTMLDivElement>(null);
+  const filteredTemplates = templates.filter(
+    (t) =>
+      t.title.toLowerCase().includes(templateSearch.toLowerCase()) ||
+      t.providerName.toLowerCase().includes(templateSearch.toLowerCase()),
   );
 
   // Form state
@@ -93,6 +127,27 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
 
   const displayName = display_name || user?.email?.split("@")[0] || "Unknown";
 
+  // Subscribe to templates list
+  useEffect(() => {
+    const unsub = listenTemplates(teamId, setTemplates);
+    return unsub;
+  }, [teamId]);
+
+  // Close template dropdown on outside click
+  useEffect(() => {
+    if (!templateDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        templateDropdownRef.current &&
+        !templateDropdownRef.current.contains(e.target as Node)
+      ) {
+        setTemplateDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [templateDropdownOpen]);
+
   // Subscribe to comments in edit mode
   useEffect(() => {
     if (!isEdit || !task?.id) return;
@@ -117,8 +172,8 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
         if (isEdit && task?.id) {
           await updateDesignTask(teamId, task.id, { attachments: updated });
         }
-      } catch {
-        setError("Upload failed. Please try again.");
+      } catch (e: any) {
+        setError(e?.message || "Upload failed. Please try again.");
       } finally {
         setUploading(false);
       }
@@ -179,6 +234,8 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
           update.description = description.trim();
           update.imageUrls = imageUrls;
           update.designUrls = designUrls;
+          update.priority = priority;
+          if (selectedTemplateId) update.templateId = selectedTemplateId;
         }
         // When claiming (new/need_fix → todo), record assignee
         if (
@@ -197,6 +254,8 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
             title: title.trim(),
             description: description.trim(),
             status: "new",
+            priority,
+            ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}),
             attachments,
             imageUrls,
             designUrls,
@@ -207,8 +266,8 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
         );
       }
       onClose();
-    } catch {
-      setError("Failed to save. Please try again.");
+    } catch (e: any) {
+      setError(e?.message || "Failed to save. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -242,8 +301,8 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
       }
       await updateDesignTask(teamId, task.id, update);
       onClose();
-    } catch {
-      setError("Failed to update status.");
+    } catch (e: any) {
+      setError(e?.message || "Failed to update status.");
     } finally {
       setActionLoading(false);
     }
@@ -280,8 +339,8 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
       setCommentText("");
       setCommentFile(null);
       setCommentFilePreview(null);
-    } catch {
-      setError("Failed to add comment.");
+    } catch (e: any) {
+      setError(e?.message || "Failed to add comment.");
     } finally {
       setCommentSending(false);
     }
@@ -380,6 +439,150 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
               placeholder="Describe the design requirements..."
               className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
             />
+          </div>
+
+          {/* Template */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Template
+            </label>
+            <div ref={templateDropdownRef} className="relative">
+              {/* Trigger input */}
+              <div className="flex items-center gap-1 px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus-within:ring-2 focus-within:ring-blue-500">
+                <input
+                  type="text"
+                  value={
+                    templateDropdownOpen
+                      ? templateSearch
+                      : (selectedTemplate?.title ?? "")
+                  }
+                  onChange={(e) => {
+                    setTemplateSearch(e.target.value);
+                    setTemplateDropdownOpen(true);
+                  }}
+                  onFocus={() => {
+                    setTemplateSearch("");
+                    setTemplateDropdownOpen(true);
+                  }}
+                  placeholder="— Search template —"
+                  disabled={isOverdue}
+                  className="flex-1 bg-transparent outline-none text-gray-900 dark:text-white placeholder-gray-400 disabled:opacity-60"
+                />
+                {selectedTemplateId && !isOverdue && (
+                  <button
+                    onClick={() => {
+                      setSelectedTemplateId("");
+                      setTemplateSearch("");
+                      setTemplateDropdownOpen(false);
+                    }}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
+                    title="Clear selection"
+                  >
+                    <svg
+                      className="w-3.5 h-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                )}
+                <svg
+                  className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${templateDropdownOpen ? "rotate-180" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </div>
+
+              {/* Dropdown list */}
+              {templateDropdownOpen && (
+                <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {filteredTemplates.length === 0 ? (
+                    <p className="px-3 py-2.5 text-xs text-gray-400 italic">
+                      No templates found.
+                    </p>
+                  ) : (
+                    filteredTemplates.map((t) => (
+                      <button
+                        key={t.id}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setSelectedTemplateId(t.id);
+                          setTemplateSearch("");
+                          setTemplateDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                          t.id === selectedTemplateId
+                            ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium"
+                            : "text-gray-900 dark:text-white"
+                        }`}
+                      >
+                        <span className="block truncate">{t.title}</span>
+                        <span className="block text-xs text-gray-400 dark:text-gray-500 truncate">
+                          {t.providerName}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            {selectedTemplate && (
+              <div className="mt-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg text-xs space-y-1">
+                <p className="text-gray-700 dark:text-gray-300">
+                  <span className="font-medium">Provider:</span>{" "}
+                  {selectedTemplate.providerName}
+                </p>
+                {selectedTemplate.url && isSafeUrl(selectedTemplate.url) && (
+                  <p className="flex items-center gap-1">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">
+                      URL:
+                    </span>
+                    <a
+                      href={selectedTemplate.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 dark:text-blue-400 hover:underline truncate"
+                    >
+                      {selectedTemplate.url}
+                    </a>
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Priority */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Priority <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={priority}
+              onChange={(e) =>
+                setPriority(e.target.value as "low" | "normal" | "high")
+              }
+              disabled={isOverdue}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none disabled:opacity-60"
+            >
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+            </select>
           </div>
 
           {/* Attachments — available in both create and edit mode */}
@@ -553,8 +756,16 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
             </div>
           )}
 
-          {/* Status dropdown — edit mode only */}
-          {isEdit && task && (
+          {/* Overdue notice */}
+          {isOverdue && (
+            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-700 text-orange-700 dark:text-orange-400 px-3 py-2 rounded-lg text-sm">
+              Task này đã quá 3 ngày kể từ ngày tạo và được tự động chuyển sang
+              Over Due Date.
+            </div>
+          )}
+
+          {/* Status dropdown — edit mode only, hidden for overdue */}
+          {isEdit && task && !isOverdue && (
             <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Status
@@ -697,8 +908,8 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
           >
             Cancel
           </button>
-          {/* Show Save in edit mode for all users (status change); Create only for canAddDesign/owner */}
-          {(isEdit || canAddDesign || isOwner) && (
+          {/* Show Save in edit mode for all users (status change); Create only for canAddDesign/owner; hidden for overdue */}
+          {(isEdit || canAddDesign || isOwner) && !isOverdue && (
             <button
               onClick={handleSave}
               disabled={saving}

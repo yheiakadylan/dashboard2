@@ -16,6 +16,7 @@ import FulfillTab from "./tabs/FulfillTab";
 import SupportTab from "./tabs/SupportTab";
 import KpiManagement from "./tabs/KpiManagement";
 import DesignTab from "./tabs/DesignTab";
+import TempleteTab from "./tabs/TempleteTab";
 
 // Helper for lazy data tables
 const LazyTable = ({ headers, data }: { headers: string[]; data: any[] }) => (
@@ -118,6 +119,9 @@ const MainContent: React.FC<MainContentProps> = ({
 
         case "Design":
           return <DesignTab />;
+
+        case "Templete":
+          return <TempleteTab />;
 
         default:
           return (
