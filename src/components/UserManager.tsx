@@ -537,7 +537,7 @@ const UserManager: React.FC = () => {
       if (!response.ok) {
         throw new Error(
           result.message ||
-            `Server error (${response.status}). Check Vercel logs.`,
+            `Server error (${response.status}). Check Vercel logs. \nError details: ${text || "No details provided."}`, 
         );
       }
 
