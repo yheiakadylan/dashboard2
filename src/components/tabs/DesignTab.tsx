@@ -150,8 +150,15 @@ const TaskCard: React.FC<{
 
         {/* Designer */}
         {task.assignedToName && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
             Designer: {task.assignedToName}
+          </p>
+        )}
+
+        {/* Design Code */}
+        {task.design_code && (
+          <p className="text-xs font-mono text-indigo-600 dark:text-indigo-400 mb-1 truncate">
+            {task.design_code}
           </p>
         )}
 

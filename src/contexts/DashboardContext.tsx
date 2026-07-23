@@ -1,17 +1,23 @@
-import React, { useState, useEffect, useMemo, useRef, createContext } from 'react';
-import { Record, Account, ProcessedData, ManualCost } from '../types';
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  createContext,
+} from "react";
+import { Record, Account, ProcessedData, ManualCost } from "../types";
 import {
   saveAccountsToFirebase,
   deleteRecordsForAccounts,
-  getRecordsForDateRange
-} from '../services/firebaseService';
-import { exportDashboardToExcel, ExportProgress } from '../utils/excelExport';
-import { setupGmailWatch } from '../services/emailService';
-import { useNotification } from './NotificationContext';
-import { User } from 'firebase/auth';
-import { useDataSync } from '../hooks/useDataSync';
-import { useRecordFiltering } from '../hooks/useRecordFiltering';
-import { useAutoSync } from '../hooks/useAutoSync';
+  getRecordsForDateRange,
+} from "../services/firebaseService";
+import { exportDashboardToExcel, ExportProgress } from "../utils/excelExport";
+import { setupGmailWatch } from "../services/emailService";
+import { useNotification } from "./NotificationContext";
+import { User } from "firebase/auth";
+import { useDataSync } from "../hooks/useDataSync";
+import { useRecordFiltering } from "../hooks/useRecordFiltering";
+import { useAutoSync } from "../hooks/useAutoSync";
 
 // Default Tab List
 // Default Tab List
@@ -21,11 +27,12 @@ interface DashboardContextType {
   // Auth & Permissions
   user: User;
   teamId: string;
-  role: 'owner' | 'user';
+  role: "owner" | "user";
   permissions: { [key: string]: boolean };
   allowedAccounts?: string[];
   // KPI fields from user profile
   display_name?: string;
+  user_number?: string;
   is_kpi?: boolean;
   can_view_leaderboard?: boolean;
   kpi_team?: string;
@@ -46,7 +53,7 @@ interface DashboardContextType {
   isSyncing: boolean;
   isFetchingNewRange: boolean;
   syncState: string | null;
-  syncProgress: { current: number, total: number, message: string } | null;
+  syncProgress: { current: number; total: number; message: string } | null;
   accountSyncStatuses: { [key: string]: string };
   isProcessing: boolean;
   isSavingAccounts: boolean;
@@ -55,15 +62,18 @@ interface DashboardContextType {
   showExportOptions: boolean;
   setShowExportOptions: React.Dispatch<React.SetStateAction<boolean>>;
 
-
-
-
   // Actions
-  handleSaveAccounts: (updatedAccounts: Account[], explicitlyRemovedIds?: string[]) => Promise<void>;
+  handleSaveAccounts: (
+    updatedAccounts: Account[],
+    explicitlyRemovedIds?: string[],
+  ) => Promise<void>;
   handleSyncClick: () => Promise<void>;
   handleResyncAccount: (account: Account) => Promise<void>;
   handleQuickSync: (account: Account) => Promise<void>;
-  updateOrderManualCost: (recordId: string, newCost: number | null) => Promise<void>;
+  updateOrderManualCost: (
+    recordId: string,
+    newCost: number | null,
+  ) => Promise<void>;
   updateOrderFfCode: (recordId: string, newFfCode: string) => Promise<void>;
   updateOrderProvider: (recordId: string, newProvider: string) => Promise<void>;
   handleLogout: () => Promise<void>;
@@ -72,22 +82,22 @@ interface DashboardContextType {
   performGlobalSearch: (term: string) => Promise<void>;
   clearGlobalSearch: () => Promise<void>;
 
-
-
-
   processedData: ProcessedData;
 }
 
-const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
+const DashboardContext = createContext<DashboardContextType | undefined>(
+  undefined,
+);
 
 interface DashboardProviderProps {
   children: React.ReactNode;
   user: User;
   teamId: string;
-  role: 'owner' | 'user';
+  role: "owner" | "user";
   permissions: { [key: string]: boolean };
   allowedAccounts?: string[];
   display_name?: string;
+  user_number?: string;
   is_kpi?: boolean;
   can_view_leaderboard?: boolean;
   kpi_team?: string;
@@ -103,26 +113,40 @@ interface DashboardProviderProps {
 }
 
 export const DashboardProvider: React.FC<DashboardProviderProps> = ({
-  children, user, teamId, role, permissions, allowedAccounts,
-  display_name, is_kpi, can_view_leaderboard, kpi_team, viewable_kpi_teams,
+  children,
+  user,
+  teamId,
+  role,
+  permissions,
+  allowedAccounts,
+  display_name,
+  user_number,
+  is_kpi,
+  can_view_leaderboard,
+  kpi_team,
+  viewable_kpi_teams,
   onLogout,
-  timeZone, filterDateRange, selectedAccountId, searchTerm
+  timeZone,
+  filterDateRange,
+  selectedAccountId,
+  searchTerm,
 }) => {
-
   const { addNotification } = useNotification();
-
-
 
   // --- 3. Data Logic (via Hook) ---
   const {
-    allAccounts, setAllAccounts,
-    records, setRecords,
+    allAccounts,
+    setAllAccounts,
+    records,
+    setRecords,
     previousPeriodRecords,
-    manualCosts, setManualCosts,
+    manualCosts,
+    setManualCosts,
     isLoading,
     isSyncing,
     isFetchingNewRange,
-    syncState, setSyncState,
+    syncState,
+    setSyncState,
     syncProgress,
     accountSyncStatuses,
     runSync,
@@ -130,14 +154,14 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     enqueueSyncTask,
     updateOrderManualCost,
     updateOrderFfCode,
-    updateOrderProvider
+    updateOrderProvider,
   } = useDataSync({
     user,
     teamId,
     role,
     filterDateRange,
     timeZone,
-    addNotification
+    addNotification,
   });
 
   // --- Auto-Sync to Google Sheets ---
@@ -147,11 +171,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   useEffect(() => {
     if (!teamId) return;
 
-    import('../services/firebaseService').then(({ listenForSettings }) => {
+    import("../services/firebaseService").then(({ listenForSettings }) => {
       const unsubscribe = listenForSettings(teamId, (settings) => {
         if (settings.autoSyncToSheet !== undefined) {
           setAutoSyncEnabled(settings.autoSyncToSheet);
-          console.log(`[Auto-Sync] Settings updated: ${settings.autoSyncToSheet ? 'ENABLED' : 'DISABLED'}`);
+          console.log(
+            `[Auto-Sync] Settings updated: ${settings.autoSyncToSheet ? "ENABLED" : "DISABLED"}`,
+          );
         }
       });
 
@@ -172,36 +198,42 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       // addNotification(`Auto-synced ${count} orders to Google Sheets`, 'success');
     },
     onSyncError: (error) => {
-      console.error('[Auto-Sync] ❌ Error:', error);
+      console.error("[Auto-Sync] ❌ Error:", error);
       // Only notify on errors that need attention
-      if (error.includes('Permission') || error.includes('403')) {
-        addNotification('Auto-sync failed: Please check Google Sheet permissions', 'error');
+      if (error.includes("Permission") || error.includes("403")) {
+        addNotification(
+          "Auto-sync failed: Please check Google Sheet permissions",
+          "error",
+        );
       }
-    }
+    },
   });
 
   // --- Real-time Listener for New Records ---
   useEffect(() => {
     if (!teamId) return;
 
-    console.log('[Real-time] Setting up listener for new records...');
+    console.log("[Real-time] Setting up listener for new records...");
 
-    import('../services/firebaseService').then(({ listenForNewRecords }) => {
+    import("../services/firebaseService").then(({ listenForNewRecords }) => {
       const unsubscribe = listenForNewRecords(teamId, (newRecord) => {
         // Quietly add new record to state (React will re-render efficiently, no flash)
-        setRecords(prev => {
+        setRecords((prev) => {
           // Check if record already exists (avoid duplicates)
-          const exists = prev.some(r => r.id === newRecord.id);
+          const exists = prev.some((r) => r.id === newRecord.id);
           if (exists) return prev;
 
-          console.log(`[Real-time] ✨ New ${newRecord.kind} arrived: ${newRecord.order_id || newRecord.id}`);
+          console.log(
+            `[Real-time] ✨ New ${newRecord.kind} arrived: ${newRecord.order_id || newRecord.id}`,
+          );
 
           // Show toast notification only for orders
-          if (newRecord.kind === 'order') {
-            const productName = newRecord.details?.items?.[0]?.name || 'Unknown product';
+          if (newRecord.kind === "order") {
+            const productName =
+              newRecord.details?.items?.[0]?.name || "Unknown product";
             addNotification(
               `New order #${newRecord.order_id}: ${productName}`,
-              'success'
+              "success",
             );
           }
 
@@ -210,7 +242,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       });
 
       return () => {
-        console.log('[Real-time] Cleaning up listener...');
+        console.log("[Real-time] Cleaning up listener...");
         unsubscribe();
       };
     });
@@ -218,25 +250,22 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   // --- 4. Logic Functions ---
 
-
-
-
   // Computed Visible Accounts (for data display)
   const visibleAccounts = useMemo(() => {
-    if (role === 'owner') return allAccounts;
+    if (role === "owner") return allAccounts;
     if (!allowedAccounts || allowedAccounts.length === 0) return [];
-    return allAccounts.filter(acc => allowedAccounts.includes(acc.email));
+    return allAccounts.filter((acc) => allowedAccounts.includes(acc.email));
   }, [allAccounts, role, allowedAccounts]);
 
   // Computed Management Accounts (for MailManager - users with canManageSettings see ALL)
   const managementAccounts = useMemo(() => {
     // Owner always sees all
-    if (role === 'owner') return allAccounts;
+    if (role === "owner") return allAccounts;
     // Users with canManageSettings permission see ALL accounts (to prevent accidental deletion)
     if (permissions.canManageSettings) return allAccounts;
     // Regular users see only their allowed accounts
     if (!allowedAccounts || allowedAccounts.length === 0) return [];
-    return allAccounts.filter(acc => allowedAccounts.includes(acc.email));
+    return allAccounts.filter((acc) => allowedAccounts.includes(acc.email));
   }, [allAccounts, role, permissions.canManageSettings, allowedAccounts]);
 
   // We need these props from UIContext? No, DashboardContext should only care about data.
@@ -253,15 +282,27 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     etsy: { headers: [], rows: [] },
     cases: { headers: [], rows: [] },
     help: { headers: [], rows: [] },
-    fulfill: { table: { headers: [], rows: [] }, merchizeChartData: [], printwayChartData: [] },
-    summary: { kpis: {}, table: { headers: [], rows: [] }, chartData: [], topProductsByShop: {} },
-    products: { headers: [], rows: [] }
+    fulfill: {
+      table: { headers: [], rows: [] },
+      merchizeChartData: [],
+      printwayChartData: [],
+    },
+    summary: {
+      kpis: {},
+      table: { headers: [], rows: [] },
+      chartData: [],
+      topProductsByShop: {},
+    },
+    products: { headers: [], rows: [] },
   };
 
-  const [processedData, setProcessedData] = useState<ProcessedData>(initialProcessedData);
+  const [processedData, setProcessedData] =
+    useState<ProcessedData>(initialProcessedData);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isSavingAccounts, setIsSavingAccounts] = useState<boolean>(false);
-  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(
+    null,
+  );
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [showExportOptions, setShowExportOptions] = useState<boolean>(false);
 
@@ -271,7 +312,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   const workerRequestIdRef = useRef<number>(0);
 
   useEffect(() => {
-    workerRef.current = new Worker(new URL('../workers/dataWorker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = new Worker(
+      new URL("../workers/dataWorker.ts", import.meta.url),
+      { type: "module" },
+    );
     workerRef.current.onmessage = (e) => {
       const { success, data, error, requestId } = e.data;
 
@@ -297,26 +341,30 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   // Computed Processing Accounts (Stable reference for Worker)
   // Strips out timestamps to prevent re-processing when only sync status changes
   const processingAccounts = useMemo(() => {
-    return visibleAccounts.map(acc => ({
+    return visibleAccounts.map((acc) => ({
       id: acc.id,
       email: acc.email,
       label: acc.label,
       platforms: acc.platforms,
-      provider: acc.provider
+      provider: acc.provider,
     }));
   }, [visibleAccounts]);
 
   // Ref to hold stable processing accounts
   const stableProcessingAccountsRef = useRef(processingAccounts);
   // Manual check
-  const isProcessingAccountsDifferent = JSON.stringify(processingAccounts) !== JSON.stringify(stableProcessingAccountsRef.current);
+  const isProcessingAccountsDifferent =
+    JSON.stringify(processingAccounts) !==
+    JSON.stringify(stableProcessingAccountsRef.current);
   if (isProcessingAccountsDifferent) {
     stableProcessingAccountsRef.current = processingAccounts;
   }
 
   // Let's explicitly memoize the JSON string and use that as dependency?
-  const processingAccountsHash = useMemo(() => JSON.stringify(processingAccounts), [processingAccounts]);
-
+  const processingAccountsHash = useMemo(
+    () => JSON.stringify(processingAccounts),
+    [processingAccounts],
+  );
 
   // Filter Records for Display/Processing
   // Use stableProcessingAccountsRef to prevent re-filtering (and re-processing) when only timestamps change
@@ -324,7 +372,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     records,
     accounts: stableProcessingAccountsRef.current as Account[], // Cast as full Account[] assuming filtering uses only stable IDs
     selectedAccountId,
-    searchTerm
+    searchTerm,
   });
 
   // Track the last trigger state for worker to prevent redundant runs
@@ -338,10 +386,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   }>({
     records: null,
     prevRecords: null,
-    accountsHash: '',
+    accountsHash: "",
     filter: null,
-    tz: '',
-    manual: null
+    tz: "",
+    manual: null,
   });
 
   // Sync ref for safety timeout check
@@ -358,7 +406,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       accountsHash: processingAccountsHash,
       filter: filterDateRange,
       tz: timeZone,
-      manual: manualCosts
+      manual: manualCosts,
     };
 
     if (
@@ -378,7 +426,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       accountsHash: processingAccountsHash,
       filter: filterDateRange,
       tz: timeZone,
-      manual: manualCosts
+      manual: manualCosts,
     };
 
     // Set processing state
@@ -407,26 +455,47 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       timeZone,
       role,
       permissions,
-      manualCosts
+      manualCosts,
     });
 
     return () => clearTimeout(safetyTimeout);
-  }, [filteredRecords, previousPeriodRecords, processingAccountsHash, filterDateRange, timeZone, role, permissions, manualCosts]);
-
+  }, [
+    filteredRecords,
+    previousPeriodRecords,
+    processingAccountsHash,
+    filterDateRange,
+    timeZone,
+    role,
+    permissions,
+    manualCosts,
+  ]);
 
   // --- Action Handlers ---
 
   const handleSyncClick = async () => {
     if (isSyncing || !user) return;
-    const accountsToSync = selectedAccountId === 'all' ? visibleAccounts : visibleAccounts.filter(acc => acc.email === selectedAccountId);
-    if (accountsToSync.length === 0) { addNotification("No accounts selected.", "info"); return; }
+    const accountsToSync =
+      selectedAccountId === "all"
+        ? visibleAccounts
+        : visibleAccounts.filter((acc) => acc.email === selectedAccountId);
+    if (accountsToSync.length === 0) {
+      addNotification("No accounts selected.", "info");
+      return;
+    }
 
     runSync(accountsToSync, records).then(async () => {
-      setSyncState('Refreshing view...');
+      setSyncState("Refreshing view...");
       try {
-        const updatedDisplayRecords = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
+        const updatedDisplayRecords = await getRecordsForDateRange(
+          teamId,
+          filterDateRange.from,
+          filterDateRange.to,
+          timeZone,
+        );
         setRecords(updatedDisplayRecords);
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error(e);
+      }
       setSyncState(null);
     });
   };
@@ -436,21 +505,38 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     enqueueSyncTask(`Resync ${account.email}`, async () => {
       try {
         setSyncState(`[Queue] Resetting ${account.email}...`);
-        const resetData = { id: account.id, historical_sync_complete: false, history_synced_until: null, last_synced_at: null, scan_start_date: null };
+        const resetData = {
+          id: account.id,
+          historical_sync_complete: false,
+          history_synced_until: null,
+          last_synced_at: null,
+          scan_start_date: null,
+        };
         await saveAccountsToFirebase(teamId, [{ ...account, ...resetData }]); // Helper reuse? Or updateAccounts
         // Logic simplifed: Just update state & run sync
         const updatedAccount = { ...account, ...resetData };
-        setAllAccounts(prev => prev.map(a => a.id === account.id ? updatedAccount : a));
+        setAllAccounts((prev) =>
+          prev.map((a) => (a.id === account.id ? updatedAccount : a)),
+        );
 
         setSyncState(`[Queue] Syncing ${account.email}...`);
         const initialRecords = await runSync([updatedAccount], records);
-        await runHistoricalSync([updatedAccount], [...records, ...initialRecords]);
+        await runHistoricalSync(
+          [updatedAccount],
+          [...records, ...initialRecords],
+        );
         addNotification(`Re-sync finished for ${account.email}`, "success");
       } catch (error) {
         console.error(error);
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        addNotification(`Failed to re-sync ${account.email}: ${errorMessage}`, "error");
-      } finally { setSyncState(null); }
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
+        addNotification(
+          `Failed to re-sync ${account.email}: ${errorMessage}`,
+          "error",
+        );
+      } finally {
+        setSyncState(null);
+      }
     });
     addNotification(`Queued re-sync for ${account.email}`, "info");
   };
@@ -458,7 +544,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   const handleQuickSync = async (account: Account) => {
     if (!user) return;
     const toDate = new Date();
-    const fromDate = new Date(); fromDate.setDate(fromDate.getDate() - 7);
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - 7);
     const range = { from: fromDate.toISOString(), to: toDate.toISOString() };
 
     enqueueSyncTask(`Quick Sync ${account.email}`, async () => {
@@ -467,33 +554,42 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
         await runSync([account], records, range);
         addNotification(`Quick sync complete for ${account.email}`, "success");
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
         addNotification(`Quick sync failed: ${errorMessage}`, "error");
-      } finally { setSyncState(null); }
+      } finally {
+        setSyncState(null);
+      }
     });
     addNotification(`Queued quick sync for ${account.email}`, "info");
   };
 
-  const handleSaveAccounts = async (updatedAccounts: Account[], explicitlyRemovedIds: string[] = []) => {
+  const handleSaveAccounts = async (
+    updatedAccounts: Account[],
+    explicitlyRemovedIds: string[] = [],
+  ) => {
     if (!user) return;
     setIsSavingAccounts(true);
-    setSyncState('Saving accounts...');
+    setSyncState("Saving accounts...");
     try {
-
       const originalAccounts = [...allAccounts];
       const originalRecords = [...records];
 
       // Detect deletions (Derived + Explicit)
-      const derivedDeletedAccounts = originalAccounts.filter(acc => !updatedAccounts.some(u => u.id === acc.id));
+      const derivedDeletedAccounts = originalAccounts.filter(
+        (acc) => !updatedAccounts.some((u) => u.id === acc.id),
+      );
 
       // Combine derived and explicit IDs
-      const derivedDeletedIds = derivedDeletedAccounts.map(a => a.id);
-      const deletedAccountIds = Array.from(new Set([...derivedDeletedIds, ...explicitlyRemovedIds]));
+      const derivedDeletedIds = derivedDeletedAccounts.map((a) => a.id);
+      const deletedAccountIds = Array.from(
+        new Set([...derivedDeletedIds, ...explicitlyRemovedIds]),
+      );
 
       // Resolve emails for cleanup (only for known accounts)
       const deletedEmails: string[] = [];
-      deletedAccountIds.forEach(id => {
-        const acc = originalAccounts.find(a => a.id === id);
+      deletedAccountIds.forEach((id) => {
+        const acc = originalAccounts.find((a) => a.id === id);
         if (acc) deletedEmails.push(acc.email);
       });
 
@@ -501,9 +597,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       const deletedAccounts = derivedDeletedAccounts;
 
       // CRITICAL SAFETY CHECK: Prevent users from deleting accounts they can't see
-      if (role !== 'owner' && deletedAccounts.length > 0) {
+      if (role !== "owner" && deletedAccounts.length > 0) {
         // Check if user is trying to delete accounts outside their permission scope
-        const unauthorizedDeletions = deletedAccounts.filter(acc => {
+        const unauthorizedDeletions = deletedAccounts.filter((acc) => {
           // If user has allowedAccounts restriction, they can only delete accounts in that list
           if (allowedAccounts && allowedAccounts.length > 0) {
             return !allowedAccounts.includes(acc.email);
@@ -512,49 +608,66 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
         });
 
         if (unauthorizedDeletions.length > 0) {
-          console.error('[Security] User attempted to delete unauthorized accounts:', unauthorizedDeletions.map(a => a.email));
-          addNotification('⚠️ Security Error: You cannot delete accounts outside your permission scope.', 'error');
+          console.error(
+            "[Security] User attempted to delete unauthorized accounts:",
+            unauthorizedDeletions.map((a) => a.email),
+          );
+          addNotification(
+            "⚠️ Security Error: You cannot delete accounts outside your permission scope.",
+            "error",
+          );
           setSyncState(null);
           setIsSavingAccounts(false);
           return;
         }
       }
 
-
-
       let nextRecords = originalRecords;
       if (deletedAccounts.length > 0) {
         setSyncState(`Cleaning up ${deletedAccounts.length} accounts...`);
         await deleteRecordsForAccounts(teamId, deletedEmails);
-        nextRecords = originalRecords.filter(r => !deletedEmails.includes(r.account));
+        nextRecords = originalRecords.filter(
+          (r) => !deletedEmails.includes(r.account),
+        );
         setRecords(nextRecords);
       }
 
       // Safe update: Only upsert updatedAccounts and delete explicitly deleted IDs
       await saveAccountsToFirebase(teamId, updatedAccounts, deletedAccountIds);
 
-      // REMOVED: setAllAccounts(updatedAccounts) 
+      // REMOVED: setAllAccounts(updatedAccounts)
       // REMOVED: addNotification('Accounts saved.', "success");
       // We rely on the real-time listener in useDataSync to update the state and notify the user.
       // This ensures 1) we are sure the server has the data, and 2) the "Account Renamed" notification triggers correctly because the local state is still "stale" when the listener fires.
 
-
       // Detect additions
-      const newAccounts = updatedAccounts.filter(acc => !originalAccounts.some(o => o.id === acc.id));
+      const newAccounts = updatedAccounts.filter(
+        (acc) => !originalAccounts.some((o) => o.id === acc.id),
+      );
       if (newAccounts.length > 0) {
-        setSyncState('Initializing new accounts...');
-        newAccounts.forEach(acc => {
-          if (acc.provider === 'gmail') setupGmailWatch(teamId, acc).catch(console.error);
+        setSyncState("Initializing new accounts...");
+        newAccounts.forEach((acc) => {
+          if (acc.provider === "gmail")
+            setupGmailWatch(teamId, acc).catch(console.error);
         });
 
         runSync(newAccounts, nextRecords).then(async () => {
           try {
-            const updated = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
+            const updated = await getRecordsForDateRange(
+              teamId,
+              filterDateRange.from,
+              filterDateRange.to,
+              timeZone,
+            );
             setRecords(updated);
             runHistoricalSync(newAccounts, updated);
           } catch (e) {
-            console.error('Error refreshing view after adding new accounts:', e);
-            const errorMessage = e instanceof Error ? e.message : 'Unknown error';
+            console.error(
+              "Error refreshing view after adding new accounts:",
+              e,
+            );
+            const errorMessage =
+              e instanceof Error ? e.message : "Unknown error";
             addNotification(`Failed to refresh view: ${errorMessage}`, "error");
           }
         });
@@ -562,20 +675,17 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
       setSyncState(null);
     } catch (e) {
       console.error(e);
-      addNotification('Error saving accounts.', "error");
+      addNotification("Error saving accounts.", "error");
       setSyncState(null);
     } finally {
       setIsSavingAccounts(false);
     }
   };
 
-
-
-
   // Export to Excel - Show options modal
   const handleExport = () => {
     if (!processedData) {
-      addNotification('No data to export', 'info');
+      addNotification("No data to export", "info");
       return;
     }
     setShowExportOptions(true);
@@ -584,47 +694,63 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   // Export to Excel with options
   const handleExportWithOptions = (includeImages: boolean) => {
     if (!processedData) {
-      addNotification('No data to export', 'info');
+      addNotification("No data to export", "info");
       return;
     }
 
     setIsExporting(true);
-    setExportProgress({ stage: 'collecting', stageLabel: 'Preparing export...', current: 0, total: 100, percentage: 0 });
+    setExportProgress({
+      stage: "collecting",
+      stageLabel: "Preparing export...",
+      current: 0,
+      total: 100,
+      percentage: 0,
+    });
 
     // Get timezone offset for filename
     const date = new Date();
     const dateStr = date.toISOString().slice(0, 10);
 
     // Get timezone offset
-    let timezoneOffset = 'UTC';
+    let timezoneOffset = "UTC";
     try {
-      const formatter = new Intl.DateTimeFormat('en-US', {
+      const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone,
-        timeZoneName: 'shortOffset'
+        timeZoneName: "shortOffset",
       });
       const parts = formatter.formatToParts(date);
-      const offsetPart = parts.find(p => p.type === 'timeZoneName');
+      const offsetPart = parts.find((p) => p.type === "timeZoneName");
       if (offsetPart && offsetPart.value) {
         // Format like UTC+07 or UTC-05
-        timezoneOffset = offsetPart.value.replace('GMT', 'UTC').replace(':', '');
+        timezoneOffset = offsetPart.value
+          .replace("GMT", "UTC")
+          .replace(":", "");
       }
     } catch (e) {
-      console.error('Error getting timezone offset:', e);
+      console.error("Error getting timezone offset:", e);
     }
 
     const filename = `Dashboard_Export_${dateStr}_${timezoneOffset}.xlsx`;
 
-    addNotification(`Generating Excel file${includeImages ? ' with images' : ''}...`, 'info');
+    addNotification(
+      `Generating Excel file${includeImages ? " with images" : ""}...`,
+      "info",
+    );
 
-    exportDashboardToExcel(processedData, filename, includeImages, (progress) => {
-      setExportProgress(progress);
-    })
+    exportDashboardToExcel(
+      processedData,
+      filename,
+      includeImages,
+      (progress) => {
+        setExportProgress(progress);
+      },
+    )
       .then(() => {
-        addNotification('Export completed', 'success');
+        addNotification("Export completed", "success");
       })
       .catch((err) => {
         console.error(err);
-        addNotification('Export failed', 'error');
+        addNotification("Export failed", "error");
       })
       .finally(() => {
         setIsExporting(false);
@@ -635,20 +761,27 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   const performGlobalSearch = async (term: string) => {
     if (!term || !term.trim()) return;
     setIsProcessing(true);
-    setSyncState('Searching globally...');
+    setSyncState("Searching globally...");
     try {
-      const { searchGlobalRecords } = await import('../services/firebaseService');
+      const { searchGlobalRecords } =
+        await import("../services/firebaseService");
       const results = await searchGlobalRecords(teamId, term);
 
       if (results.length > 0) {
         setRecords(results);
-        addNotification(`Global Search: Found ${results.length} record(s) matching "${term}"`, 'success');
+        addNotification(
+          `Global Search: Found ${results.length} record(s) matching "${term}"`,
+          "success",
+        );
       } else {
-        addNotification(`Global Search: No records found for "${term}"`, 'info');
+        addNotification(
+          `Global Search: No records found for "${term}"`,
+          "info",
+        );
       }
     } catch (e) {
       console.error(e);
-      addNotification('Global Search failed', 'error');
+      addNotification("Global Search failed", "error");
     } finally {
       setIsProcessing(false);
       setSyncState(null);
@@ -657,10 +790,16 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   const clearGlobalSearch = async () => {
     setIsProcessing(true);
-    setSyncState('Restoring data...');
+    setSyncState("Restoring data...");
     try {
-      const { getRecordsForDateRange } = await import('../services/firebaseService');
-      const updatedDisplayRecords = await getRecordsForDateRange(teamId, filterDateRange.from, filterDateRange.to, timeZone);
+      const { getRecordsForDateRange } =
+        await import("../services/firebaseService");
+      const updatedDisplayRecords = await getRecordsForDateRange(
+        teamId,
+        filterDateRange.from,
+        filterDateRange.to,
+        timeZone,
+      );
       setRecords(updatedDisplayRecords);
     } catch (e) {
       console.error(e);
@@ -670,36 +809,55 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     }
   };
 
-
   return (
-    <DashboardContext.Provider value={{
-      user, teamId, role, permissions, allowedAccounts,
-      display_name, is_kpi, can_view_leaderboard, kpi_team, viewable_kpi_teams,
-      accounts: visibleAccounts, // Filtered for data display
-      allAccounts, // All accounts (unfiltered)
-      managementAccounts, // For MailManager - respects canManageSettings
-      setAccounts: setAllAccounts,
-      records, setRecords,
-      manualCosts, setManualCosts,
-      isLoading, isSyncing, isFetchingNewRange, syncState, syncProgress, accountSyncStatuses, isProcessing, isSavingAccounts,
-      exportProgress, isExporting,
-      showExportOptions, setShowExportOptions,
-      handleSaveAccounts,
-      handleSyncClick,
-      handleResyncAccount,
-      handleQuickSync,
-      updateOrderManualCost,
-      updateOrderFfCode,
-      updateOrderProvider,
-      handleLogout: onLogout,
-      handleExport,
-      handleExportWithOptions,
-      performGlobalSearch,
-      clearGlobalSearch,
-      processedData
-
-
-    }}>
+    <DashboardContext.Provider
+      value={{
+        user,
+        teamId,
+        role,
+        permissions,
+        allowedAccounts,
+        display_name,
+        user_number,
+        is_kpi,
+        can_view_leaderboard,
+        kpi_team,
+        viewable_kpi_teams,
+        accounts: visibleAccounts, // Filtered for data display
+        allAccounts, // All accounts (unfiltered)
+        managementAccounts, // For MailManager - respects canManageSettings
+        setAccounts: setAllAccounts,
+        records,
+        setRecords,
+        manualCosts,
+        setManualCosts,
+        isLoading,
+        isSyncing,
+        isFetchingNewRange,
+        syncState,
+        syncProgress,
+        accountSyncStatuses,
+        isProcessing,
+        isSavingAccounts,
+        exportProgress,
+        isExporting,
+        showExportOptions,
+        setShowExportOptions,
+        handleSaveAccounts,
+        handleSyncClick,
+        handleResyncAccount,
+        handleQuickSync,
+        updateOrderManualCost,
+        updateOrderFfCode,
+        updateOrderProvider,
+        handleLogout: onLogout,
+        handleExport,
+        handleExportWithOptions,
+        performGlobalSearch,
+        clearGlobalSearch,
+        processedData,
+      }}
+    >
       {children}
     </DashboardContext.Provider>
   );
@@ -708,7 +866,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 export const useDashboard = () => {
   const context = React.useContext(DashboardContext);
   if (context === undefined) {
-    throw new Error('useDashboard must be used within a DashboardProvider');
+    throw new Error("useDashboard must be used within a DashboardProvider");
   }
   return context;
 };

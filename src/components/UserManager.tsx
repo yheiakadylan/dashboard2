@@ -28,11 +28,12 @@ interface UserRole {
     canProcessDesign: boolean;
   };
   allowedAccounts?: string[];
-  display_name?: string; // Tên hiển thị trên Leaderboard/KPI
-  is_kpi?: boolean; // Tham gia tính KPI / xuất hiện trên Leaderboard
-  can_view_leaderboard?: boolean; // Có quyền xem Leaderboard toàn team
-  kpi_team?: string; // Team KPI
-  viewable_kpi_teams?: string[]; // Các team được phép xem
+  display_name?: string;
+  user_number?: string;
+  is_kpi?: boolean;
+  can_view_leaderboard?: boolean;
+  kpi_team?: string;
+  viewable_kpi_teams?: string[];
 }
 
 // --- BẮT ĐẦU: Component Modal mới để chọn Account ---
@@ -355,6 +356,7 @@ const UserManager: React.FC = () => {
             permissions: user.permissions,
             allowedAccounts: user.allowedAccounts || [],
             display_name: user.display_name || "",
+            user_number: user.user_number || null,
             is_kpi: !!user.is_kpi,
             can_view_leaderboard: !!user.can_view_leaderboard,
             kpi_team: user.kpi_team || null,
@@ -394,7 +396,12 @@ const UserManager: React.FC = () => {
 
   const handleUserFieldChange = (
     userId: string,
-    field: "display_name" | "is_kpi" | "can_view_leaderboard" | "kpi_team",
+    field:
+      | "display_name"
+      | "user_number"
+      | "is_kpi"
+      | "can_view_leaderboard"
+      | "kpi_team",
     value: string | boolean,
   ) => {
     setUsers((prevUsers) =>
@@ -537,7 +544,7 @@ const UserManager: React.FC = () => {
       if (!response.ok) {
         throw new Error(
           result.message ||
-            `Server error (${response.status}). Check Vercel logs. \nError details: ${text || "No details provided."}`, 
+            `Server error (${response.status}). Check Vercel logs. \nError details: ${text || "No details provided."}`,
         );
       }
 
@@ -677,6 +684,26 @@ const UserManager: React.FC = () => {
                         )
                       }
                       placeholder="Nhập tên hiển thị..."
+                      className="w-full px-3 py-1.5 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md text-sm"
+                    />
+                  </div>
+
+                  {/* User Number */}
+                  <div>
+                    <label className="text-sm font-medium mb-1 text-gray-600 dark:text-gray-300 block">
+                      User Number
+                    </label>
+                    <input
+                      type="text"
+                      value={user.user_number || ""}
+                      onChange={(e) =>
+                        handleUserFieldChange(
+                          user.id,
+                          "user_number",
+                          e.target.value,
+                        )
+                      }
+                      placeholder="e.g. MA007"
                       className="w-full px-3 py-1.5 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md text-sm"
                     />
                   </div>
