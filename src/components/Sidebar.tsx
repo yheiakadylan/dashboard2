@@ -10,6 +10,7 @@ import {
   TruckIcon,
   TagIcon,
   ChartBarIcon,
+  BuildingStorefrontIcon,
   PaintBrushIcon,
   DocumentDuplicateIcon,
 } from "@heroicons/react/24/outline";
@@ -54,6 +55,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
         return <DocumentDuplicateIcon className={className} />;
       case "KPI":
         return <ChartBarIcon className={className} />;
+      case "Shop Evaluation":
+        return <BuildingStorefrontIcon className={className} />;
       default:
         return <HomeIcon className={className} />;
     }

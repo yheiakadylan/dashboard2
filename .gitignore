@@ -28,3 +28,12 @@ public/firebase-config.js
 .vercel
 .env*.local
 .env*
+
+# Local browser profiles and generated extension packages
+**/.chrome-profile/
+**/.public-chrome-profile/
+**/*.zip
+**/*.rar
+
+# Local Etsy browser worker is distributed separately, not committed with the dashboard
+/extension-evaluation-worker/

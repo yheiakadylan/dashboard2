@@ -116,7 +116,8 @@ export const UIProvider: React.FC<{
     // Add any missing tabs from DEFAULT_TABS
     const savedSet = new Set(savedOrder);
     const missingTabs = DEFAULT_TABS.filter((tab) => !savedSet.has(tab));
-    return [...savedOrder, ...missingTabs];
+    const completeOrder = [...savedOrder, ...missingTabs].filter(tab => tab !== "Shop Evaluation");
+    return [...completeOrder, "Shop Evaluation"];
   });
   // Convert array back to Set for internal logic
   const [hiddenTabs, setHiddenTabs] = useState<Set<Tab>>(

@@ -31,6 +31,7 @@ const Tabs: React.FC = () => {
         case 'Overview':
         case 'Order List':
         case 'Products':
+        case 'Shop Evaluation':
         case 'Support':
           return permissions.viewSales;
 

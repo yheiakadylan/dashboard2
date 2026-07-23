@@ -17,6 +17,7 @@ import SupportTab from "./tabs/SupportTab";
 import KpiManagement from "./tabs/KpiManagement";
 import DesignTab from "./tabs/DesignTab";
 import TempleteTab from "./tabs/TempleteTab";
+import ShopEvaluationTab from "./tabs/ShopEvaluationTab";
 
 // Helper for lazy data tables
 const LazyTable = ({ headers, data }: { headers: string[]; data: any[] }) => (
@@ -94,6 +95,9 @@ const MainContent: React.FC<MainContentProps> = ({
 
         case "Products":
           return <ProductsTab processedData={processedData} />;
+
+        case "Shop Evaluation":
+          return <ShopEvaluationTab />;
 
         case "Order List":
           return (

@@ -32,6 +32,7 @@ const TabSettings: React.FC = () => {
                 case 'Order List':
                 case 'Support':
                 case 'Products':
+                case 'Shop Evaluation':
                     return permissions.viewSales;
                 case 'Fulfill':
                     return permissions.viewFulfill;

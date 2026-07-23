@@ -11,6 +11,7 @@ export const getPermittedTabs = (
       case "Overview":
       case "Order List":
       case "Products":
+      case "Shop Evaluation":
       case "Support":
         return permissions.viewSales;
       case "Fulfill":
