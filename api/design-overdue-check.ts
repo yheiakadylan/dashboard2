@@ -3,7 +3,43 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { getDb } from "./_lib/firebaseAdminHelper.js";
 
 const OVERDUE_STATUSES = ["new", "todo", "in_review", "need_fix"];
-const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
+// Minimum calendar days before any task can be overdue by working-days logic.
+// Mon created → overdue Thu = 3 calendar days. Used only as a Firestore pre-filter.
+const MIN_CALENDAR_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
+function isWeekend(date: Date): boolean {
+  const day = date.getDay(); // 0 = Sunday, 6 = Saturday
+  return day === 0 || day === 6;
+}
+
+// If createdAt is a weekend, return the following Monday at the same time.
+// Otherwise return createdAt unchanged.
+function getEffectiveStart(createdAt: Date): Date {
+  if (!isWeekend(createdAt)) return createdAt;
+  const d = new Date(createdAt);
+  while (d.getDay() !== 1) {
+    // 1 = Monday
+    d.setDate(d.getDate() + 1);
+  }
+  return d;
+}
+
+// Add n working days (Mon–Fri) to start, preserving the time-of-day.
+function addWorkingDays(start: Date, days: number): Date {
+  const result = new Date(start);
+  let added = 0;
+  while (added < days) {
+    result.setDate(result.getDate() + 1);
+    if (!isWeekend(result)) added++;
+  }
+  return result;
+}
+
+// Returns the exact moment a task becomes overdue under the working-days rule.
+function getOverdueThreshold(createdAt: Date): Date {
+  return addWorkingDays(getEffectiveStart(createdAt), 3);
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -12,11 +48,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const db = getDb();
-    const threshold = new Date(Date.now() - THREE_DAYS_MS);
     const now = new Date();
 
-    // Query all teams, then scan design_tasks per team
-    // (safer than collectionGroup which requires explicit index setup)
+    // Pre-filter: only fetch tasks older than 3 calendar days.
+    // No task created within 3 calendar days can be overdue by the working-days rule.
+    const preFilterThreshold = new Date(now.getTime() - MIN_CALENDAR_DAYS_MS);
+
     const usersSnap = await db.collection("user").get();
 
     const toUpdate: FirebaseFirestore.DocumentReference[] = [];
@@ -27,12 +64,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .collection("user")
         .doc(teamId)
         .collection("design_tasks")
-        .where("createdAt", "<=", threshold)
+        .where("createdAt", "<=", preFilterThreshold)
         .get();
 
       snap.docs.forEach((docSnap) => {
-        const status = docSnap.data().status;
-        if (OVERDUE_STATUSES.includes(status)) {
+        const data = docSnap.data();
+        if (!OVERDUE_STATUSES.includes(data.status)) return;
+
+        const createdAt: Date = data.createdAt?.toDate?.() ?? new Date(0);
+        const overdueAt = getOverdueThreshold(createdAt);
+
+        if (now >= overdueAt) {
           toUpdate.push(docSnap.ref);
         }
       });
