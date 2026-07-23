@@ -114,6 +114,7 @@ export interface Template {
   title: string;
   providerName: string;
   url?: string;
+  sku?: string;
   createdBy: string;
   createdByName: string;
   createdAt: any;
@@ -125,12 +126,15 @@ export type DesignStatus =
 
 export type DesignPriority = "low" | "normal" | "high";
 
+export type DesignType = "make_mockup" | "fulfillment";
+
 export interface DesignTask {
   id: string;
   title: string;
   description?: string;
   status: DesignStatus;
   priority?: DesignPriority;
+  typeDesign?: DesignType;
   attachments: string[];
   imageUrls: string[];
   designUrls: string[];
@@ -142,6 +146,8 @@ export interface DesignTask {
   assignedToName?: string;
   overdueAt?: any;
   templateId?: string;
+  designNumber?: number;
+  design_code?: string;
 }
 
 export interface DesignComment {

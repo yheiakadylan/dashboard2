@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useDashboard } from "../contexts/DashboardContext";
-import { DesignTask, DesignComment, DesignStatus, Template } from "../types";
+import {
+  DesignTask,
+  DesignComment,
+  DesignStatus,
+  DesignType,
+  Template,
+} from "../types";
 import {
   createDesignTask,
   updateDesignTask,
@@ -10,6 +16,8 @@ import {
   uploadDesignAttachment,
   uploadCommentAttachment,
   generateTaskId,
+  buildDesignCode,
+  allocateDesignNumber,
 } from "../services/designService";
 import { listenTemplates } from "../services/templateService";
 import Spinner from "./Spinner";
@@ -49,7 +57,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
-  const { teamId, role, permissions, user, display_name } = useDashboard();
+  const { teamId, role, permissions, user, display_name, user_number } =
+    useDashboard();
   const isEdit = !!task;
   const isOwner = role === "owner";
   const canAddDesign = isOwner || !!permissions?.canAddDesign;
@@ -75,6 +84,12 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
   );
   const [priority, setPriority] = useState<"low" | "normal" | "high">(
     task?.priority ?? "normal",
+  );
+  const [typeDesign, setTypeDesign] = useState<DesignType>(
+    task?.typeDesign ?? "make_mockup",
+  );
+  const [designCodeDraft, setDesignCodeDraft] = useState<string>(
+    task?.design_code ?? "",
   );
 
   // Templates
@@ -147,6 +162,20 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [templateDropdownOpen]);
+
+  // Recalculate design_code when user explicitly picks/clears a template (edit mode only).
+  // Skip for legacy tasks that have no designNumber — "0000" would be meaningless.
+  const recalcDesignCode = (pickedTemplate: Template | null) => {
+    if (!isEdit || !task || task.designNumber == null) return;
+    const createdDate = task.createdAt?.toDate?.() ?? new Date();
+    const code = buildDesignCode(
+      pickedTemplate?.sku ?? null,
+      user_number ?? null,
+      createdDate,
+      task.designNumber,
+    );
+    setDesignCodeDraft(code);
+  };
 
   // Subscribe to comments in edit mode
   useEffect(() => {
@@ -228,6 +257,8 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
       if (isEdit && task) {
         const update: Partial<Omit<DesignTask, "id" | "createdAt">> = {
           status: statusDraft,
+          typeDesign,
+          design_code: designCodeDraft,
         };
         if (canEditContent) {
           update.title = title.trim();
@@ -235,7 +266,7 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
           update.imageUrls = imageUrls;
           update.designUrls = designUrls;
           update.priority = priority;
-          if (selectedTemplateId) update.templateId = selectedTemplateId;
+          update.templateId = selectedTemplateId || undefined;
         }
         // When claiming (new/need_fix → todo), record assignee
         if (
@@ -248,6 +279,15 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
         }
         await updateDesignTask(teamId, task.id, update);
       } else {
+        // Allocate sequential design number and compute code
+        const designNumber = await allocateDesignNumber(teamId);
+        const sku = selectedTemplate?.sku ?? null;
+        const code = buildDesignCode(
+          sku,
+          user_number ?? null,
+          new Date(),
+          designNumber,
+        );
         await createDesignTask(
           teamId,
           {
@@ -255,6 +295,9 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
             description: description.trim(),
             status: "new",
             priority,
+            typeDesign,
+            designNumber,
+            design_code: code,
             ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}),
             attachments,
             imageUrls,
@@ -413,6 +456,22 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
             </div>
           )}
 
+          {/* Type Design */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Type Design <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={typeDesign}
+              onChange={(e) => setTypeDesign(e.target.value as DesignType)}
+              disabled={isOverdue}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none disabled:opacity-60"
+            >
+              <option value="make_mockup">Make Mockup</option>
+              <option value="fulfillment">Fulfillment</option>
+            </select>
+          </div>
+
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -474,6 +533,7 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
                       setSelectedTemplateId("");
                       setTemplateSearch("");
                       setTemplateDropdownOpen(false);
+                      recalcDesignCode(null);
                     }}
                     className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
                     title="Clear selection"
@@ -524,6 +584,7 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
                           setSelectedTemplateId(t.id);
                           setTemplateSearch("");
                           setTemplateDropdownOpen(false);
+                          recalcDesignCode(t);
                         }}
                         className={`w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
                           t.id === selectedTemplateId
@@ -562,6 +623,28 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
                     </a>
                   </p>
                 )}
+                {selectedTemplate.sku && (
+                  <p className="text-gray-700 dark:text-gray-300">
+                    <span className="font-medium">SKU:</span>{" "}
+                    {selectedTemplate.sku}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Design Code — edit mode only */}
+            {isEdit && (
+              <div className="mt-3">
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  Design Code
+                </label>
+                <input
+                  type="text"
+                  value={designCodeDraft}
+                  onChange={(e) => setDesignCodeDraft(e.target.value)}
+                  placeholder="Auto-generated on save"
+                  className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+                />
               </div>
             )}
           </div>
@@ -680,7 +763,14 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
                       key={i}
                       className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400"
                     >
-                      <span className="flex-1 truncate">{url}</span>
+                      <a
+                        href={isSafeUrl(url) ? url : undefined}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 truncate hover:underline"
+                      >
+                        {url}
+                      </a>
                       <button
                         onClick={() =>
                           handleRemoveItem(imageUrls, setImageUrls, i)
@@ -725,9 +815,14 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
                 <ul className="space-y-1">
                   {designUrls.map((url, i) => (
                     <li key={i} className="flex items-center gap-2 text-sm">
-                      <span className="flex-1 truncate text-blue-600 dark:text-blue-400">
+                      <a
+                        href={isSafeUrl(url) ? url : undefined}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 truncate text-blue-600 dark:text-blue-400 hover:underline"
+                      >
                         {url}
-                      </span>
+                      </a>
                       <button
                         onClick={() => handleCopyUrl(url)}
                         title="Copy URL"

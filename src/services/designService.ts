@@ -12,6 +12,7 @@ import {
   orderBy,
   query,
 } from "firebase/firestore";
+import type { DesignType } from "../types";
 import {
   ref,
   uploadBytes,
@@ -23,6 +24,33 @@ import { DesignTask, DesignComment } from "../types";
 
 const tasksCol = (teamId: string) =>
   collection(db, "user", teamId, "design_tasks");
+
+export const buildDesignCode = (
+  sku: string | null,
+  userNumber: string | null,
+  createdAt: Date,
+  designNumber: number,
+): string => {
+  const yy = String(createdAt.getFullYear()).slice(-2);
+  const mm = String(createdAt.getMonth() + 1).padStart(2, "0");
+  const dd = String(createdAt.getDate()).padStart(2, "0");
+  const suffix = `${yy}${mm}${dd}${String(designNumber).padStart(4, "0")}`;
+  const parts: string[] = [];
+  if (sku) parts.push(sku);
+  if (userNumber) parts.push(userNumber);
+  parts.push(suffix);
+  return parts.join("-");
+};
+
+export const allocateDesignNumber = async (teamId: string): Promise<number> => {
+  const counterRef = doc(db, "user", teamId, "counters", "design");
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(counterRef);
+    const next = snap.exists() ? ((snap.data().next as number) ?? 1) : 1;
+    tx.set(counterRef, { next: next + 1 }, { merge: true });
+    return next;
+  });
+};
 
 const commentsCol = (teamId: string, taskId: string) =>
   collection(db, "user", teamId, "design_tasks", taskId, "comments");

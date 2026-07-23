@@ -18,6 +18,7 @@ const TempleteModal: React.FC<Props> = ({ template, onClose }) => {
     template?.providerName ?? "",
   );
   const [url, setUrl] = useState(template?.url ?? "");
+  const [sku, setSku] = useState(template?.sku ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,6 +33,10 @@ const TempleteModal: React.FC<Props> = ({ template, onClose }) => {
       setError("Provider name is required.");
       return;
     }
+    if (!sku.trim()) {
+      setError("SKU is required.");
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -41,19 +46,21 @@ const TempleteModal: React.FC<Props> = ({ template, onClose }) => {
           title: title.trim(),
           providerName: providerName.trim(),
           url: url.trim() || undefined,
+          sku: sku.trim(),
         });
       } else {
         await createTemplate(teamId, {
           title: title.trim(),
           providerName: providerName.trim(),
           url: url.trim() || undefined,
+          sku: sku.trim(),
           createdBy: user!.uid,
           createdByName: displayName,
         });
       }
       onClose();
-    } catch {
-      setError("Failed to save. Please try again.");
+    } catch (e: any) {
+      setError(e?.message || "Failed to save. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -139,6 +146,20 @@ const TempleteModal: React.FC<Props> = ({ template, onClose }) => {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://..."
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
+          </div>
+
+          {/* SKU */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              SKU <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              placeholder="e.g. BADGA01"
               className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             />
           </div>
