@@ -371,7 +371,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const result = await analyzeAllSources(provider, run, source, async progress => {
       liveStatus = 'running';
       liveProgress = progress;
-      await runRef.set({ analysis: { status: 'running', provider, progress, startedAt, updatedAt: new Date().toISOString() } }, { merge: true });
+      const progressUpdatedAt = new Date().toISOString();
+      await runRef.set({ analysis: { status: 'running', provider, progress, startedAt, updatedAt: progressUpdatedAt }, ...(!streamStarted ? { aiLive: { status: 'running', text: '', model: providerModel, progress, updatedAt: progressUpdatedAt, error: null } } : {}) }, { merge: true });
       if (streamStarted) await persistAiLive();
       await writeRunLog(runRef, { level: 'info', stage: progress.stage, message: `AI progress ${progress.current}/${progress.total}.`, request: { method: 'POST', url: provider === '9router' ? providerEndpoint(providerBaseUrl, 'responses') : providerBaseUrl, durationMs: Date.now() - requestStartedAt }, context: { provider, model: providerModel, ...progress } });
       if (streamStarted) sendEvent(res, 'progress', progress);
@@ -403,7 +404,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       progress: null,
       error: null,
     };
-    await runRef.set({ analysis, stage: 'analysis-complete', updatedAt: analysis.updatedAt }, { merge: true });
+    await runRef.set({ analysis, stage: 'analysis-complete', updatedAt: analysis.updatedAt, ...(!streamStarted ? { aiLive: { status: 'completed', text: '', model: result.model, progress: null, updatedAt: analysis.updatedAt, error: null } } : {}) }, { merge: true });
     await writeRunLog(runRef, { level: 'info', stage: 'analysis-complete', message: 'AI analysis completed and passed schema validation.', request: { method: 'POST', url: provider === '9router' ? providerEndpoint(providerBaseUrl, 'responses') : providerBaseUrl, status: 200, durationMs: Date.now() - requestStartedAt }, context: { provider, model: result.model, batches: result.batches, listingAuditCount: listingAudit.length } });
     if (streamStarted) {
       flushDelta();
@@ -420,7 +421,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (teamId && runId) {
         const failedRunRef = getDb().collection('user').doc(teamId).collection('evaluation_runs').doc(runId);
         await writeRunLog(failedRunRef, { level: 'error', stage: 'analysis-failed', message: error?.message || 'Analysis failed.', error: { name: error?.name, message: error?.message, stack: error?.stack?.slice(0, 8_000) }, context: { provider } });
-        await failedRunRef.set({ analysis: { status: 'failed', provider, error: error?.message || 'Analysis failed.', completedAt: new Date().toISOString() } }, { merge: true });
+        const failedAt = new Date().toISOString();
+        await failedRunRef.set({ analysis: { status: 'failed', provider, error: error?.message || 'Analysis failed.', completedAt: failedAt }, ...(!streamStarted ? { aiLive: { status: 'failed', text: '', model: liveModel || provider, progress: null, updatedAt: failedAt, error: error?.message || 'Analysis failed.' } } : {}) }, { merge: true });
         liveRunRef = failedRunRef;
         liveStatus = 'failed';
         liveError = error?.message || 'Analysis failed.';
@@ -571,13 +573,27 @@ async function callProvider(provider: Provider, prompt: string, onDelta?: (delta
   return provider === 'anthropic' ? analyzeWithAnthropic(prompt, schema, requireFullReport) : provider === 'openai' ? analyzeWithOpenAI(prompt, schema, requireFullReport) : analyzeWith9Router(prompt, schema, requireFullReport);
 }
 
+async function callProviderWithRetry(provider: Provider, prompt: string, onDelta?: (delta: string) => void, schema: any = analysisSchema, requireFullReport = true, modelOverride = '') {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const retryPrompt = attempt === 1 ? prompt : `${prompt}\n\nRETRY ${attempt}/3: Lần trả lời trước bị ngắt. Hãy thực hiện lại đầy đủ batch này từ đầu và kết thúc đúng JSON schema.`;
+      if (attempt > 1) onDelta?.(`\n[AI bị ngắt; đang thử lại batch, lần ${attempt}/3]\n`);
+      return await callProvider(provider, retryPrompt, onDelta, schema, requireFullReport, modelOverride);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
 async function analyzeAllSources(provider: Provider, run: Record<string, any>, source: { publicPages: any[]; listings: any[]; listingDetails: any[]; reviews: any[]; sellerPages: any[] }, onProgress: (progress: StreamProgress) => Promise<void>, onDelta?: (delta: string) => void, modelOverride = '') {
   const fullPrompt = buildPrompt(run, source.publicPages, source.listings, source.listingDetails, source.reviews, source.sellerPages);
   if (fullPrompt.length <= MAX_PROMPT_CHARS && source.listings.length <= 40) {
     await onProgress(source.listings.length > 0
       ? { current: 1, total: 1, stage: 'analyzing', listingStart: 1, listingEnd: source.listings.length, listingTotal: source.listings.length }
       : { current: 1, total: 1, stage: 'analyzing' });
-    const direct = await callProvider(provider, fullPrompt, onDelta, analysisSchema, true, modelOverride);
+    const direct = await callProviderWithRetry(provider, fullPrompt, onDelta, analysisSchema, true, modelOverride);
     direct.data.listingAudit = normalizeListingAudit(source.listings, direct.data.listingAudit);
     return { ...direct, batches: 1 };
   }
@@ -606,7 +622,7 @@ async function analyzeAllSources(provider: Provider, run: Record<string, any>, s
       if (index >= chunks.length) return;
       const chunk = chunks[index];
       const prompt = buildPrompt(run, chunk.publicPages, chunk.listings, chunk.listingDetails, chunk.reviews, chunk.sellerPages, `${index + 1}/${chunks.length}`);
-      const partial = (await callProvider(provider, `${prompt}\n\nBATCH MODE: Chỉ trả summary, strengths, weaknesses, findings, actions và listingAudit theo schema batch. Không tạo report đầy đủ ở bước này; viết ngắn gọn và giữ nguyên mọi listing ID.`, index === 0 ? onDelta : undefined, batchAnalysisSchema, false, modelOverride)).data;
+      const partial = (await callProviderWithRetry(provider, `${prompt}\n\nBATCH MODE: Chỉ trả summary, strengths, weaknesses, findings, actions và listingAudit theo schema batch. Không tạo report đầy đủ ở bước này; viết ngắn gọn và giữ nguyên mọi listing ID.`, index === 0 ? onDelta : undefined, batchAnalysisSchema, false, modelOverride)).data;
       auditRowsByChunk[index] = normalizeListingAudit(chunk.listings, partial.listingAudit);
       partials[index] = {
         summary: String(partial.summary || '').slice(0, 4_000),
@@ -627,7 +643,7 @@ async function analyzeAllSources(provider: Provider, run: Record<string, any>, s
   const listingAuditRows = auditRowsByChunk.flat();
   await onProgress({ current: chunks.length + 1, total: chunks.length + 1, stage: 'synthesizing' });
   const synthesisPrompt = `Bạn là chuyên gia audit Etsy. Hợp nhất các kết quả batch dưới đây thành một báo cáo duy nhất theo đúng JSON schema. Chỉ giữ finding có evidence trong batch, gộp trùng lặp, không thêm dữ liệu mới. Trả listingAudit là mảng rỗng vì server sẽ gắn bảng listing đã phân tích theo từng batch. Scope: ${run.scope || 'legacy/full'}. Yêu cầu người dùng: ${String(run.customPrompt || 'Không có').slice(0, 4_000)}. Coverage thực tế: ${JSON.stringify(run.coverage)}.\n\nBATCH RESULTS:\n${JSON.stringify(partials)}`;
-  const synthesis = await callProvider(provider, synthesisPrompt, onDelta, analysisSchema, true, modelOverride);
+  const synthesis = await callProviderWithRetry(provider, synthesisPrompt, onDelta, analysisSchema, true, modelOverride);
   synthesis.data.listingAudit = normalizeListingAudit(source.listings, listingAuditRows);
   return { ...synthesis, batches: chunks.length };
 }
