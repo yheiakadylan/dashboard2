@@ -515,6 +515,7 @@ const ShopEvaluationTab: React.FC = () => {
   const selectedAccount = useMemo(() => allAccounts.find(account => account.id === selectedAccountId) || null, [allAccounts, selectedAccountId]);
   const selectedPendingJob = selectedAccount ? pendingByAccount.get(selectedAccount.id) : undefined;
   const selectedPendingRun = selectedPendingJob ? runs.find(run => run.jobId === selectedPendingJob.id || run.id === selectedPendingJob.runId) : undefined;
+  const selectedActiveAnalysisRun = selectedAccount ? runs.find(run => run.accountId === selectedAccount.id && run.analysis?.status === 'running') : undefined;
   const selectedWorkerOnline = selectedAccount ? isWorkerOnline(selectedAccount) : false;
   const selectedWorkerState = selectedAccount ? workerState(selectedAccount) : null;
   const selectedWorkerBusy = selectedAccount?.evaluation_worker_status?.status === 'processing';
@@ -650,6 +651,18 @@ const ShopEvaluationTab: React.FC = () => {
     setCancellingJobId(job.id);
     try {
       await cancelEvaluationAnalysis(teamId, run.id, job.id);
+      addNotification(`Đã hủy phân tích ${run.shopLabel}. Bạn có thể chạy test lại.`, 'success');
+    } catch (error) {
+      addNotification(error instanceof Error ? error.message : 'Không thể hủy phân tích.', 'error');
+    } finally {
+      setCancellingJobId(null);
+    }
+  };
+
+  const handleCancelStandaloneAnalysis = async (run: EvaluationRun) => {
+    setCancellingJobId(run.id);
+    try {
+      await cancelEvaluationAnalysis(teamId, run.id);
       addNotification(`Đã hủy phân tích ${run.shopLabel}. Bạn có thể chạy test lại.`, 'success');
     } catch (error) {
       addNotification(error instanceof Error ? error.message : 'Không thể hủy phân tích.', 'error');
@@ -820,7 +833,7 @@ const ShopEvaluationTab: React.FC = () => {
                 <ShopPicker accounts={allAccounts} selectedAccountId={selectedAccountId} onSelect={setSelectedAccountId} />
               </div>
               {selectedAccount && <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-                {selectedPendingJob ? selectedCrawlFinished && selectedPendingRun ? <button type="button" disabled={cancellingJobId === selectedPendingJob.id} onClick={() => void handleCancelAnalysis(selectedPendingJob, selectedPendingRun)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-900 dark:hover:bg-red-950/20"><StopIcon className="h-4 w-4" />{cancellingJobId === selectedPendingJob.id ? 'Đang hủy phân tích...' : 'Hủy phân tích'}</button> : <button type="button" disabled={cancellingJobId === selectedPendingJob.id} onClick={() => void handleCancelJob(selectedPendingJob)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-900 dark:hover:bg-red-950/20"><StopIcon className="h-4 w-4" />{cancellingJobId === selectedPendingJob.id ? 'Đang gửi lệnh dừng...' : selectedPendingJob.status === 'processing' ? 'Dừng browser agent' : 'Hủy job đang chờ'}</button> : <button type="button" disabled={!selectedWorkerOnline || selectedWorkerBusy || creatingAccountId === selectedAccount.id || requestedTools.length === 0} onClick={() => handleRun(selectedAccount)} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-gray-400"><PlayIcon className="h-4 w-4" />{creatingAccountId === selectedAccount.id ? 'AI đang lập plan...' : selectedWorkerBusy ? 'Đang chờ agent dừng...' : 'Chạy browser agent'}</button>}
+                {selectedPendingJob ? selectedCrawlFinished && selectedPendingRun ? <button type="button" disabled={cancellingJobId === selectedPendingJob.id} onClick={() => void handleCancelAnalysis(selectedPendingJob, selectedPendingRun)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-900 dark:hover:bg-red-950/20"><StopIcon className="h-4 w-4" />{cancellingJobId === selectedPendingJob.id ? 'Đang hủy phân tích...' : 'Hủy phân tích'}</button> : <button type="button" disabled={cancellingJobId === selectedPendingJob.id} onClick={() => void handleCancelJob(selectedPendingJob)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-900 dark:hover:bg-red-950/20"><StopIcon className="h-4 w-4" />{cancellingJobId === selectedPendingJob.id ? 'Đang gửi lệnh dừng...' : selectedPendingJob.status === 'processing' ? 'Dừng browser agent' : 'Hủy job đang chờ'}</button> : selectedActiveAnalysisRun ? <button type="button" disabled={cancellingJobId === selectedActiveAnalysisRun.id} onClick={() => void handleCancelStandaloneAnalysis(selectedActiveAnalysisRun)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-900 dark:hover:bg-red-950/20"><StopIcon className="h-4 w-4" />{cancellingJobId === selectedActiveAnalysisRun.id ? 'Đang hủy phân tích...' : 'Hủy phân tích'}</button> : <button type="button" disabled={!selectedWorkerOnline || selectedWorkerBusy || creatingAccountId === selectedAccount.id || requestedTools.length === 0} onClick={() => handleRun(selectedAccount)} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-gray-400"><PlayIcon className="h-4 w-4" />{creatingAccountId === selectedAccount.id ? 'AI đang lập plan...' : selectedWorkerBusy ? 'Đang chờ agent dừng...' : 'Chạy browser agent'}</button>}
               </div>}
             </div>
             {selectedAccount && <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-blue-100 pt-3 text-xs text-gray-500 dark:border-blue-900 dark:text-gray-400">
