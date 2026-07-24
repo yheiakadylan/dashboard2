@@ -10,6 +10,7 @@ import {
   serverTimestamp,
   startAfter,
   updateDoc,
+  writeBatch,
   where,
 } from 'firebase/firestore';
 import type { DocumentData, QueryConstraint, QuerySnapshot } from 'firebase/firestore';
@@ -143,6 +144,24 @@ export const cancelEvaluationJob = async (teamId: string, jobId: string): Promis
     cancelledAt: serverTimestamp(),
     completedAt: new Date().toISOString(),
   });
+};
+
+export const cancelEvaluationAnalysis = async (teamId: string, runId: string, evaluationJobId?: string): Promise<void> => {
+  const analysisJobs = await getDocs(query(collection(db, 'user', teamId, 'evaluation_analysis_jobs'), where('runId', '==', runId), limit(20)));
+  const batch = writeBatch(db);
+  const cancelledAt = new Date().toISOString();
+  analysisJobs.docs.forEach(job => {
+    if (!['pending', 'processing'].includes(String(job.data().status || ''))) return;
+    batch.update(job.ref, { status: 'cancelled', cancelledBy: auth.currentUser?.uid || null, cancelledAt: serverTimestamp(), completedAt: cancelledAt });
+  });
+  if (evaluationJobId) batch.update(doc(db, 'user', teamId, 'evaluation_jobs', evaluationJobId), { status: 'cancelled', cancelledBy: auth.currentUser?.uid || null, cancelledAt: serverTimestamp(), completedAt: cancelledAt });
+  batch.update(doc(db, 'user', teamId, 'evaluation_runs', runId), {
+    stage: 'analysis-cancelled',
+    updatedAt: cancelledAt,
+    analysis: { status: 'failed', error: 'Đã hủy phân tích theo yêu cầu người dùng.', cancelRequested: true, completedAt: cancelledAt },
+    aiLive: { status: 'failed', text: '', progress: null, updatedAt: cancelledAt, error: 'Đã hủy phân tích. Bạn có thể chạy lại.' },
+  });
+  await batch.commit();
 };
 
 export const reconcileEvaluationJob = async (

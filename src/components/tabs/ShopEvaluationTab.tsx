@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowPathIcon, CheckCircleIcon, ChevronDownIcon, ExclamationTriangleIcon, MagnifyingGlassIcon, PlayIcon, StopIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useNotification } from '../../contexts/NotificationContext';
-import { analyzeEvaluationRun, cancelEvaluationJob, collectPublicEvaluationWithoutExtension, createAgentEvaluationJob, deleteAllEvaluationData, deleteEvaluationRun, getEvaluationLogs, getEvaluationRawData, listenForEvaluationJobs, listenForEvaluationLogs, listenForEvaluationRuns, queueEvaluationAnalysis, reconcileEvaluationJob } from '../../services/evaluationService';
+import { analyzeEvaluationRun, cancelEvaluationAnalysis, cancelEvaluationJob, collectPublicEvaluationWithoutExtension, createAgentEvaluationJob, deleteAllEvaluationData, deleteEvaluationRun, getEvaluationLogs, getEvaluationRawData, listenForEvaluationJobs, listenForEvaluationLogs, listenForEvaluationRuns, queueEvaluationAnalysis, reconcileEvaluationJob } from '../../services/evaluationService';
 import type { Account, EvaluationCrawlLimits, EvaluationJob, EvaluationListingRow, EvaluationLogEntry, EvaluationRawData, EvaluationRawDocument, EvaluationRun, EvaluationScope, EvaluationTool, EvaluationToolNotes } from '../../types';
 
 const LISTING_PAGE_SIZE = 50;
@@ -646,6 +646,18 @@ const ShopEvaluationTab: React.FC = () => {
     }
   };
 
+  const handleCancelAnalysis = async (job: EvaluationJob, run: EvaluationRun) => {
+    setCancellingJobId(job.id);
+    try {
+      await cancelEvaluationAnalysis(teamId, run.id, job.id);
+      addNotification(`Đã hủy phân tích ${run.shopLabel}. Bạn có thể chạy test lại.`, 'success');
+    } catch (error) {
+      addNotification(error instanceof Error ? error.message : 'Không thể hủy phân tích.', 'error');
+    } finally {
+      setCancellingJobId(null);
+    }
+  };
+
   const handlePublicTest = async (account: Account) => {
     setPublicTestAccountId(account.id);
     try {
@@ -808,7 +820,7 @@ const ShopEvaluationTab: React.FC = () => {
                 <ShopPicker accounts={allAccounts} selectedAccountId={selectedAccountId} onSelect={setSelectedAccountId} />
               </div>
               {selectedAccount && <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-                {selectedPendingJob ? selectedCrawlFinished ? <button type="button" disabled className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-80"><ArrowPathIcon className="h-4 w-4 animate-spin" />{selectedAnalysisRunning ? 'AI đang phân tích...' : 'Đang hoàn tất job...'}</button> : <button type="button" disabled={cancellingJobId === selectedPendingJob.id} onClick={() => void handleCancelJob(selectedPendingJob)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-900 dark:hover:bg-red-950/20"><StopIcon className="h-4 w-4" />{cancellingJobId === selectedPendingJob.id ? 'Đang gửi lệnh dừng...' : selectedPendingJob.status === 'processing' ? 'Dừng browser agent' : 'Hủy job đang chờ'}</button> : <button type="button" disabled={!selectedWorkerOnline || selectedWorkerBusy || creatingAccountId === selectedAccount.id || requestedTools.length === 0} onClick={() => handleRun(selectedAccount)} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-gray-400"><PlayIcon className="h-4 w-4" />{creatingAccountId === selectedAccount.id ? 'AI đang lập plan...' : selectedWorkerBusy ? 'Đang chờ agent dừng...' : 'Chạy browser agent'}</button>}
+                {selectedPendingJob ? selectedCrawlFinished && selectedPendingRun ? <button type="button" disabled={cancellingJobId === selectedPendingJob.id} onClick={() => void handleCancelAnalysis(selectedPendingJob, selectedPendingRun)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-900 dark:hover:bg-red-950/20"><StopIcon className="h-4 w-4" />{cancellingJobId === selectedPendingJob.id ? 'Đang hủy phân tích...' : 'Hủy phân tích'}</button> : <button type="button" disabled={cancellingJobId === selectedPendingJob.id} onClick={() => void handleCancelJob(selectedPendingJob)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-900 dark:hover:bg-red-950/20"><StopIcon className="h-4 w-4" />{cancellingJobId === selectedPendingJob.id ? 'Đang gửi lệnh dừng...' : selectedPendingJob.status === 'processing' ? 'Dừng browser agent' : 'Hủy job đang chờ'}</button> : <button type="button" disabled={!selectedWorkerOnline || selectedWorkerBusy || creatingAccountId === selectedAccount.id || requestedTools.length === 0} onClick={() => handleRun(selectedAccount)} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-gray-400"><PlayIcon className="h-4 w-4" />{creatingAccountId === selectedAccount.id ? 'AI đang lập plan...' : selectedWorkerBusy ? 'Đang chờ agent dừng...' : 'Chạy browser agent'}</button>}
               </div>}
             </div>
             {selectedAccount && <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-blue-100 pt-3 text-xs text-gray-500 dark:border-blue-900 dark:text-gray-400">
