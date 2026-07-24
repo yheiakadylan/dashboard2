@@ -13,6 +13,11 @@ const PROVIDER_TIMEOUT_MS = 180_000;
 const PROVIDER_TOTAL_TIMEOUT_MS = 240_000;
 const AI_LIVE_MAX_CHARS = 40_000;
 const AI_LIVE_WRITE_INTERVAL_MS = 750;
+const ALLOWED_NINEROUTER_MODELS = ['cc/claude-fable-5', 'ag/gemini-3-flash-agent'];
+
+function cleanEnvValue(value: string | undefined): string {
+  return String(value || '').replace(/\uFEFF/g, '').trim();
+}
 
 const analysisSchema = {
   type: 'object',
@@ -258,7 +263,8 @@ const batchAnalysisSchema = {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed.' });
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-  const { teamId, runId, provider = '9router', stream = false } = req.body || {};
+  const { teamId, runId, provider = '9router', stream = false, model: requestedModelValue = '' } = req.body || {};
+  const requestedModel = cleanEnvValue(String(requestedModelValue || ''));
   let streamStarted = false;
   let pendingDelta = '';
   let deltaFlushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -305,6 +311,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   };
   if (!token || !teamId || !runId) return res.status(400).json({ message: 'Missing token, teamId or runId.' });
   if (!['9router', 'openai', 'anthropic'].includes(provider)) return res.status(400).json({ message: 'Unsupported provider.' });
+  if (provider === '9router' && requestedModel && !ALLOWED_NINEROUTER_MODELS.includes(requestedModel)) return res.status(400).json({ message: 'Unsupported 9Router model.' });
 
   try {
     const app = initFirebaseAdmin();
@@ -349,13 +356,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (stream) {
       startEventStream(res);
       streamStarted = true;
-      sendEvent(res, 'status', { stage: 'connected', provider, model: provider === '9router' ? process.env.NINEROUTER_EVALUATION_MODEL || 'cx/gpt-5.6-sol' : null });
+      sendEvent(res, 'status', { stage: 'connected', provider, model: provider === '9router' ? requestedModel || cleanEnvValue(process.env.NINEROUTER_EVALUATION_MODEL) || 'cc/claude-fable-5' : null });
     }
 
     const startedAt = new Date().toISOString();
     const requestStartedAt = Date.now();
     const providerBaseUrl = provider === '9router' ? (process.env.NINEROUTER_BASE_URL || 'http://13.212.110.229:20128/v1') : provider === 'anthropic' ? 'https://api.anthropic.com/v1/messages' : 'https://api.openai.com/v1/responses';
-    const providerModel = provider === '9router' ? process.env.NINEROUTER_EVALUATION_MODEL || 'cx/gpt-5.6-sol' : provider === 'anthropic' ? process.env.ANTHROPIC_EVALUATION_MODEL || 'claude-sonnet-4-5' : process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4';
+    const providerModel = provider === '9router' ? requestedModel || cleanEnvValue(process.env.NINEROUTER_EVALUATION_MODEL) || 'cc/claude-fable-5' : provider === 'anthropic' ? cleanEnvValue(process.env.ANTHROPIC_EVALUATION_MODEL) || 'claude-sonnet-4-5' : cleanEnvValue(process.env.OPENAI_EVALUATION_MODEL) || 'gpt-5.4';
     liveModel = providerModel;
     await runRef.set({ analysis: { status: 'running', provider, startedAt, updatedAt: startedAt, progress: null, completedAt: null, error: null }, stage: 'automatic-analysis' }, { merge: true });
     if (streamStarted) await persistAiLive();
@@ -368,7 +375,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (streamStarted) await persistAiLive();
       await writeRunLog(runRef, { level: 'info', stage: progress.stage, message: `AI progress ${progress.current}/${progress.total}.`, request: { method: 'POST', url: provider === '9router' ? providerEndpoint(providerBaseUrl, 'responses') : providerBaseUrl, durationMs: Date.now() - requestStartedAt }, context: { provider, model: providerModel, ...progress } });
       if (streamStarted) sendEvent(res, 'progress', progress);
-    }, streamStarted ? delta => queueDelta(delta) : undefined);
+    }, streamStarted ? delta => queueDelta(delta) : undefined, providerModel);
 
     const listingAudit = Array.isArray(result.data.listingAudit) ? result.data.listingAudit : [];
     result.data.report = compactReport(result.data.report, 20);
@@ -500,26 +507,77 @@ function defaultEvaluationPrompt(scope: string): string {
 }
 
 function parseJsonOutput(value: string, requireFullReport = true): any {
-  const normalized = value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  const parsed = JSON.parse(normalized);
-  if (!parsed || typeof parsed.summary !== 'string' || (requireFullReport && !parsed.report) || !Array.isArray(parsed.findings) || !Array.isArray(parsed.actions) || !Array.isArray(parsed.listingAudit)) {
-    throw new Error('AI output does not match evaluation schema.');
-  }
-  return parsed;
+  const parsed = tryParseJsonObject(value);
+  const candidate = parsed?.result && typeof parsed.result === 'object'
+    ? parsed.result
+    : parsed?.analysis && typeof parsed.analysis === 'object'
+      ? parsed.analysis
+      : parsed;
+  const markdownFallback = !candidate || typeof candidate !== 'object';
+  const summary = markdownFallback
+    ? value.trim().slice(0, 30_000)
+    : String(candidate.summary || candidate.executiveSummary || candidate.report?.executiveAssessment || '').trim();
+  const normalized: any = {
+    ...(markdownFallback ? {} : candidate),
+    summary: summary || 'AI đã hoàn thành phân tích nhưng không trả phần tóm tắt riêng.',
+    strengths: Array.isArray(candidate?.strengths) ? candidate.strengths : [],
+    weaknesses: Array.isArray(candidate?.weaknesses) ? candidate.weaknesses : [],
+    findings: Array.isArray(candidate?.findings) ? candidate.findings : [],
+    actions: Array.isArray(candidate?.actions) ? candidate.actions : [],
+    listingAudit: Array.isArray(candidate?.listingAudit) ? candidate.listingAudit : [],
+  };
+  if (requireFullReport) normalized.report = normalizeReport(candidate?.report, normalized.summary);
+  return normalized;
 }
 
-async function callProvider(provider: Provider, prompt: string, onDelta?: (delta: string) => void, schema: any = analysisSchema, requireFullReport = true) {
-  if (provider === '9router') return analyzeWith9RouterStream(prompt, onDelta || (() => undefined), schema, requireFullReport);
+function tryParseJsonObject(value: string): any | null {
+  const trimmed = value.trim();
+  const candidates = [
+    trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''),
+    trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] || '',
+    trimmed.includes('{') && trimmed.includes('}') ? trimmed.slice(trimmed.indexOf('{'), trimmed.lastIndexOf('}') + 1) : '',
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+  return null;
+}
+
+function normalizeReport(value: any, fallbackAssessment: string): any {
+  const unavailable = 'Không đủ dữ liệu để đánh giá';
+  const report = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    ...report,
+    executiveAssessment: String(report.executiveAssessment || fallbackAssessment || unavailable).slice(0, 30_000),
+    metrics: Array.isArray(report.metrics) ? report.metrics : [],
+    riskDistribution: Array.isArray(report.riskDistribution) ? report.riskDistribution : [],
+    sentiment: report.sentiment && typeof report.sentiment === 'object' ? report.sentiment : { positive: '0', neutral: '0', negative: '0', total: '0', assessment: unavailable },
+    immediatePlan: Array.isArray(report.immediatePlan) ? report.immediatePlan : [],
+    sellerCapability: report.sellerCapability && typeof report.sellerCapability === 'object' ? report.sellerCapability : { level: unavailable, score: 0, assessment: unavailable, axes: [], roadmap: [] },
+    customerCare: report.customerCare && typeof report.customerCare === 'object' ? report.customerCare : { level: unavailable, score: 0, assessment: unavailable, strengths: [], gaps: [], cases: [] },
+    operations: report.operations && typeof report.operations === 'object' ? report.operations : { level: unavailable, score: 0, assessment: unavailable, ordersAssessment: unavailable, messagesAssessment: unavailable, cases: [], recommendations: [] },
+    reviewInsights: report.reviewInsights && typeof report.reviewInsights === 'object' ? report.reviewInsights : { repeatedIssues: [], praisedThemes: [] },
+    adsAudit: Array.isArray(report.adsAudit) ? report.adsAudit : [],
+    developmentPlans: Array.isArray(report.developmentPlans) ? report.developmentPlans : [],
+  };
+}
+
+async function callProvider(provider: Provider, prompt: string, onDelta?: (delta: string) => void, schema: any = analysisSchema, requireFullReport = true, modelOverride = '') {
+  if (provider === '9router') return analyzeWith9RouterStream(prompt, onDelta || (() => undefined), schema, requireFullReport, modelOverride);
   return provider === 'anthropic' ? analyzeWithAnthropic(prompt, schema, requireFullReport) : provider === 'openai' ? analyzeWithOpenAI(prompt, schema, requireFullReport) : analyzeWith9Router(prompt, schema, requireFullReport);
 }
 
-async function analyzeAllSources(provider: Provider, run: Record<string, any>, source: { publicPages: any[]; listings: any[]; listingDetails: any[]; reviews: any[]; sellerPages: any[] }, onProgress: (progress: StreamProgress) => Promise<void>, onDelta?: (delta: string) => void) {
+async function analyzeAllSources(provider: Provider, run: Record<string, any>, source: { publicPages: any[]; listings: any[]; listingDetails: any[]; reviews: any[]; sellerPages: any[] }, onProgress: (progress: StreamProgress) => Promise<void>, onDelta?: (delta: string) => void, modelOverride = '') {
   const fullPrompt = buildPrompt(run, source.publicPages, source.listings, source.listingDetails, source.reviews, source.sellerPages);
   if (fullPrompt.length <= MAX_PROMPT_CHARS && source.listings.length <= 40) {
     await onProgress(source.listings.length > 0
       ? { current: 1, total: 1, stage: 'analyzing', listingStart: 1, listingEnd: source.listings.length, listingTotal: source.listings.length }
       : { current: 1, total: 1, stage: 'analyzing' });
-    const direct = await callProvider(provider, fullPrompt, onDelta);
+    const direct = await callProvider(provider, fullPrompt, onDelta, analysisSchema, true, modelOverride);
     direct.data.listingAudit = normalizeListingAudit(source.listings, direct.data.listingAudit);
     return { ...direct, batches: 1 };
   }
@@ -548,7 +606,7 @@ async function analyzeAllSources(provider: Provider, run: Record<string, any>, s
       if (index >= chunks.length) return;
       const chunk = chunks[index];
       const prompt = buildPrompt(run, chunk.publicPages, chunk.listings, chunk.listingDetails, chunk.reviews, chunk.sellerPages, `${index + 1}/${chunks.length}`);
-      const partial = (await callProvider(provider, `${prompt}\n\nBATCH MODE: Chỉ trả summary, strengths, weaknesses, findings, actions và listingAudit theo schema batch. Không tạo report đầy đủ ở bước này; viết ngắn gọn và giữ nguyên mọi listing ID.`, index === 0 ? onDelta : undefined, batchAnalysisSchema, false)).data;
+      const partial = (await callProvider(provider, `${prompt}\n\nBATCH MODE: Chỉ trả summary, strengths, weaknesses, findings, actions và listingAudit theo schema batch. Không tạo report đầy đủ ở bước này; viết ngắn gọn và giữ nguyên mọi listing ID.`, index === 0 ? onDelta : undefined, batchAnalysisSchema, false, modelOverride)).data;
       auditRowsByChunk[index] = normalizeListingAudit(chunk.listings, partial.listingAudit);
       partials[index] = {
         summary: String(partial.summary || '').slice(0, 4_000),
@@ -569,7 +627,7 @@ async function analyzeAllSources(provider: Provider, run: Record<string, any>, s
   const listingAuditRows = auditRowsByChunk.flat();
   await onProgress({ current: chunks.length + 1, total: chunks.length + 1, stage: 'synthesizing' });
   const synthesisPrompt = `Bạn là chuyên gia audit Etsy. Hợp nhất các kết quả batch dưới đây thành một báo cáo duy nhất theo đúng JSON schema. Chỉ giữ finding có evidence trong batch, gộp trùng lặp, không thêm dữ liệu mới. Trả listingAudit là mảng rỗng vì server sẽ gắn bảng listing đã phân tích theo từng batch. Scope: ${run.scope || 'legacy/full'}. Yêu cầu người dùng: ${String(run.customPrompt || 'Không có').slice(0, 4_000)}. Coverage thực tế: ${JSON.stringify(run.coverage)}.\n\nBATCH RESULTS:\n${JSON.stringify(partials)}`;
-  const synthesis = await callProvider(provider, synthesisPrompt, onDelta);
+  const synthesis = await callProvider(provider, synthesisPrompt, onDelta, analysisSchema, true, modelOverride);
   synthesis.data.listingAudit = normalizeListingAudit(source.listings, listingAuditRows);
   return { ...synthesis, batches: chunks.length };
 }
@@ -652,10 +710,10 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
 }
 
 async function analyzeWith9Router(prompt: string, schema = analysisSchema, requireFullReport = true): Promise<{ model: string; data: any }> {
-  const apiKey = process.env.NINEROUTER_API_KEY;
+  const apiKey = cleanEnvValue(process.env.NINEROUTER_API_KEY);
   if (!apiKey) throw new Error('Missing NINEROUTER_API_KEY.');
   const baseUrl = (process.env.NINEROUTER_BASE_URL || 'http://13.212.110.229:20128/v1').replace(/\/$/, '');
-  const model = process.env.NINEROUTER_EVALUATION_MODEL || 'cx/gpt-5.6-sol';
+  const model = cleanEnvValue(process.env.NINEROUTER_EVALUATION_MODEL) || 'cc/claude-fable-5';
   const response = await fetchWithTimeout(providerEndpoint(baseUrl, 'responses'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
@@ -673,11 +731,11 @@ async function analyzeWith9Router(prompt: string, schema = analysisSchema, requi
   return { model, data: parseJsonOutput(outputText, requireFullReport) };
 }
 
-async function analyzeWith9RouterStream(prompt: string, onDelta: (delta: string) => void, schema = analysisSchema, requireFullReport = true): Promise<{ model: string; data: any }> {
-  const apiKey = process.env.NINEROUTER_API_KEY;
+async function analyzeWith9RouterStream(prompt: string, onDelta: (delta: string) => void, schema = analysisSchema, requireFullReport = true, modelOverride = ''): Promise<{ model: string; data: any }> {
+  const apiKey = cleanEnvValue(process.env.NINEROUTER_API_KEY);
   if (!apiKey) throw new Error('Missing NINEROUTER_API_KEY.');
   const baseUrl = (process.env.NINEROUTER_BASE_URL || 'http://13.212.110.229:20128/v1').replace(/\/$/, '');
-  const model = process.env.NINEROUTER_EVALUATION_MODEL || 'cx/gpt-5.6-sol';
+  const model = cleanEnvValue(modelOverride) || cleanEnvValue(process.env.NINEROUTER_EVALUATION_MODEL) || 'cc/claude-fable-5';
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout>;
   const totalTimeout = setTimeout(() => controller.abort(), PROVIDER_TOTAL_TIMEOUT_MS);
@@ -797,7 +855,7 @@ async function analyzeWith9RouterChat(prompt: string, baseUrl: string, apiKey: s
   return { model, data: parseJsonOutput(outputText, requireFullReport) };
 }
 async function analyzeWithOpenAI(prompt: string, schema = analysisSchema, requireFullReport = true): Promise<{ model: string; data: any }> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = cleanEnvValue(process.env.OPENAI_API_KEY);
   if (!apiKey) throw new Error('Missing OPENAI_API_KEY.');
   const model = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4';
   const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
@@ -824,7 +882,7 @@ async function analyzeWithOpenAI(prompt: string, schema = analysisSchema, requir
 }
 
 async function analyzeWithAnthropic(prompt: string, schema = analysisSchema, requireFullReport = true): Promise<{ model: string; data: any }> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = cleanEnvValue(process.env.ANTHROPIC_API_KEY);
   if (!apiKey) throw new Error('Missing ANTHROPIC_API_KEY.');
   const model = process.env.ANTHROPIC_EVALUATION_MODEL || 'claude-sonnet-4-5';
   const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {

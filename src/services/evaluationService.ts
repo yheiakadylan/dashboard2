@@ -165,6 +165,7 @@ export const analyzeEvaluationRun = async (
   teamId: string,
   runId: string,
   provider: 'anthropic' | '9router',
+  model: string,
   callbacks?: {
     onStatus?: (status: { stage: string; provider?: string; model?: string }) => void;
     onProgress?: (progress: { current: number; total: number; stage: string; listingStart?: number; listingEnd?: number; listingTotal?: number }) => void;
@@ -184,7 +185,7 @@ export const analyzeEvaluationRun = async (
     response = await fetch('/api/analyze-evaluation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ teamId, runId, provider, stream: true }), signal: controller.signal,
+      body: JSON.stringify({ teamId, runId, provider, model, stream: true }), signal: controller.signal,
     });
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw new Error('AI không phản hồi trong 130 giây. Có thể bấm phân tích lại sau khi trạng thái chuyển failed hoặc quá 15 phút.');
@@ -233,6 +234,29 @@ export const analyzeEvaluationRun = async (
   }
   if (!completedAnalysis) throw new Error('AI stream kết thúc nhưng không có kết quả hoàn chỉnh.');
   return completedAnalysis;
+};
+
+export const queueEvaluationAnalysis = async (
+  teamId: string,
+  run: EvaluationRun,
+  provider: 'anthropic' | '9router',
+  model: string,
+): Promise<string> => {
+  const jobRef = await addDoc(collection(db, 'user', teamId, 'evaluation_analysis_jobs'), {
+    runId: run.id,
+    accountId: run.accountId,
+    shopLabel: run.shopLabel,
+    provider,
+    model: model || null,
+    requestedBy: auth.currentUser?.uid || null,
+    status: 'pending',
+    createdAt: serverTimestamp(),
+  });
+  await updateDoc(doc(db, 'user', teamId, 'evaluation_runs', run.id), {
+    stage: 'analysis-queued',
+    aiLive: { status: 'connecting', text: '', model: model || provider, progress: null, updatedAt: new Date().toISOString(), error: null },
+  });
+  return jobRef.id;
 };
 
 export const collectPublicEvaluationWithoutExtension = async (teamId: string, account: Account) => {

@@ -27,6 +27,10 @@ interface BrowserAction {
 }
 
 const PROVIDER_TIMEOUT_MS = 120_000;
+
+function cleanEnvValue(value: string | undefined): string {
+  return String(value || '').replace(/\uFEFF/g, '').trim();
+}
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_OBSERVATION_CHARS = 65_000;
 const TOOLS: EvaluationTool[] = [
@@ -256,25 +260,32 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
 }
 
 async function decideWith9Router(prompt: string): Promise<{ model: string; data: any }> {
-  const apiKey = process.env.NINEROUTER_API_KEY;
+  const apiKey = cleanEnvValue(process.env.NINEROUTER_API_KEY);
   if (!apiKey) throw new Error('Missing NINEROUTER_API_KEY.');
   const baseUrl = process.env.NINEROUTER_BASE_URL || 'http://13.212.110.229:20128/v1';
-  const model = process.env.NINEROUTER_BROWSER_AGENT_MODEL || process.env.NINEROUTER_PLANNER_MODEL || process.env.NINEROUTER_EVALUATION_MODEL || 'cx/gpt-5.6-sol';
+  const model = cleanEnvValue(process.env.NINEROUTER_BROWSER_AGENT_MODEL) || cleanEnvValue(process.env.NINEROUTER_PLANNER_MODEL) || cleanEnvValue(process.env.NINEROUTER_EVALUATION_MODEL) || 'cc/claude-fable-5';
   const response = await fetchWithTimeout(providerEndpoint(baseUrl, 'responses'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}`, Accept: 'text/event-stream' },
     body: JSON.stringify({
       model,
       input: prompt,
+      stream: true,
       text: { format: { type: 'json_schema', name: 'etsy_browser_action', strict: true, schema: actionSchema } },
     }),
   });
   if (!response.ok && [404, 405, 501].includes(response.status)) return decideWith9RouterChat(prompt, baseUrl, apiKey, model);
-  const body = await response.json();
-  if (!response.ok) throw new Error(body?.error?.message || `9Router API ${response.status}`);
-  const outputText = extractResponseText(body);
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(parseProviderError(errorBody) || `9Router API ${response.status}`);
+  }
+  const outputText = await readProviderOutput(response);
   if (!outputText) throw new Error('9Router browser agent returned no structured output.');
-  return { model, data: parseJson(outputText) };
+  try {
+    return { model, data: parseJson(outputText) };
+  } catch {
+    return decideWith9RouterChat(prompt, baseUrl, apiKey, model);
+  }
 }
 
 async function decideWith9RouterChat(prompt: string, baseUrl: string, apiKey: string, model: string): Promise<{ model: string; data: any }> {
@@ -290,15 +301,17 @@ async function decideWith9RouterChat(prompt: string, baseUrl: string, apiKey: st
       response_format: { type: 'json_object' },
     }),
   });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body?.error?.message || `9Router chat API ${response.status}`);
-  const outputText = body?.choices?.[0]?.message?.content;
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(parseProviderError(errorBody) || `9Router chat API ${response.status}`);
+  }
+  const outputText = await readProviderOutput(response);
   if (!outputText) throw new Error('9Router browser agent returned no output.');
   return { model, data: parseJson(outputText) };
 }
 
 async function decideWithAnthropic(prompt: string): Promise<{ model: string; data: any }> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = cleanEnvValue(process.env.ANTHROPIC_API_KEY);
   if (!apiKey) throw new Error('Missing ANTHROPIC_API_KEY.');
   const model = process.env.ANTHROPIC_BROWSER_AGENT_MODEL || process.env.ANTHROPIC_PLANNER_MODEL || process.env.ANTHROPIC_EVALUATION_MODEL || 'claude-sonnet-4-5';
   const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
@@ -323,6 +336,44 @@ function extractResponseText(body: any): string {
     || body?.output?.flatMap((item: any) => item.content || []).find((item: any) => item.type === 'output_text')?.text
     || body?.choices?.[0]?.message?.content
     || '';
+}
+
+async function readProviderOutput(response: Response): Promise<string> {
+  const raw = await response.text();
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('text/event-stream') || /^(?:event|data):/m.test(raw)) return extractSseOutput(raw);
+  try {
+    return extractResponseText(JSON.parse(raw));
+  } catch {
+    return raw.trim();
+  }
+}
+
+function extractSseOutput(raw: string): string {
+  let outputText = '';
+  for (const block of raw.split(/\r?\n\r?\n/)) {
+    const data = block.split(/\r?\n/)
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trim())
+      .join('\n');
+    if (!data || data === '[DONE]') continue;
+    const event = JSON.parse(data);
+    if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') outputText += event.delta;
+    if (!outputText && event.type === 'response.output_text.done' && typeof event.text === 'string') outputText = event.text;
+    if (!outputText && event.type === 'response.completed') outputText = extractResponseText(event.response) || '';
+    if (typeof event?.choices?.[0]?.delta?.content === 'string') outputText += event.choices[0].delta.content;
+    if (event.type === 'error') throw new Error(event.error?.message || event.message || '9Router browser agent stream error.');
+  }
+  return outputText;
+}
+
+function parseProviderError(value: string): string {
+  try {
+    const body = JSON.parse(value);
+    return body?.error?.message || body?.message || '';
+  } catch {
+    return value.slice(0, 500);
+  }
 }
 
 function parseJson(value: string): any {

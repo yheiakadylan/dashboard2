@@ -17,6 +17,10 @@ type EvaluationTool =
 const PROVIDER_TIMEOUT_MS = 120_000;
 const MAX_CUSTOM_PROMPT_CHARS = 4_000;
 const MAX_TOOL_NOTE_CHARS = 1_000;
+
+function cleanEnvValue(value: string | undefined): string {
+  return String(value || '').replace(/\uFEFF/g, '').trim();
+}
 const TOOL_ORDER: EvaluationTool[] = [
   'collect_shop_overview',
   'collect_public_listings',
@@ -181,25 +185,57 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
 }
 
 async function planWith9Router(prompt: string): Promise<{ model: string; data: any }> {
-  const apiKey = process.env.NINEROUTER_API_KEY;
+  const apiKey = cleanEnvValue(process.env.NINEROUTER_API_KEY);
   if (!apiKey) throw new Error('Missing NINEROUTER_API_KEY.');
   const baseUrl = process.env.NINEROUTER_BASE_URL || 'http://13.212.110.229:20128/v1';
-  const model = process.env.NINEROUTER_PLANNER_MODEL || process.env.NINEROUTER_EVALUATION_MODEL || 'cx/gpt-5.6-sol';
+  const model = cleanEnvValue(process.env.NINEROUTER_PLANNER_MODEL) || cleanEnvValue(process.env.NINEROUTER_EVALUATION_MODEL) || 'cc/claude-fable-5';
   const response = await fetchWithTimeout(providerEndpoint(baseUrl, 'responses'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}`, Accept: 'text/event-stream' },
     body: JSON.stringify({
       model,
       input: prompt,
+      stream: true,
       text: { format: { type: 'json_schema', name: 'etsy_evaluation_plan', strict: true, schema: planSchema } },
     }),
   });
   if (!response.ok && [404, 405, 501].includes(response.status)) return planWith9RouterChat(prompt, baseUrl, apiKey, model);
-  const body = await response.json();
-  if (!response.ok) throw new Error(body?.error?.message || `9Router API ${response.status}`);
-  const outputText = extractResponseText(body);
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(parseProviderError(errorBody) || `9Router API ${response.status}`);
+  }
+  const outputText = await read9RouterOutput(response);
   if (!outputText) throw new Error('9Router planner returned no structured output.');
   return { model, data: parsePlan(outputText) };
+}
+
+async function read9RouterOutput(response: Response): Promise<string> {
+  const raw = await response.text();
+  const contentType = response.headers.get('content-type') || '';
+  const looksLikeSse = contentType.includes('text/event-stream') || /^(?:event|data):/m.test(raw);
+  if (looksLikeSse) return extractSseOutput(raw);
+
+  try {
+    return extractResponseText(JSON.parse(raw));
+  } catch {
+    throw new Error(`9Router planner returned an unsupported response format: ${raw.slice(0, 200)}`);
+  }
+}
+
+function extractSseOutput(raw: string): string {
+  let outputText = '';
+  for (const block of raw.split(/\r?\n\r?\n/)) {
+    const data = block.split(/\r?\n/)
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trim())
+      .join('\n');
+    if (!data || data === '[DONE]') continue;
+    const event = JSON.parse(data);
+    if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') outputText += event.delta;
+    if (!outputText && event.type === 'response.completed') outputText = extractResponseText(event.response) || '';
+    if (event.type === 'error') throw new Error(event.error?.message || event.message || '9Router planner stream error.');
+  }
+  return outputText;
 }
 
 async function planWith9RouterChat(prompt: string, baseUrl: string, apiKey: string, model: string): Promise<{ model: string; data: any }> {
@@ -223,7 +259,7 @@ async function planWith9RouterChat(prompt: string, baseUrl: string, apiKey: stri
 }
 
 async function planWithAnthropic(prompt: string): Promise<{ model: string; data: any }> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = cleanEnvValue(process.env.ANTHROPIC_API_KEY);
   if (!apiKey) throw new Error('Missing ANTHROPIC_API_KEY.');
   const model = process.env.ANTHROPIC_PLANNER_MODEL || process.env.ANTHROPIC_EVALUATION_MODEL || 'claude-sonnet-4-5';
   const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
@@ -250,9 +286,23 @@ function extractResponseText(body: any): string {
     || '';
 }
 
+function parseProviderError(value: string): string {
+  try {
+    const body = JSON.parse(value);
+    return body?.error?.message || body?.message || '';
+  } catch {
+    return value.slice(0, 500);
+  }
+}
+
 function parsePlan(value: string): any {
   const normalized = value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  const parsed = JSON.parse(normalized);
-  if (!parsed || typeof parsed.summary !== 'string' || !Array.isArray(parsed.tools)) throw new Error('AI planner output does not match schema.');
-  return parsed;
+  try {
+    const parsed = JSON.parse(normalized);
+    const candidate = parsed?.plan && typeof parsed.plan === 'object' ? parsed.plan : parsed;
+    if (candidate && typeof candidate.summary === 'string' && Array.isArray(candidate.tools)) return candidate;
+  } catch {
+    // Some compatible gateways ignore json_schema and return prose. The allowlisted tools are enforced separately.
+  }
+  return {};
 }

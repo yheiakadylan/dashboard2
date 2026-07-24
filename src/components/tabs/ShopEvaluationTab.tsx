@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowPathIcon, CheckCircleIcon, ChevronDownIcon, ExclamationTriangleIcon, MagnifyingGlassIcon, PlayIcon, StopIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useNotification } from '../../contexts/NotificationContext';
-import { analyzeEvaluationRun, cancelEvaluationJob, collectPublicEvaluationWithoutExtension, createAgentEvaluationJob, deleteAllEvaluationData, deleteEvaluationRun, getEvaluationLogs, getEvaluationRawData, listenForEvaluationJobs, listenForEvaluationLogs, listenForEvaluationRuns, reconcileEvaluationJob } from '../../services/evaluationService';
+import { analyzeEvaluationRun, cancelEvaluationJob, collectPublicEvaluationWithoutExtension, createAgentEvaluationJob, deleteAllEvaluationData, deleteEvaluationRun, getEvaluationLogs, getEvaluationRawData, listenForEvaluationJobs, listenForEvaluationLogs, listenForEvaluationRuns, queueEvaluationAnalysis, reconcileEvaluationJob } from '../../services/evaluationService';
 import type { Account, EvaluationCrawlLimits, EvaluationJob, EvaluationListingRow, EvaluationLogEntry, EvaluationRawData, EvaluationRawDocument, EvaluationRun, EvaluationScope, EvaluationTool, EvaluationToolNotes } from '../../types';
 
 const LISTING_PAGE_SIZE = 50;
@@ -266,7 +266,7 @@ const RawDataSheets: React.FC<{
     <div className="p-3">
       {activeSheet === 'overview' && <><ReportTable columns={[{ key: 'id', label: 'Page' }, { key: 'pageType', label: 'Loại' }, { key: 'title', label: 'Tiêu đề', className: 'min-w-64' }, { key: 'shopName', label: 'Shop' }, { key: 'rating', label: 'Rating' }, { key: 'reviewCount', label: 'Reviews' }, { key: 'salesCount', label: 'Sales' }, { key: 'url', label: 'URL', className: 'min-w-80', render: row => <a href={row.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline break-all">{row.url}</a> }]} rows={data.publicPages} /><RawJsonBlock value={data.publicPages} /></>}
       {activeSheet === 'listings' && <><ListingDataTable rows={data.listings} page={listingPage} onPageChange={onListingPageChange} /><RawJsonBlock value={data.listings} /></>}
-      {activeSheet === 'details' && <><ReportTable columns={[{ key: 'listingId', label: 'ID' }, { key: 'title', label: 'Tiêu đề', className: 'min-w-72' }, { key: 'price', label: 'Giá' }, { key: 'materials', label: 'Chất liệu', className: 'min-w-56', render: row => Array.isArray(row.materials) ? row.materials.join(', ') : '—' }, { key: 'variations', label: 'Phân loại', className: 'min-w-72', render: row => Array.isArray(row.variations) ? row.variations.map((item: any) => `${item.name}: ${(item.options || []).join(', ')}`).join('\n') : '—' }, { key: 'description', label: 'Mô tả', className: 'min-w-[36rem]' }, { key: 'url', label: 'URL', className: 'min-w-72', render: row => <a href={row.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Mở listing</a> }]} rows={data.listingDetails} /><RawJsonBlock value={data.listingDetails} /></>}
+      {activeSheet === 'details' && <><ReportTable columns={[{ key: 'primaryImageUrl', label: 'Ảnh', render: row => { const imageUrl = row.primaryImageUrl || row.images?.[0]; return imageUrl ? <a href={imageUrl} target="_blank" rel="noreferrer"><img src={imageUrl} alt={row.primaryImageAlt || row.title || 'Listing'} className="h-20 w-20 rounded-md object-cover" loading="lazy" /></a> : '—'; } }, { key: 'listingId', label: 'ID' }, { key: 'title', label: 'Tiêu đề', className: 'min-w-72' }, { key: 'price', label: 'Giá' }, { key: 'sellerName', label: 'Shop' }, { key: 'materials', label: 'Chất liệu', className: 'min-w-56', render: row => Array.isArray(row.materials) && row.materials.length ? row.materials.join(', ') : '—' }, { key: 'variations', label: 'Phân loại', className: 'min-w-72 whitespace-pre-line', render: row => Array.isArray(row.variations) && row.variations.length ? row.variations.map((item: any) => `${item.name}: ${(item.options || []).join(', ')}`).join('\n') : '—' }, { key: 'personalization', label: 'Cá nhân hóa', className: 'min-w-64' }, { key: 'shippingAndReturns', label: 'Shipping/Returns', className: 'min-w-72' }, { key: 'description', label: 'Mô tả', className: 'min-w-[36rem]' }, { key: 'url', label: 'URL', className: 'min-w-72', render: row => <a href={row.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Mở listing</a> }]} rows={data.listingDetails} /><RawJsonBlock value={data.listingDetails} /></>}
       {activeSheet === 'reviews' && <><ReportTable columns={[{ key: 'rating', label: 'Sao' }, { key: 'date', label: 'Ngày' }, { key: 'text', label: 'Nội dung review', className: 'min-w-[36rem]' }, { key: 'listingUrl', label: 'Listing', className: 'min-w-64', render: row => row.listingUrl ? <a href={row.listingUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Mở listing</a> : '—' }, { key: 'sourcePage', label: 'Trang' }]} rows={data.reviews} /><RawJsonBlock value={data.reviews} /></>}
       {activeSheet === 'stats' && <SellerRawSheet pages={seller('stats')} emptyLabel="Agent chưa thu được Stats." />}
       {activeSheet === 'ads' && <SellerRawSheet pages={seller('ads')} emptyLabel="Agent chưa thu được Ads." />}
@@ -421,6 +421,7 @@ const ShopEvaluationTab: React.FC = () => {
   const [jobs, setJobs] = useState<EvaluationJob[]>([]);
   const [creatingAccountId, setCreatingAccountId] = useState<string | null>(null);
   const [provider, setProvider] = useState<'anthropic' | '9router'>('9router');
+  const [nineRouterModel, setNineRouterModel] = useState('cc/claude-fable-5');
   const [periodDays, setPeriodDays] = useState<1 | 7 | 14 | 30>(1);
   const [requestedTools, setRequestedTools] = useState<EvaluationTool[]>(SCOPE_TOOLS.full);
   const [crawlLimits, setCrawlLimits] = useState<EvaluationCrawlLimits>({ listingPages: 5, listings: 100, listingDetails: 20, reviewPages: 5, reviews: 100 });
@@ -444,6 +445,8 @@ const ShopEvaluationTab: React.FC = () => {
   const [hasMoreLogsByRun, setHasMoreLogsByRun] = useState<Record<string, boolean>>({});
   const autoOpenedReports = useRef(new Set<string>());
   const reconcilingJobs = useRef(new Set<string>());
+  const latestLiveOutputRef = useRef<HTMLPreElement | null>(null);
+  const [followLatestLive, setFollowLatestLive] = useState(true);
 
   useEffect(() => {
     const unsubscribeRuns = listenForEvaluationRuns(teamId, setRuns);
@@ -458,13 +461,19 @@ const ShopEvaluationTab: React.FC = () => {
   }, [allAccounts, selectedAccountId]);
 
   useEffect(() => {
-    const completed = runs.find(run => run.analysis?.status === 'completed' && !autoOpenedReports.current.has(run.id));
+    const completed = runs.find(run => run.accountId === selectedAccountId && run.analysis?.status === 'completed' && !autoOpenedReports.current.has(run.id));
     if (!completed) return;
     autoOpenedReports.current.add(completed.id);
     setExpandedRunId(null);
     setExpandedLogRunId(null);
     setExpandedReportRunId(completed.id);
   }, [runs]);
+
+  useEffect(() => {
+    setExpandedRunId(null);
+    setExpandedReportRunId(null);
+    setExpandedLogRunId(null);
+  }, [selectedAccountId]);
 
   useEffect(() => {
     if (!expandedLogRunId) return;
@@ -531,8 +540,23 @@ const ShopEvaluationTab: React.FC = () => {
           ? 'Extension sẽ nhận job ở lần quét gần nhất.'
           : null;
   const visibleRuns = useMemo(() => runs.filter(run => !selectedAccountId || run.accountId === selectedAccountId), [runs, selectedAccountId]);
+  const latestLiveRun = useMemo(() => visibleRuns
+    .filter(run => Boolean(aiStreamByRun[run.id] || run.aiLive))
+    .sort((left, right) => {
+      const leftActive = ['connecting', 'running'].includes(aiStreamByRun[left.id]?.stage || left.aiLive?.status || '') ? 1 : 0;
+      const rightActive = ['connecting', 'running'].includes(aiStreamByRun[right.id]?.stage || right.aiLive?.status || '') ? 1 : 0;
+      if (leftActive !== rightActive) return rightActive - leftActive;
+      return Date.parse(String(right.aiLive?.updatedAt || right.analysis?.startedAt || right.startedAt || '')) - Date.parse(String(left.aiLive?.updatedAt || left.analysis?.startedAt || left.startedAt || ''));
+    })[0] || null, [aiStreamByRun, visibleRuns]);
+  const latestLiveState = latestLiveRun ? aiStreamByRun[latestLiveRun.id] || latestLiveRun.aiLive : null;
+  const latestLiveStatus = latestLiveState ? ('stage' in latestLiveState ? latestLiveState.stage : latestLiveState.status) : '';
+  const latestLiveRunning = ['connecting', 'connected', 'running', 'streaming', 'analyzing', 'analyzing-batch', 'synthesizing'].some(status => latestLiveStatus.includes(status));
+  useEffect(() => {
+    if (!followLatestLive || !latestLiveState?.text || !latestLiveOutputRef.current) return;
+    latestLiveOutputRef.current.scrollTop = latestLiveOutputRef.current.scrollHeight;
+  }, [followLatestLive, latestLiveState?.text]);
   const viewerRunId = expandedReportRunId || expandedRunId || expandedLogRunId;
-  const viewerRun = useMemo(() => runs.find(run => run.id === viewerRunId) || null, [runs, viewerRunId]);
+  const viewerRun = useMemo(() => runs.find(run => run.id === viewerRunId && run.accountId === selectedAccountId) || null, [runs, selectedAccountId, viewerRunId]);
   const viewerMode: 'report' | 'raw' | 'logs' | null = expandedReportRunId ? 'report' : expandedRunId ? 'raw' : expandedLogRunId ? 'logs' : null;
 
   const toggleRequestedTool = (tool: EvaluationTool) => {
@@ -578,7 +602,15 @@ const ShopEvaluationTab: React.FC = () => {
     setAnalyzingRunId(run.id);
     setAiStreamByRun(current => ({ ...current, [run.id]: { text: '', stage: 'connecting' } }));
     try {
-      await analyzeEvaluationRun(teamId, run.id, provider, {
+      const backgroundJobId = await queueEvaluationAnalysis(teamId, run, provider, provider === '9router' ? nineRouterModel : '');
+      setAiStreamByRun(current => {
+        const next = { ...current };
+        delete next[run.id];
+        return next;
+      });
+      addNotification(`Đã xếp hàng phân tích nền ${run.shopLabel} · job ${backgroundJobId.slice(0, 8)}. Có thể đóng dashboard.`, 'success');
+      return;
+      await analyzeEvaluationRun(teamId, run.id, provider, provider === '9router' ? nineRouterModel : '', {
         onStatus: status => setAiStreamByRun(current => ({ ...current, [run.id]: { ...(current[run.id] || { text: '' }), stage: status.stage, model: status.model } })),
         onProgress: progress => setAiStreamByRun(current => ({ ...current, [run.id]: { ...(current[run.id] || { text: '' }), stage: progress.stage, progress } })),
         onDelta: delta => setAiStreamByRun(current => {
@@ -760,6 +792,10 @@ const ShopEvaluationTab: React.FC = () => {
             <option value="anthropic">Claude</option>
             <option value="9router">9Router</option>
           </select>
+          {provider === '9router' && <select value={nineRouterModel} onChange={event => setNineRouterModel(event.target.value)} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+            <option value="cc/claude-fable-5">Claude Fable 5</option>
+            <option value="ag/gemini-3-flash-agent">Gemini 3 Flash Agent</option>
+          </select>}
         </div>
       </div>
 
@@ -816,6 +852,7 @@ const ShopEvaluationTab: React.FC = () => {
 
       <section>
         <div className="flex items-center justify-between gap-3 mb-3"><h3 className="font-semibold text-gray-900 dark:text-white">Evaluation runs · {selectedAccount?.label || '—'}</h3><button type="button" disabled={deletingAll || runs.length === 0} onClick={handleDeleteAll} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 text-xs font-semibold"><TrashIcon className="w-4 h-4" />{deletingAll ? 'Đang xóa...' : 'Xóa toàn bộ data test'}</button></div>
+        {latestLiveRun && latestLiveState && <div className="sticky top-2 z-20 mb-3 overflow-hidden rounded-xl border border-cyan-300 bg-slate-950 text-slate-100 shadow-xl dark:border-cyan-900"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-3 py-2 text-xs"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2 py-1 font-bold ${latestLiveRunning ? 'bg-cyan-400/20 text-cyan-300' : latestLiveStatus === 'completed' ? 'bg-emerald-400/20 text-emerald-300' : latestLiveStatus === 'failed' ? 'bg-red-400/20 text-red-300' : 'bg-amber-400/20 text-amber-300'}`}>{latestLiveRunning ? 'ĐANG CHẠY' : latestLiveStatus === 'completed' ? 'HOÀN TẤT' : latestLiveStatus === 'failed' ? 'LỖI' : latestLiveStatus.toUpperCase()}</span><span className="font-semibold text-cyan-300">{latestLiveRun.shopLabel} · {latestLiveState.model || latestLiveRun.analysis?.model || (provider === '9router' ? nineRouterModel : provider)}</span></div><div className="flex items-center gap-2"><span className="text-slate-400">{'progress' in latestLiveState && latestLiveState.progress ? `${latestLiveState.progress.stage} ${latestLiveState.progress.current}/${latestLiveState.progress.total}` : latestLiveStatus}</span><button type="button" onClick={() => { setFollowLatestLive(true); requestAnimationFrame(() => { if (latestLiveOutputRef.current) latestLiveOutputRef.current.scrollTop = latestLiveOutputRef.current.scrollHeight; }); }} className={`rounded border px-2 py-1 font-semibold ${followLatestLive ? 'border-cyan-700 text-cyan-300' : 'border-slate-600 text-slate-300'}`}>{followLatestLive ? 'Đang theo dõi mới nhất' : 'Theo dõi mới nhất'}</button></div></div>{latestLiveState.text ? <pre ref={latestLiveOutputRef} onScroll={event => { const element = event.currentTarget; setFollowLatestLive(element.scrollHeight - element.scrollTop - element.clientHeight < 24); }} className="max-h-64 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5 font-mono">{latestLiveState.text}</pre> : <div className="p-3 text-xs text-slate-400">{latestLiveStatus === 'connecting' ? 'Job đã xếp hàng, đang chờ extension nhận...' : 'Đang kết nối AI và chờ token đầu tiên...'}</div>}{latestLiveState.error && <div className="border-t border-red-900/60 px-3 py-2 text-xs text-red-400"><strong>Lỗi:</strong> {latestLiveState.error}</div>}</div>}
         <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-900/40 text-left text-xs uppercase text-gray-500"><tr><th className="p-3">Shop</th><th className="p-3">Status</th><th className="p-3">Stage</th><th className="p-3">Listings</th><th className="p-3">Reviews</th><th className="p-3">Started</th><th className="p-3">Thao tác</th></tr></thead>
@@ -828,7 +865,7 @@ const ShopEvaluationTab: React.FC = () => {
                     <td className="p-3 text-gray-500"><div>{run.stage || '—'}</div>{run.lastAgentDecision && <div className="mt-1 max-w-72 rounded-md bg-cyan-50 dark:bg-cyan-950/20 px-2 py-1 text-[11px] text-cyan-800 dark:text-cyan-300"><strong>Browser agent:</strong> {run.lastAgentDecision.action} · {run.lastAgentDecision.reason || 'đang quyết định'}<div className="mt-0.5 font-mono text-[10px] opacity-70">{run.lastAgentDecision.tool} · step {run.lastAgentDecision.step} · {run.lastAgentDecision.model}</div></div>}</td><td className="p-3">{run.coverage?.listings ?? 0}</td><td className="p-3">{run.coverage?.reviews ?? 0}</td><td className="p-3 text-gray-500 whitespace-nowrap">{formatDate(run.startedAt || run.createdAt)}</td>
                     <td className="p-3">
                       <div className="flex flex-col gap-1.5">
-                        <button type="button" disabled={!['collected', 'partial'].includes(run.status) || analyzingRunId === run.id || (run.analysis?.status === 'running' && Date.now() - Date.parse(run.analysis.startedAt || '') < 15 * 60_000)} onClick={() => handleAnalyze(run)} className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:bg-gray-400 text-white text-xs font-semibold whitespace-nowrap">{analyzingRunId === run.id || run.analysis?.status === 'running' ? run.analysis?.progress ? `AI ${run.analysis.progress.current}/${run.analysis.progress.total}` : 'Đang phân tích tự động' : run.analysis?.status === 'completed' ? 'Phân tích lại' : 'Phân tích thủ công'}</button>
+                        <button type="button" disabled={!['collected', 'partial'].includes(run.status) || run.stage === 'analysis-queued' || analyzingRunId === run.id || (run.analysis?.status === 'running' && Date.now() - Date.parse(run.analysis.startedAt || '') < 15 * 60_000)} onClick={() => handleAnalyze(run)} className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:bg-gray-400 text-white text-xs font-semibold whitespace-nowrap">{run.stage === 'analysis-queued' ? 'Đang chờ phân tích nền' : analyzingRunId === run.id || run.analysis?.status === 'running' ? run.analysis?.progress ? `AI ${run.analysis.progress.current}/${run.analysis.progress.total}` : 'Đang phân tích tự động' : run.analysis?.status === 'completed' ? 'Phân tích lại' : 'Phân tích thủ công'}</button>
                         <button type="button" disabled={run.analysis?.status !== 'completed'} onClick={() => { setExpandedRunId(null); setExpandedLogRunId(null); setExpandedReportRunId(run.id); }} className="px-3 py-1.5 rounded-lg border border-violet-300 text-violet-700 dark:text-violet-300 disabled:opacity-40 text-xs font-semibold whitespace-nowrap">Mở workbook</button>
                         <button type="button" disabled={!['collected', 'partial'].includes(run.status) || loadingRawRunId === run.id} onClick={() => handleToggleData(run)} className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 disabled:opacity-40 text-xs font-semibold whitespace-nowrap">{loadingRawRunId === run.id ? 'Đang tải...' : 'Mở dữ liệu crawl'}</button>
                         <button type="button" disabled={loadingLogRunId === run.id} onClick={() => handleToggleLogs(run)} className="px-3 py-1.5 rounded-lg border border-cyan-300 text-cyan-700 dark:text-cyan-300 disabled:opacity-40 text-xs font-semibold whitespace-nowrap">{loadingLogRunId === run.id ? 'Đang tải log...' : 'Mở agent logs'}</button>
@@ -836,8 +873,8 @@ const ShopEvaluationTab: React.FC = () => {
                       </div>
                     </td>
                   </tr>
-                  {aiStreamByRun[run.id] && <tr><td colSpan={7} className="px-3 pb-3"><div className="rounded-lg border border-cyan-200 dark:border-cyan-900 bg-slate-950 text-slate-100 overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-800 text-xs"><span className="font-semibold text-cyan-300">AI Live · {aiStreamByRun[run.id].model || (provider === '9router' ? 'cx/gpt-5.6-sol' : provider)}</span><span className="text-slate-400">{aiStreamByRun[run.id].progress ? `${aiStreamByRun[run.id].progress?.stage} ${aiStreamByRun[run.id].progress?.current}/${aiStreamByRun[run.id].progress?.total}${aiStreamByRun[run.id].progress?.listingStart ? ` · listing ${aiStreamByRun[run.id].progress?.listingStart}-${aiStreamByRun[run.id].progress?.listingEnd}/${aiStreamByRun[run.id].progress?.listingTotal}` : ''}` : aiStreamByRun[run.id].stage}</span></div>{aiStreamByRun[run.id].text ? <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5 font-mono">{aiStreamByRun[run.id].text}</pre> : <div className="p-3 text-xs text-slate-400">Đang chờ token đầu tiên từ 9Router...</div>}{aiStreamByRun[run.id].error && <div className="px-3 pb-3 text-xs text-red-400">{aiStreamByRun[run.id].error}</div>}</div></td></tr>}
-                  {!aiStreamByRun[run.id] && run.aiLive && <tr><td colSpan={7} className="px-3 pb-3"><div className="rounded-lg border border-cyan-200 dark:border-cyan-900 bg-slate-950 text-slate-100 overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-800 text-xs"><span className="font-semibold text-cyan-300">AI Live · {run.aiLive.model || run.analysis?.model || provider}</span><span className="text-slate-400">{run.aiLive.progress ? `${run.aiLive.progress.stage} ${run.aiLive.progress.current}/${run.aiLive.progress.total}${run.aiLive.progress.listingStart ? ` · listing ${run.aiLive.progress.listingStart}-${run.aiLive.progress.listingEnd}/${run.aiLive.progress.listingTotal}` : ''}` : run.aiLive.status}</span></div>{run.aiLive.text ? <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5 font-mono">{run.aiLive.text}</pre> : <div className="p-3 text-xs text-slate-400">Đang kết nối AI và chờ nội dung đầu tiên...</div>}{run.aiLive.error && <div className="px-3 pb-3 text-xs text-red-400">{run.aiLive.error}</div>}</div></td></tr>}
+                  {run.id !== latestLiveRun?.id && aiStreamByRun[run.id] && <tr><td colSpan={7} className="px-3 pb-3"><div className="rounded-lg border border-cyan-200 dark:border-cyan-900 bg-slate-950 text-slate-100 overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-800 text-xs"><span className="font-semibold text-cyan-300">AI Live · {aiStreamByRun[run.id].model || (provider === '9router' ? nineRouterModel : provider)}</span><span className="text-slate-400">{aiStreamByRun[run.id].progress ? `${aiStreamByRun[run.id].progress?.stage} ${aiStreamByRun[run.id].progress?.current}/${aiStreamByRun[run.id].progress?.total}${aiStreamByRun[run.id].progress?.listingStart ? ` · listing ${aiStreamByRun[run.id].progress?.listingStart}-${aiStreamByRun[run.id].progress?.listingEnd}/${aiStreamByRun[run.id].progress?.listingTotal}` : ''}` : aiStreamByRun[run.id].stage}</span></div>{aiStreamByRun[run.id].text ? <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5 font-mono">{aiStreamByRun[run.id].text}</pre> : <div className="p-3 text-xs text-slate-400">Đang chờ token đầu tiên từ 9Router...</div>}{aiStreamByRun[run.id].error && <div className="px-3 pb-3 text-xs text-red-400">{aiStreamByRun[run.id].error}</div>}</div></td></tr>}
+                  {run.id !== latestLiveRun?.id && !aiStreamByRun[run.id] && run.aiLive && <tr><td colSpan={7} className="px-3 pb-3"><div className="rounded-lg border border-cyan-200 dark:border-cyan-900 bg-slate-950 text-slate-100 overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-800 text-xs"><span className="font-semibold text-cyan-300">AI Live · {run.aiLive.model || run.analysis?.model || provider}</span><span className="text-slate-400">{run.aiLive.progress ? `${run.aiLive.progress.stage} ${run.aiLive.progress.current}/${run.aiLive.progress.total}${run.aiLive.progress.listingStart ? ` · listing ${run.aiLive.progress.listingStart}-${run.aiLive.progress.listingEnd}/${run.aiLive.progress.listingTotal}` : ''}` : run.aiLive.status}</span></div>{run.aiLive.text ? <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5 font-mono">{run.aiLive.text}</pre> : <div className="p-3 text-xs text-slate-400">Đang kết nối AI và chờ nội dung đầu tiên...</div>}{run.aiLive.error && <div className="px-3 pb-3 text-xs text-red-400">{run.aiLive.error}</div>}</div></td></tr>}
                   {run.analysis?.result?.summary && <tr><td colSpan={7} className="px-3 pb-4 text-sm text-gray-600 dark:text-gray-300"><strong>AI:</strong> {run.analysis.result.summary}</td></tr>}
                   {run.agentPlan?.summary && <tr><td colSpan={7} className="px-3 pb-4 text-xs text-blue-700 dark:text-blue-300"><strong>Agent plan:</strong> {run.agentPlan.summary} · {run.agentPlan.executionMode === 'browser-agent' ? 'Tự thao tác read-only' : 'Collector fallback'} · {run.agentPlan.tools.join(' → ')}</td></tr>}
                   {run.warnings && run.warnings.length > 0 && <tr><td colSpan={7} className="px-3 pb-4 text-xs text-amber-700 dark:text-amber-300">Thiếu dữ liệu: {run.warnings.join(' · ')}</td></tr>}
