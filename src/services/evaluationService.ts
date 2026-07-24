@@ -24,6 +24,7 @@ export const createAgentEvaluationJob = async (
     customPrompt?: string;
     periodDays: number;
     provider: 'anthropic' | '9router';
+    model?: string;
     requestedTools: EvaluationTool[];
     crawlLimits: EvaluationCrawlLimits;
     toolNotes: EvaluationToolNotes;
@@ -65,6 +66,7 @@ export const createAgentEvaluationJob = async (
     crawlLimits: options.crawlLimits,
     toolNotes: options.toolNotes,
     autoAnalyze: true,
+    analysisModel: options.provider === '9router' ? options.model || null : null,
     schemaVersion: 4,
     requestedBy: auth.currentUser?.uid || null,
     status: 'pending',

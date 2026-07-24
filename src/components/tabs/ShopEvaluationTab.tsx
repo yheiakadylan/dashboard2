@@ -588,7 +588,7 @@ const ShopEvaluationTab: React.FC = () => {
         const extra = String(extraPrompts[tool] || '').trim();
         return extra ? [`${EVALUATION_TOOL_OPTIONS.find(item => item.tool === tool)?.label}: ${extra}`] : [];
       }).join('\n\n').slice(0, 4_000);
-      const result = await createAgentEvaluationJob(teamId, account, { scope, customPrompt, periodDays, provider, requestedTools, crawlLimits, toolNotes });
+      const result = await createAgentEvaluationJob(teamId, account, { scope, customPrompt, periodDays, provider, model: provider === '9router' ? nineRouterModel : '', requestedTools, crawlLimits, toolNotes });
       addNotification(`Browser agent đã lập plan ${result.plan.tools.length} mục tiêu và tạo job ${result.jobId}.`, 'success');
     } catch (error) {
       console.error(error);
