@@ -57,8 +57,15 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
-  const { teamId, role, permissions, user, display_name, user_number } =
-    useDashboard();
+  const {
+    teamId,
+    role,
+    permissions,
+    user,
+    display_name,
+    user_number,
+    viewable_design_teams,
+  } = useDashboard();
   const isEdit = !!task;
   const isOwner = role === "owner";
   const canAddDesign = isOwner || !!permissions?.canAddDesign;
@@ -304,6 +311,9 @@ const DesignTaskModal: React.FC<Props> = ({ task, onClose }) => {
             designUrls,
             createdBy: user!.uid,
             createdByName: displayName,
+            ...(viewable_design_teams?.length
+              ? { createdByTeams: viewable_design_teams }
+              : {}),
           },
           pendingTaskId,
         );
