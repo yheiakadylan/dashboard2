@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useDashboard } from "../../contexts/DashboardContext";
 import { DesignTask, DesignStatus } from "../../types";
 import {
@@ -76,19 +76,25 @@ const formatDate = (ts: any): string => {
 const TaskCard: React.FC<{
   task: DesignTask;
   isOwner: boolean;
+  isSelected: boolean;
   onOpen: (t: DesignTask) => void;
   onDelete: (t: DesignTask) => void;
-}> = ({ task, isOwner, onOpen, onDelete }) => {
+  onToggleSelect: (id: string) => void;
+}> = ({ task, isOwner, isSelected, onOpen, onDelete, onToggleSelect }) => {
   const thumbnail = task.attachments?.[0] || task.imageUrls?.[0] || null;
   const priority = task.priority ?? "normal";
 
   return (
     <div
       onClick={() => onOpen(task)}
-      className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden cursor-pointer hover:shadow-md hover:border-blue-300 dark:hover:border-blue-600 transition-all group"
+      className={`bg-white dark:bg-gray-800 border rounded-xl overflow-hidden cursor-pointer hover:shadow-md transition-all group ${
+        isSelected
+          ? "border-blue-500 dark:border-blue-400 ring-2 ring-blue-500/30"
+          : "border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600"
+      }`}
     >
       {/* Thumbnail */}
-      <div className="h-36 bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden">
+      <div className="relative h-36 bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden">
         {thumbnail ? (
           <img
             src={thumbnail}
@@ -112,6 +118,18 @@ const TaskCard: React.FC<{
               d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
             />
           </svg>
+        )}
+        {/* Select checkbox — owner only */}
+        {isOwner && (
+          <div className="absolute top-2 left-2">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onClick={(e) => e.stopPropagation()}
+              onChange={() => onToggleSelect(task.id)}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            />
+          </div>
         )}
       </div>
 
@@ -175,58 +193,81 @@ const TaskCard: React.FC<{
           </div>
         )}
       </div>
-
-      {/* Delete button — owner only */}
-      {isOwner && (
-        <div className="px-3 pb-3">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(task);
-            }}
-            className="text-xs text-red-400 hover:text-red-600 dark:hover:text-red-300"
-          >
-            Delete
-          </button>
-        </div>
-      )}
     </div>
   );
 };
 
+const PAGE_SIZE = 20;
+
 const DesignTab: React.FC = () => {
-  const { teamId, role } = useDashboard();
+  const { teamId, role, user, viewable_design_teams } = useDashboard();
   const isOwner = role === "owner";
 
   const [tasks, setTasks] = useState<DesignTask[]>([]);
   const [activeStatus, setActiveStatus] = useState<DesignStatus>("new");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [modalTask, setModalTask] = useState<DesignTask | null | undefined>(
     undefined,
   ); // undefined=closed, null=create, task=edit
-  const [deleteConfirm, setDeleteConfirm] = useState<DesignTask | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const unsub = listenDesignTasks(teamId, setTasks);
     return unsub;
   }, [teamId]);
 
-  const filteredTasks = tasks.filter((t) => t.status === activeStatus);
+  const visibleTasks = useMemo(() => {
+    if (isOwner) return tasks;
+    const allowed = viewable_design_teams;
+    if (!allowed || allowed.length === 0) return tasks;
+    return tasks.filter((t) => {
+      if (t.createdBy === user?.uid) return true;
+      // New tasks: createdByTeams array (intersection with allowed)
+      if (t.createdByTeams?.length)
+        return t.createdByTeams.some((team) => allowed.includes(team));
+      // Old tasks: single createdByTeam string (backward compat)
+      if (t.createdByTeam) return allowed.includes(t.createdByTeam);
+      return false;
+    });
+  }, [tasks, isOwner, viewable_design_teams, user?.uid]);
 
-  const handleDelete = async () => {
-    if (!deleteConfirm) return;
-    setDeleting(true);
+  const filteredTasks = visibleTasks.filter((t) => t.status === activeStatus);
+  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / PAGE_SIZE));
+  const pagedTasks = filteredTasks.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    setSelectedIds(checked ? new Set(pagedTasks.map((t) => t.id)) : new Set());
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true);
     try {
-      await deleteDesignTask(teamId, deleteConfirm.id);
-      setDeleteConfirm(null);
+      await Promise.all(
+        [...selectedIds].map((id) => deleteDesignTask(teamId, id)),
+      );
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
     } finally {
-      setDeleting(false);
+      setBulkDeleting(false);
     }
   };
 
   const counts = STATUSES.reduce(
     (acc, s) => {
-      acc[s] = tasks.filter((t) => t.status === s).length;
+      acc[s] = visibleTasks.filter((t) => t.status === s).length;
       return acc;
     },
     {} as Record<DesignStatus, number>,
@@ -241,7 +282,8 @@ const DesignTab: React.FC = () => {
             Design Tasks
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            {tasks.length} total task{tasks.length !== 1 ? "s" : ""}
+            {visibleTasks.length} total task
+            {visibleTasks.length !== 1 ? "s" : ""}
           </p>
         </div>
         <button
@@ -270,7 +312,11 @@ const DesignTab: React.FC = () => {
         {STATUSES.map((s) => (
           <button
             key={s}
-            onClick={() => setActiveStatus(s)}
+            onClick={() => {
+              setActiveStatus(s);
+              setCurrentPage(1);
+              setSelectedIds(new Set());
+            }}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm whitespace-nowrap transition-colors ${
               activeStatus === s
                 ? STATUS_TAB_ACTIVE[s]
@@ -295,6 +341,40 @@ const DesignTab: React.FC = () => {
         ))}
       </div>
 
+      {/* Bulk action toolbar — owner only, shown when tasks exist */}
+      {isOwner && filteredTasks.length > 0 && (
+        <div className="flex items-center gap-3 mb-4">
+          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={
+                pagedTasks.length > 0 &&
+                pagedTasks.every((t) => selectedIds.has(t.id))
+              }
+              onChange={(e) => handleSelectAll(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            Select all on page
+          </label>
+          {selectedIds.size > 0 && (
+            <button
+              onClick={() => setBulkDeleteConfirm(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg font-medium transition-colors"
+            >
+              Delete ({selectedIds.size})
+            </button>
+          )}
+          {selectedIds.size > 0 && (
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Task grid */}
       {filteredTasks.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-600">
@@ -314,17 +394,80 @@ const DesignTab: React.FC = () => {
           <p className="text-sm">No tasks in {STATUS_LABELS[activeStatus]}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-          {filteredTasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              isOwner={isOwner}
-              onOpen={(t) => setModalTask(t)}
-              onDelete={(t) => setDeleteConfirm(t)}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {pagedTasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                isOwner={isOwner}
+                isSelected={selectedIds.has(task.id)}
+                onOpen={(t) => setModalTask(t)}
+                onDelete={() => {}}
+                onToggleSelect={handleToggleSelect}
+              />
+            ))}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-6">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ← Prev
+              </button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(
+                  (p) =>
+                    p === 1 ||
+                    p === totalPages ||
+                    Math.abs(p - currentPage) <= 1,
+                )
+                .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                  if (idx > 0 && p - (arr[idx - 1] as number) > 1)
+                    acc.push("...");
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((item, idx) =>
+                  item === "..." ? (
+                    <span
+                      key={`ellipsis-${idx}`}
+                      className="px-2 text-gray-400 dark:text-gray-500 text-sm"
+                    >
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={item}
+                      onClick={() => setCurrentPage(item as number)}
+                      className={`min-w-[2rem] px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                        currentPage === item
+                          ? "bg-blue-600 border-blue-600 text-white font-medium"
+                          : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                      }`}
+                    >
+                      {item}
+                    </button>
+                  ),
+                )}
+
+              <button
+                onClick={() =>
+                  setCurrentPage((p) => Math.min(totalPages, p + 1))
+                }
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {/* Task Modal */}
@@ -335,35 +478,35 @@ const DesignTab: React.FC = () => {
         />
       )}
 
-      {/* Delete confirm */}
-      {deleteConfirm && (
+      {/* Bulk delete confirm */}
+      {bulkDeleteConfirm && (
         <div
           className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-          onClick={() => setDeleteConfirm(null)}
+          onClick={() => setBulkDeleteConfirm(false)}
         >
           <div
             className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-sm shadow-2xl border border-gray-200 dark:border-gray-700"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
-              Delete Task?
+              Delete {selectedIds.size} task{selectedIds.size > 1 ? "s" : ""}?
             </h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              "{deleteConfirm.title}" will be permanently deleted.
+              This action cannot be undone.
             </p>
             <div className="flex gap-3 justify-end">
               <button
-                onClick={() => setDeleteConfirm(null)}
+                onClick={() => setBulkDeleteConfirm(false)}
                 className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
               >
                 Cancel
               </button>
               <button
-                onClick={handleDelete}
-                disabled={deleting}
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
               >
-                {deleting ? "Deleting..." : "Delete"}
+                {bulkDeleting ? "Deleting..." : "Delete"}
               </button>
             </div>
           </div>

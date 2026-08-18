@@ -18,7 +18,7 @@ export interface Account {
 
 export interface EvaluationWorkerStatus {
   workerId?: string;
-  status: 'idle' | 'processing' | 'auth-required' | 'error' | 'offline';
+  status: "idle" | "processing" | "auth-required" | "error" | "offline";
   lastHeartbeat?: string;
   currentRunId?: string | null;
   currentStage?: string | null;
@@ -27,16 +27,17 @@ export interface EvaluationWorkerStatus {
   extensionVersion?: string;
 }
 
-export type EvaluationScope = 'listings' | 'reviews' | 'seller' | 'full' | 'custom';
+export type EvaluationScope =
+  "listings" | "reviews" | "seller" | "full" | "custom";
 export type EvaluationTool =
-  | 'collect_shop_overview'
-  | 'collect_public_listings'
-  | 'collect_listing_details'
-  | 'collect_public_reviews'
-  | 'collect_seller_stats'
-  | 'collect_seller_ads'
-  | 'collect_seller_orders'
-  | 'collect_seller_messages';
+  | "collect_shop_overview"
+  | "collect_public_listings"
+  | "collect_listing_details"
+  | "collect_public_reviews"
+  | "collect_seller_stats"
+  | "collect_seller_ads"
+  | "collect_seller_orders"
+  | "collect_seller_messages";
 
 export interface EvaluationCrawlLimits {
   listingPages?: number;
@@ -52,30 +53,124 @@ export interface EvaluationAgentPlan {
   summary: string;
   tools: EvaluationTool[];
   scope: EvaluationScope;
-  provider: 'anthropic' | '9router';
+  provider: "anthropic" | "9router";
   model: string;
   createdAt: string;
-  executionMode?: 'browser-agent' | 'deterministic';
+  executionMode?: "browser-agent" | "deterministic";
 }
 
 export interface EvaluationRun {
-  id: string; jobId?: string; accountId: string; shopLabel: string; publicUrl: string; workerId?: string;
-  currency?: string; shipTo?: string;
+  id: string;
+  jobId?: string;
+  accountId: string;
+  shopLabel: string;
+  publicUrl: string;
+  workerId?: string;
+  currency?: string;
+  shipTo?: string;
   periodDays?: number;
-  scope?: EvaluationScope; customPrompt?: string; agentPlan?: EvaluationAgentPlan; requestedTools?: EvaluationTool[]; crawlLimits?: EvaluationCrawlLimits; toolNotes?: EvaluationToolNotes; autoAnalyze?: boolean;
-  type: 'public-shop-collection' | 'full-shop-evaluation' | 'agent-evaluation';
-  status: 'queued' | 'running' | 'collected' | 'partial' | 'failed' | 'cancelled';
-  stage?: string; coverage?: { pages?: number; shopPages?: number; listings?: number; listingDetails?: number; reviews?: number; reviewPages?: number; sellerStats?: number; ads?: number; orders?: number; messagePages?: number };
-  agentProgress?: { tool?: EvaluationTool; step?: number; maxSteps?: number; action?: string; model?: string; updatedAt?: string };
-  lastAgentDecision?: { tool?: EvaluationTool; step?: number; action?: string; reason?: string; url?: string | null; model?: string; updatedAt?: string };
-  aiLive?: { status: 'connecting' | 'running' | 'completed' | 'failed'; text: string; model?: string; progress?: { current: number; total: number; stage: string; listingStart?: number; listingEnd?: number; listingTotal?: number }; updatedAt?: string; error?: string };
-  warnings?: string[]; error?: string; startedAt?: string; completedAt?: string; createdAt?: any;
-  analysis?: { status: 'running' | 'completed' | 'failed'; provider?: 'anthropic' | '9router'; model?: string; startedAt?: string; updatedAt?: string; progress?: { current: number; total: number; stage: string; listingStart?: number; listingEnd?: number; listingTotal?: number }; listingAuditCount?: number; result?: { summary?: string; strengths?: string[]; weaknesses?: string[]; findings?: any[]; actions?: any[]; report?: any }; error?: string };
+  scope?: EvaluationScope;
+  customPrompt?: string;
+  agentPlan?: EvaluationAgentPlan;
+  requestedTools?: EvaluationTool[];
+  crawlLimits?: EvaluationCrawlLimits;
+  toolNotes?: EvaluationToolNotes;
+  autoAnalyze?: boolean;
+  type: "public-shop-collection" | "full-shop-evaluation" | "agent-evaluation";
+  status:
+    "queued" | "running" | "collected" | "partial" | "failed" | "cancelled";
+  stage?: string;
+  coverage?: {
+    pages?: number;
+    shopPages?: number;
+    listings?: number;
+    listingDetails?: number;
+    reviews?: number;
+    reviewPages?: number;
+    sellerStats?: number;
+    ads?: number;
+    orders?: number;
+    messagePages?: number;
+  };
+  agentProgress?: {
+    tool?: EvaluationTool;
+    step?: number;
+    maxSteps?: number;
+    action?: string;
+    model?: string;
+    updatedAt?: string;
+  };
+  lastAgentDecision?: {
+    tool?: EvaluationTool;
+    step?: number;
+    action?: string;
+    reason?: string;
+    url?: string | null;
+    model?: string;
+    updatedAt?: string;
+  };
+  aiLive?: {
+    status: "connecting" | "running" | "completed" | "failed";
+    text: string;
+    model?: string;
+    progress?: {
+      current: number;
+      total: number;
+      stage: string;
+      listingStart?: number;
+      listingEnd?: number;
+      listingTotal?: number;
+    };
+    updatedAt?: string;
+    error?: string;
+  };
+  warnings?: string[];
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt?: any;
+  analysis?: {
+    status: "running" | "completed" | "failed";
+    provider?: "anthropic" | "9router";
+    model?: string;
+    startedAt?: string;
+    updatedAt?: string;
+    progress?: {
+      current: number;
+      total: number;
+      stage: string;
+      listingStart?: number;
+      listingEnd?: number;
+      listingTotal?: number;
+    };
+    listingAuditCount?: number;
+    result?: {
+      summary?: string;
+      strengths?: string[];
+      weaknesses?: string[];
+      findings?: any[];
+      actions?: any[];
+      report?: any;
+    };
+    error?: string;
+  };
 }
 
 export interface EvaluationListingRow {
-  listingId: string; title: string; url: string; price: string; imageUrl?: string | null; sourcePage?: number; firstSeenPage?: number;
-  risk?: string; action?: string; analysis?: string; improvement?: string; evidenceMaterials?: string; policyFlags?: string; seo?: string;
+  listingId: string;
+  title: string;
+  url: string;
+  price: string;
+  imageUrl?: string | null;
+  sourcePage?: number;
+  firstSeenPage?: number;
+  risk?: string;
+  action?: string;
+  analysis?: string;
+  improvement?: string;
+  evidenceMaterials?: string;
+  policyFlags?: string;
+  seo?: string;
 }
 
 export interface EvaluationRawDocument {
@@ -93,17 +188,47 @@ export interface EvaluationRawData {
 }
 
 export interface EvaluationLogEntry {
-  id: string; timestamp?: string; level: 'info' | 'warn' | 'error'; source: string; stage: string; message: string;
-  request?: { method?: string; url?: string; status?: number; durationMs?: number };
+  id: string;
+  timestamp?: string;
+  level: "info" | "warn" | "error";
+  source: string;
+  stage: string;
+  message: string;
+  request?: {
+    method?: string;
+    url?: string;
+    status?: number;
+    durationMs?: number;
+  };
   error?: { name?: string; message?: string; stack?: string };
-  context?: { [key: string]: unknown }; workerId?: string; version?: string;
+  context?: { [key: string]: unknown };
+  workerId?: string;
+  version?: string;
 }
 
 export interface EvaluationJob {
-  id: string; accountId: string; shopLabel: string; publicUrl: string; type: 'collect-public-shop' | 'full-shop-evaluation' | 'agent-evaluation';
-  periodDays?: number; scope?: EvaluationScope; customPrompt?: string; agentPlan?: EvaluationAgentPlan; requestedTools?: EvaluationTool[]; crawlLimits?: EvaluationCrawlLimits; toolNotes?: EvaluationToolNotes; autoAnalyze?: boolean;
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
-  runId?: string; workerId?: string; error?: string; createdAt?: any; startedAt?: string; completedAt?: string; cancelledAt?: any; cancelledBy?: string | null;
+  id: string;
+  accountId: string;
+  shopLabel: string;
+  publicUrl: string;
+  type: "collect-public-shop" | "full-shop-evaluation" | "agent-evaluation";
+  periodDays?: number;
+  scope?: EvaluationScope;
+  customPrompt?: string;
+  agentPlan?: EvaluationAgentPlan;
+  requestedTools?: EvaluationTool[];
+  crawlLimits?: EvaluationCrawlLimits;
+  toolNotes?: EvaluationToolNotes;
+  autoAnalyze?: boolean;
+  status: "pending" | "processing" | "completed" | "failed" | "cancelled";
+  runId?: string;
+  workerId?: string;
+  error?: string;
+  createdAt?: any;
+  startedAt?: string;
+  completedAt?: string;
+  cancelledAt?: any;
+  cancelledBy?: string | null;
 }
 
 export interface FulfillmentAccount {
@@ -232,6 +357,8 @@ export interface DesignTask {
   designUrls: string[];
   createdBy: string;
   createdByName: string;
+  createdByTeam?: string;
+  createdByTeams?: string[];
   createdAt: any;
   updatedAt: any;
   assignedTo?: string;

@@ -15,6 +15,7 @@ export interface UserProfile {
   canViewLeaderboard?: boolean;
   kpi_team?: string;
   viewable_kpi_teams?: string[];
+  viewable_design_teams?: string[];
   user_number?: string;
   [key: string]: any;
 }

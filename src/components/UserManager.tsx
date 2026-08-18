@@ -34,6 +34,7 @@ interface UserRole {
   can_view_leaderboard?: boolean;
   kpi_team?: string;
   viewable_kpi_teams?: string[];
+  viewable_design_teams?: string[];
 }
 
 // --- BẮT ĐẦU: Component Modal mới để chọn Account ---
@@ -361,6 +362,7 @@ const UserManager: React.FC = () => {
             can_view_leaderboard: !!user.can_view_leaderboard,
             kpi_team: user.kpi_team || null,
             viewable_kpi_teams: user.viewable_kpi_teams || [],
+            viewable_design_teams: user.viewable_design_teams || [],
           });
         }
       });
@@ -433,6 +435,23 @@ const UserManager: React.FC = () => {
           ? [...current, team]
           : current.filter((t) => t !== team);
         return { ...u, viewable_kpi_teams: next };
+      }),
+    );
+  };
+
+  const handleViewableDesignTeamsChange = (
+    userId: string,
+    team: string,
+    checked: boolean,
+  ) => {
+    setUsers((prevUsers) =>
+      prevUsers.map((u) => {
+        if (u.id !== userId) return u;
+        const current = u.viewable_design_teams || [];
+        const next = checked
+          ? [...current, team]
+          : current.filter((t) => t !== team);
+        return { ...u, viewable_design_teams: next };
       }),
     );
   };
@@ -734,6 +753,46 @@ const UserManager: React.FC = () => {
                           <span>{permissionLabels[key]}</span>
                         </label>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Design Settings */}
+                  <div className="pt-2 border-t border-gray-200 dark:border-gray-600">
+                    <h4 className="text-sm font-medium mb-2 text-gray-600 dark:text-gray-300">
+                      Design Settings
+                    </h4>
+                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">
+                      Viewable Design Teams
+                    </label>
+                    <div className="max-h-24 overflow-y-auto border border-gray-300 dark:border-gray-500 rounded-md p-2 bg-white dark:bg-gray-600">
+                      {kpiTeams.length === 0 ? (
+                        <span className="text-xs text-gray-400">
+                          No teams created.
+                        </span>
+                      ) : (
+                        kpiTeams.map((t) => (
+                          <label
+                            key={t}
+                            className="flex items-center gap-2 text-sm mb-1"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={
+                                user.viewable_design_teams?.includes(t) || false
+                              }
+                              onChange={(e) =>
+                                handleViewableDesignTeamsChange(
+                                  user.id,
+                                  t,
+                                  e.target.checked,
+                                )
+                              }
+                              className="rounded text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="truncate">{t}</span>
+                          </label>
+                        ))
+                      )}
                     </div>
                   </div>
 

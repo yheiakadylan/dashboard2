@@ -37,6 +37,7 @@ interface DashboardContextType {
   can_view_leaderboard?: boolean;
   kpi_team?: string;
   viewable_kpi_teams?: string[];
+  viewable_design_teams?: string[];
 
   // Data State (from useDataSync)
   accounts: Account[]; // Filtered accounts for data display
@@ -102,6 +103,7 @@ interface DashboardProviderProps {
   can_view_leaderboard?: boolean;
   kpi_team?: string;
   viewable_kpi_teams?: string[];
+  viewable_design_teams?: string[];
   // We pass auth logic from outside (App.tsx) or we could just use the hook here if we didn't need to conditionally render the provider.
   // Given App.tsx structure, we already have user/role there.
   onLogout: () => Promise<void>;
@@ -125,6 +127,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   can_view_leaderboard,
   kpi_team,
   viewable_kpi_teams,
+  viewable_design_teams,
   onLogout,
   timeZone,
   filterDateRange,
@@ -823,6 +826,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
         can_view_leaderboard,
         kpi_team,
         viewable_kpi_teams,
+        viewable_design_teams,
         accounts: visibleAccounts, // Filtered for data display
         allAccounts, // All accounts (unfiltered)
         managementAccounts, // For MailManager - respects canManageSettings
