@@ -37,6 +37,14 @@ interface DashboardContextType {
   allowedAccounts?: string[]; // For shop-level access control
   filterDateRange: { from: string; to: string };
   timeZone: string;
+  // KPI fields from user profile
+  display_name?: string;
+  user_number?: string;
+  is_kpi?: boolean;
+  can_view_leaderboard?: boolean;
+  kpi_team?: string;
+  viewable_kpi_teams?: string[];
+  viewable_design_teams?: string[];
 
   // Data State (from useDataSync)
   accounts: Account[]; // Filtered accounts for data display
@@ -230,6 +238,13 @@ interface DashboardProviderProps {
   sharedRole: string | null;
   permissions: { [key: string]: boolean };
   allowedAccounts?: string[];
+  display_name?: string;
+  user_number?: string;
+  is_kpi?: boolean;
+  can_view_leaderboard?: boolean;
+  kpi_team?: string;
+  viewable_kpi_teams?: string[];
+  viewable_design_teams?: string[];
   // We pass auth logic from outside (App.tsx) or we could just use the hook here if we didn't need to conditionally render the provider.
   // Given App.tsx structure, we already have user/role there.
   onLogout: () => Promise<void>;
@@ -255,8 +270,29 @@ const useStableJsonValue = <T,>(value: T): readonly [T, string] => {
 };
 
 export const DashboardProvider: React.FC<DashboardProviderProps> = ({
-  children, user, displayName, employeeId, teamId, role, sharedRole, permissions, allowedAccounts, onLogout,
-  timeZone, filterDateRange, selectedAccountId, searchTerm, globalUsdMode, activeTab
+  children,
+  user,
+  displayName,
+  employeeId,
+  teamId,
+  role,
+  sharedRole,
+  permissions,
+  allowedAccounts,
+  display_name,
+  user_number,
+  is_kpi,
+  can_view_leaderboard,
+  kpi_team,
+  viewable_kpi_teams,
+  viewable_design_teams,
+  onLogout,
+  timeZone,
+  filterDateRange,
+  selectedAccountId,
+  searchTerm,
+  globalUsdMode,
+  activeTab
 }) => {
 
   const { addNotification } = useNotification();
@@ -1075,6 +1111,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
 
   const contextValue = useMemo<DashboardContextType>(() => ({
     user, displayName, employeeId, teamId, role, sharedRole, permissions, allowedAccounts, filterDateRange, timeZone,
+    display_name,
+    user_number,
+    is_kpi,
+    can_view_leaderboard,
+    kpi_team,
+    viewable_kpi_teams,
+    viewable_design_teams,
     accounts: visibleAccounts,
     allAccounts,
     managementAccounts,
@@ -1113,6 +1156,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     bulkSaveCategories
   }), [
     user, displayName, employeeId, teamId, role, sharedRole, permissions, allowedAccounts, filterDateRange, timeZone,
+    display_name, user_number, is_kpi, can_view_leaderboard, kpi_team, viewable_kpi_teams, viewable_design_teams,
     visibleAccounts, allAccounts, managementAccounts, setAllAccounts, records, setRecords,
     visibleEtsyReviews, setEtsyReviews, manualCosts, setManualCosts,
     isLoading, isSyncing, isFetchingNewRange, syncState, syncProgress, accountSyncStatuses, isProcessing, isSavingAccounts,

@@ -32,6 +32,7 @@ const ConnectedDashboardProvider: React.FC<ConnectedDashboardProviderProps> = ({
       can_view_leaderboard={userProfile.can_view_leaderboard}
       kpi_team={userProfile.kpi_team}
       viewable_kpi_teams={userProfile.viewable_kpi_teams}
+      viewable_design_teams={userProfile.viewable_design_teams}
       onLogout={logout}
       timeZone={timeZone}
       filterDateRange={filterDateRange}
