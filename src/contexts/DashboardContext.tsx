@@ -117,7 +117,7 @@ interface DashboardContextType {
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
 type DashboardAccessContextType = Pick<DashboardContextType,
   'user' | 'displayName' | 'employeeId' | 'teamId' | 'role' | 'sharedRole' | 'permissions' |
-  'allowedAccounts' | 'filterDateRange' | 'timeZone' | 'allAccounts' | 'exchangeRates' |
+  'allowedAccounts' | 'filterDateRange' | 'timeZone' | 'accounts' | 'allAccounts' | 'exchangeRates' |
   'boards' | 'selectedBoardId' | 'setSelectedBoardId' | 'refreshBoards'
 >;
 const DashboardAccessContext = createContext<DashboardAccessContextType | undefined>(undefined);
@@ -1097,6 +1097,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     allowedAccounts,
     filterDateRange,
     timeZone,
+    accounts: visibleAccounts,
     allAccounts,
     exchangeRates,
     boards,
@@ -1105,7 +1106,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     refreshBoards,
   }), [
     user, displayName, employeeId, teamId, role, sharedRole, permissions, allowedAccounts,
-    filterDateRange, timeZone, allAccounts, exchangeRates, boards, selectedBoardId,
+    filterDateRange, timeZone, visibleAccounts, allAccounts, exchangeRates, boards, selectedBoardId,
     setSelectedBoardId, refreshBoards,
   ]);
 

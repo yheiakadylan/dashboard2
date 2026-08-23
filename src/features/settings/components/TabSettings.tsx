@@ -42,11 +42,13 @@ const TabSettings: React.FC = () => {
                 case 'Reviews':
                     return permissions.viewReviewsTab === true;
                 case 'Shop Evaluation':
-                    return permissions.viewSales === true;
+                    return permissions.viewShopEvaluationTab === true || permissions.viewSales === true;
                 case 'Design':
+                    return permissions.viewDesignTab === true;
                 case 'Templete':
+                    return permissions.viewTemplatesTab === true;
                 case 'Workload':
-                    return true;
+                    return permissions.viewWorkloadTab === true;
                 default:
                     return false;
             }

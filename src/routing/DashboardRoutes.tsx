@@ -37,44 +37,45 @@ const DashboardRoutes: React.FC<Props> = ({ onViewOrderDetails, onResyncOrder })
   const { activeTab, handleViewDayDetails, handleShopDetails } = useUITabs();
   const { filterDateRange, dayFilter, sourceFilter, statusFilter, timeZone } = useUIFilters();
   const isSingleDay = filterDateRange.from === filterDateRange.to;
+  const canView = (key: keyof typeof permissions) => hasPermission(role, permissions, key);
 
   return (
     <Routes>
-      <Route path="/operations/overview" element={(
+      <Route path="/operations/overview" element={canView('viewOverviewTab') ? (
         <RouteBoundary fallback={<CardFallback />}>
           <OverviewTab processedData={processedData} isSingleDay={isSingleDay} handleViewDayDetails={handleViewDayDetails} handleShopDetails={handleShopDetails} />
         </RouteBoundary>
-      )} />
-      <Route path="/operations/orders" element={(
+      ) : <PermissionDenied>You do not have permission to view overview.</PermissionDenied>} />
+      <Route path="/operations/orders" element={canView('viewOrderListTab') ? (
         <RouteBoundary fallback={<CardFallback />}>
           <OrderListTab processedData={processedData} dayFilter={dayFilter} sourceFilter={sourceFilter} statusFilter={statusFilter} timeZone={timeZone} handleViewOrderDetails={onViewOrderDetails} handleResyncOrder={onResyncOrder} />
         </RouteBoundary>
-      )} />
-      <Route path="/operations/products" element={(
+      ) : <PermissionDenied>You do not have permission to view orders.</PermissionDenied>} />
+      <Route path="/operations/products" element={canView('viewProductsTab') ? (
         <RouteBoundary fallback={<CardFallback />}><ProductsTab processedData={processedData} /></RouteBoundary>
-      )} />
+      ) : <PermissionDenied>You do not have permission to view products.</PermissionDenied>} />
       <Route path="/operations/listings" element={<Navigate to={getPathForTab('Overview')} replace />} />
-      <Route path="/operations/support" element={(
+      <Route path="/operations/support" element={canView('viewSupportTab') ? (
         <RouteBoundary fallback={<TableFallback />}><SupportTab processedData={processedData} /></RouteBoundary>
-      )} />
-      <Route path="/operations/fulfillment" element={(
+      ) : <PermissionDenied>You do not have permission to view support.</PermissionDenied>} />
+      <Route path="/operations/fulfillment" element={canView('viewFulfillTab') ? (
         <RouteBoundary fallback={<TableFallback />}><FulfillTab processedData={processedData} /></RouteBoundary>
-      )} />
-      <Route path="/operations/reviews" element={hasPermission(role, permissions, 'viewReviewsTab') ? (
+      ) : <PermissionDenied>You do not have permission to view fulfillment.</PermissionDenied>} />
+      <Route path="/operations/reviews" element={canView('viewReviewsTab') ? (
         <RouteBoundary fallback={<CardFallback />}><ReviewsTab /></RouteBoundary>
       ) : <PermissionDenied>You do not have permission to view reviews.</PermissionDenied>} />
-      <Route path="/operations/design" element={(
+      <Route path="/operations/design" element={canView('viewDesignTab') ? (
         <RouteBoundary fallback={<TableFallback />}><DesignTab /></RouteBoundary>
-      )} />
-      <Route path="/operations/templates" element={(
+      ) : <PermissionDenied>You do not have permission to view design.</PermissionDenied>} />
+      <Route path="/operations/templates" element={canView('viewTemplatesTab') ? (
         <RouteBoundary fallback={<TableFallback />}><TempleteTab /></RouteBoundary>
-      )} />
-      <Route path="/operations/shop-evaluation" element={(
+      ) : <PermissionDenied>You do not have permission to view templates.</PermissionDenied>} />
+      <Route path="/operations/shop-evaluation" element={canView('viewShopEvaluationTab') || canView('viewSales') ? (
         <RouteBoundary fallback={<TableFallback />}><ShopEvaluationTab /></RouteBoundary>
-      )} />
-      <Route path="/operations/workload" element={(
+      ) : <PermissionDenied>You do not have permission to view shop evaluation.</PermissionDenied>} />
+      <Route path="/operations/workload" element={canView('viewWorkloadTab') ? (
         <RouteBoundary fallback={<CardFallback />}><WorkloadTab /></RouteBoundary>
-      )} />
+      ) : <PermissionDenied>You do not have permission to view workload.</PermissionDenied>} />
       <Route path="/legacy/kpi" element={<Navigate to={getPathForTab('Overview')} replace />} />
       <Route path="/kpi/*" element={<Navigate to={getPathForTab('Overview')} replace />} />
       <Route path="/" element={<Navigate to={getPathForTab(activeTab)} replace />} />

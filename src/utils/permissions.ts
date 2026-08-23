@@ -24,11 +24,13 @@ export const getPermittedTabs = (
             case 'Reviews':
                 return hasPermission(role, permissions, 'viewReviewsTab');
             case 'Shop Evaluation':
-                return hasPermission(role, permissions, 'viewSales');
+                return hasPermission(role, permissions, 'viewShopEvaluationTab') || hasPermission(role, permissions, 'viewSales');
             case 'Design':
+                return hasPermission(role, permissions, 'viewDesignTab');
             case 'Templete':
+                return hasPermission(role, permissions, 'viewTemplatesTab');
             case 'Workload':
-                return true;
+                return hasPermission(role, permissions, 'viewWorkloadTab');
             default:
                 return false;
         }

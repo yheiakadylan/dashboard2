@@ -128,6 +128,7 @@ type PODPerformanceScope = {
   memberIds: Set<string>;
   memberIdentityKeys: Set<string>;
   accountKeys: Set<string>;
+  keepAllUsers?: boolean;
 };
 
 const normalizeScopeKey = (value: unknown) => String(value || '').trim().toLowerCase();
@@ -157,6 +158,17 @@ const buildPODPerformanceScope = (
     .forEach(key => accountKeys.add(key));
 
   return { memberIds, memberIdentityKeys, accountKeys };
+};
+
+const buildAccountPerformanceScope = (accounts: Account[]): PODPerformanceScope => {
+  const accountKeys = new Set<string>();
+  accounts.forEach(account => {
+    [account.id, account.email, ...getAccountShopIdentifiers(account)]
+      .map(normalizeScopeKey)
+      .filter(Boolean)
+      .forEach(key => accountKeys.add(key));
+  });
+  return { memberIds: new Set(), memberIdentityKeys: new Set(), accountKeys, keepAllUsers: true };
 };
 
 const matchesPODMember = (scope: PODPerformanceScope, ...values: unknown[]) => (
@@ -202,7 +214,7 @@ const scopeOperationDataToPOD = (data: OperationReportData, scope: PODPerformanc
     ideasMatchedToSales: scopeTasks(data.ideasMatchedToSales),
     listings: scopeListings(data.listings),
     listingsMatchedToSales: scopeListings(data.listingsMatchedToSales),
-    users: data.users.filter(operationUser => scope.memberIds.has(normalizeScopeKey(operationUser.uid))),
+    users: scope.keepAllUsers ? data.users : data.users.filter(operationUser => scope.memberIds.has(normalizeScopeKey(operationUser.uid))),
     templates: data.templates,
   };
 };
@@ -566,7 +578,7 @@ export const usePerformanceData = (
     user,
     boards,
     selectedBoardId,
-    allAccounts,
+    accounts,
     exchangeRates,
   } = useDashboardAccess();
   const { filterDateRange, timeZone } = useUIFilters();
@@ -762,17 +774,28 @@ export const usePerformanceData = (
   );
   const podScope = useMemo(
     () => selectedPODTeam
-      ? buildPODPerformanceScope(selectedPODTeam, allAccounts, rawOperationData.users)
+      ? buildPODPerformanceScope(selectedPODTeam, accounts, rawOperationData.users)
       : null,
-    [allAccounts, rawOperationData.users, selectedPODTeam],
+    [accounts, rawOperationData.users, selectedPODTeam],
+  );
+  const accountScope = useMemo(
+    () => buildAccountPerformanceScope(accounts),
+    [accounts],
+  );
+  const performanceScope = podScope || accountScope;
+  const kpiPodScope = useMemo(
+    () => selectedPODTeam
+      ? buildPODPerformanceScope(selectedPODTeam, accounts, rawKpiOperationData.users)
+      : null,
+    [accounts, rawKpiOperationData.users, selectedPODTeam],
   );
   const operationData = useMemo(
-    () => scopeOperationDataToPOD(rawOperationData, podScope),
-    [podScope, rawOperationData],
+    () => scopeOperationDataToPOD(rawOperationData, performanceScope),
+    [performanceScope, rawOperationData],
   );
   const kpiOperationData = useMemo(
-    () => scopeOperationDataToPOD(rawKpiOperationData, podScope),
-    [podScope, rawKpiOperationData],
+    () => scopeOperationDataToPOD(rawKpiOperationData, kpiPodScope || accountScope),
+    [accountScope, kpiPodScope, rawKpiOperationData],
   );
   const activeListings = useMemo(
     () => [...new Map(operationData.listings
@@ -787,24 +810,18 @@ export const usePerformanceData = (
     [kpiOperationData.listings],
   );
   const orders = useMemo(
-    () => podScope
-      ? rawOrders.filter(order => matchesPODAccount(podScope, order.account))
-      : rawOrders,
-    [podScope, rawOrders],
+    () => rawOrders.filter(order => matchesPODAccount(performanceScope, order.account)),
+    [performanceScope, rawOrders],
   );
   const reviews = useMemo(
-    () => podScope
-      ? rawReviews.filter(review => matchesPODAccount(podScope, review.shop_id))
-      : rawReviews,
-    [podScope, rawReviews],
+    () => rawReviews.filter(review => matchesPODAccount(performanceScope, review.shop_id)),
+    [performanceScope, rawReviews],
   );
   const performanceAccounts = useMemo(
-    () => podScope
-      ? allAccounts.filter(account => getAccountShopIdentifiers(account).some(value => (
-        podScope.accountKeys.has(normalizeScopeKey(value))
-      )))
-      : allAccounts,
-    [allAccounts, podScope],
+    () => accounts.filter(account => getAccountShopIdentifiers(account).some(value => (
+      performanceScope.accountKeys.has(normalizeScopeKey(value))
+    ))),
+    [accounts, performanceScope],
   );
   const performanceAccountLabelMap = useMemo(
     () => buildAccountLabelMap(performanceAccounts),

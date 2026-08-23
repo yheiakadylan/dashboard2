@@ -415,7 +415,7 @@ function runCompletesJob(run: EvaluationRun, job: EvaluationJob): boolean {
 }
 
 const ShopEvaluationTab: React.FC = () => {
-  const { teamId, allAccounts } = useDashboard();
+  const { teamId, accounts, role, permissions } = useDashboard();
   const { addNotification } = useNotification();
   const [runs, setRuns] = useState<EvaluationRun[]>([]);
   const [jobs, setJobs] = useState<EvaluationJob[]>([]);
@@ -455,10 +455,14 @@ const ShopEvaluationTab: React.FC = () => {
   }, [teamId]);
 
   useEffect(() => {
-    if (allAccounts.length > 0 && !allAccounts.some(account => account.id === selectedAccountId)) {
-      setSelectedAccountId([...allAccounts].sort(compareEvaluationAccounts)[0].id);
+    if (accounts.length === 0) {
+      if (selectedAccountId) setSelectedAccountId('');
+      return;
     }
-  }, [allAccounts, selectedAccountId]);
+    if (!accounts.some(account => account.id === selectedAccountId)) {
+      setSelectedAccountId([...accounts].sort(compareEvaluationAccounts)[0].id);
+    }
+  }, [accounts, selectedAccountId]);
 
   useEffect(() => {
     const completed = runs.find(run => run.accountId === selectedAccountId && run.analysis?.status === 'completed' && !autoOpenedReports.current.has(run.id));
@@ -504,18 +508,29 @@ const ShopEvaluationTab: React.FC = () => {
     });
   }, [jobs, runs, teamId]);
 
+  const accessibleAccountIds = useMemo(() => new Set(accounts.map(account => account.id)), [accounts]);
+  const accessibleRuns = useMemo(
+    () => runs.filter(run => accessibleAccountIds.has(run.accountId)),
+    [accessibleAccountIds, runs],
+  );
+  const accessibleJobs = useMemo(
+    () => jobs.filter(job => accessibleAccountIds.has(job.accountId)),
+    [accessibleAccountIds, jobs],
+  );
+  const canDeleteAllEvaluationData = role === 'owner' || permissions.canManageSettings === true;
+
   const pendingByAccount = useMemo(() => {
     const map = new Map<string, EvaluationJob>();
-    jobs.filter(job => job.status === 'pending' || job.status === 'processing').forEach(job => {
-      const run = runs.find(item => item.jobId === job.id || (job.runId && item.id === job.runId));
+    accessibleJobs.filter(job => job.status === 'pending' || job.status === 'processing').forEach(job => {
+      const run = accessibleRuns.find(item => item.jobId === job.id || (job.runId && item.id === job.runId));
       if (!run || !runCompletesJob(run, job)) map.set(job.accountId, job);
     });
     return map;
-  }, [jobs, runs]);
-  const selectedAccount = useMemo(() => allAccounts.find(account => account.id === selectedAccountId) || null, [allAccounts, selectedAccountId]);
+  }, [accessibleJobs, accessibleRuns]);
+  const selectedAccount = useMemo(() => accounts.find(account => account.id === selectedAccountId) || null, [accounts, selectedAccountId]);
   const selectedPendingJob = selectedAccount ? pendingByAccount.get(selectedAccount.id) : undefined;
-  const selectedPendingRun = selectedPendingJob ? runs.find(run => run.jobId === selectedPendingJob.id || run.id === selectedPendingJob.runId) : undefined;
-  const selectedActiveAnalysisRun = selectedAccount ? runs.find(run => run.accountId === selectedAccount.id && run.analysis?.status === 'running') : undefined;
+  const selectedPendingRun = selectedPendingJob ? accessibleRuns.find(run => run.jobId === selectedPendingJob.id || run.id === selectedPendingJob.runId) : undefined;
+  const selectedActiveAnalysisRun = selectedAccount ? accessibleRuns.find(run => run.accountId === selectedAccount.id && run.analysis?.status === 'running') : undefined;
   const selectedWorkerOnline = selectedAccount ? isWorkerOnline(selectedAccount) : false;
   const selectedWorkerState = selectedAccount ? workerState(selectedAccount) : null;
   const selectedWorkerBusy = selectedAccount?.evaluation_worker_status?.status === 'processing';
@@ -540,7 +555,7 @@ const ShopEvaluationTab: React.FC = () => {
         : selectedPendingJob?.status === 'pending'
           ? 'Extension sẽ nhận job ở lần quét gần nhất.'
           : null;
-  const visibleRuns = useMemo(() => runs.filter(run => !selectedAccountId || run.accountId === selectedAccountId), [runs, selectedAccountId]);
+  const visibleRuns = useMemo(() => accessibleRuns.filter(run => !selectedAccountId || run.accountId === selectedAccountId), [accessibleRuns, selectedAccountId]);
   const latestLiveRun = useMemo(() => visibleRuns
     .filter(run => Boolean(aiStreamByRun[run.id] || run.aiLive))
     .sort((left, right) => {
@@ -557,7 +572,7 @@ const ShopEvaluationTab: React.FC = () => {
     latestLiveOutputRef.current.scrollTop = latestLiveOutputRef.current.scrollHeight;
   }, [followLatestLive, latestLiveState?.text]);
   const viewerRunId = expandedReportRunId || expandedRunId || expandedLogRunId;
-  const viewerRun = useMemo(() => runs.find(run => run.id === viewerRunId && run.accountId === selectedAccountId) || null, [runs, selectedAccountId, viewerRunId]);
+  const viewerRun = useMemo(() => accessibleRuns.find(run => run.id === viewerRunId && run.accountId === selectedAccountId) || null, [accessibleRuns, selectedAccountId, viewerRunId]);
   const viewerMode: 'report' | 'raw' | 'logs' | null = expandedReportRunId ? 'report' : expandedRunId ? 'raw' : expandedLogRunId ? 'logs' : null;
 
   const toggleRequestedTool = (tool: EvaluationTool) => {
@@ -721,6 +736,7 @@ const ShopEvaluationTab: React.FC = () => {
   };
 
   const handleDeleteAll = async () => {
+    if (!canDeleteAllEvaluationData) return addNotification('Không có quyền xóa toàn bộ evaluation data.', 'error');
     if (!window.confirm('Xóa TOÀN BỘ evaluation jobs, runs, listings, reviews và AI data của tất cả shop?')) return;
     setDeletingAll(true);
     try {
@@ -829,8 +845,8 @@ const ShopEvaluationTab: React.FC = () => {
           <div className="mb-5 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-950/10 p-3">
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
               <div className="min-w-0">
-                <label className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">Tìm và chọn shop ({allAccounts.length})</label>
-                <ShopPicker accounts={allAccounts} selectedAccountId={selectedAccountId} onSelect={setSelectedAccountId} />
+                <label className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">Tìm và chọn shop ({accounts.length})</label>
+                <ShopPicker accounts={accounts} selectedAccountId={selectedAccountId} onSelect={setSelectedAccountId} />
               </div>
               {selectedAccount && <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                 {selectedPendingJob ? selectedCrawlFinished && selectedPendingRun ? <button type="button" disabled={cancellingJobId === selectedPendingJob.id} onClick={() => void handleCancelAnalysis(selectedPendingJob, selectedPendingRun)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-900 dark:hover:bg-red-950/20"><StopIcon className="h-4 w-4" />{cancellingJobId === selectedPendingJob.id ? 'Đang hủy phân tích...' : 'Hủy phân tích'}</button> : <button type="button" disabled={cancellingJobId === selectedPendingJob.id} onClick={() => void handleCancelJob(selectedPendingJob)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-900 dark:hover:bg-red-950/20"><StopIcon className="h-4 w-4" />{cancellingJobId === selectedPendingJob.id ? 'Đang gửi lệnh dừng...' : selectedPendingJob.status === 'processing' ? 'Dừng browser agent' : 'Hủy job đang chờ'}</button> : selectedActiveAnalysisRun ? <button type="button" disabled={cancellingJobId === selectedActiveAnalysisRun.id} onClick={() => void handleCancelStandaloneAnalysis(selectedActiveAnalysisRun)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-900 dark:hover:bg-red-950/20"><StopIcon className="h-4 w-4" />{cancellingJobId === selectedActiveAnalysisRun.id ? 'Đang hủy phân tích...' : 'Hủy phân tích'}</button> : <button type="button" disabled={!selectedWorkerOnline || selectedWorkerBusy || creatingAccountId === selectedAccount.id || requestedTools.length === 0} onClick={() => handleRun(selectedAccount)} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-gray-400"><PlayIcon className="h-4 w-4" />{creatingAccountId === selectedAccount.id ? 'AI đang lập plan...' : selectedWorkerBusy ? 'Đang chờ agent dừng...' : 'Chạy browser agent'}</button>}
@@ -876,7 +892,7 @@ const ShopEvaluationTab: React.FC = () => {
       </section>
 
       <section>
-        <div className="flex items-center justify-between gap-3 mb-3"><h3 className="font-semibold text-gray-900 dark:text-white">Evaluation runs · {selectedAccount?.label || '—'}</h3><button type="button" disabled={deletingAll || runs.length === 0} onClick={handleDeleteAll} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 text-xs font-semibold"><TrashIcon className="w-4 h-4" />{deletingAll ? 'Đang xóa...' : 'Xóa toàn bộ data test'}</button></div>
+        <div className="flex items-center justify-between gap-3 mb-3"><h3 className="font-semibold text-gray-900 dark:text-white">Evaluation runs · {selectedAccount?.label || '—'}</h3>{canDeleteAllEvaluationData && <button type="button" disabled={deletingAll || accessibleRuns.length === 0} onClick={handleDeleteAll} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 text-xs font-semibold"><TrashIcon className="w-4 h-4" />{deletingAll ? 'Đang xóa...' : 'Xóa toàn bộ data test'}</button>}</div>
         {latestLiveRun && latestLiveState && <div className="sticky top-2 z-20 mb-3 overflow-hidden rounded-xl border border-cyan-300 bg-slate-950 text-slate-100 shadow-xl dark:border-cyan-900"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-3 py-2 text-xs"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2 py-1 font-bold ${latestLiveRunning ? 'bg-cyan-400/20 text-cyan-300' : latestLiveStatus === 'completed' ? 'bg-emerald-400/20 text-emerald-300' : latestLiveStatus === 'failed' ? 'bg-red-400/20 text-red-300' : 'bg-amber-400/20 text-amber-300'}`}>{latestLiveRunning ? 'ĐANG CHẠY' : latestLiveStatus === 'completed' ? 'HOÀN TẤT' : latestLiveStatus === 'failed' ? 'LỖI' : latestLiveStatus.toUpperCase()}</span><span className="font-semibold text-cyan-300">{latestLiveRun.shopLabel} · {latestLiveState.model || latestLiveRun.analysis?.model || (provider === '9router' ? nineRouterModel : provider)}</span></div><div className="flex items-center gap-2"><span className="text-slate-400">{'progress' in latestLiveState && latestLiveState.progress ? `${latestLiveState.progress.stage} ${latestLiveState.progress.current}/${latestLiveState.progress.total}` : latestLiveStatus}</span><button type="button" onClick={() => { setFollowLatestLive(true); requestAnimationFrame(() => { if (latestLiveOutputRef.current) latestLiveOutputRef.current.scrollTop = latestLiveOutputRef.current.scrollHeight; }); }} className={`rounded border px-2 py-1 font-semibold ${followLatestLive ? 'border-cyan-700 text-cyan-300' : 'border-slate-600 text-slate-300'}`}>{followLatestLive ? 'Đang theo dõi mới nhất' : 'Theo dõi mới nhất'}</button></div></div>{latestLiveState.text ? <pre ref={latestLiveOutputRef} onScroll={event => { const element = event.currentTarget; setFollowLatestLive(element.scrollHeight - element.scrollTop - element.clientHeight < 24); }} className="max-h-64 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5 font-mono">{latestLiveState.text}</pre> : <div className="p-3 text-xs text-slate-400">{latestLiveStatus === 'connecting' ? 'Job đã xếp hàng, đang chờ extension nhận...' : 'Đang kết nối AI và chờ token đầu tiên...'}</div>}{latestLiveState.error && <div className="border-t border-red-900/60 px-3 py-2 text-xs text-red-400"><strong>Lỗi:</strong> {latestLiveState.error}</div>}</div>}
         <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           <table className="min-w-full text-sm">

@@ -13,6 +13,10 @@ export interface UserPermissions {
     viewSupportTab?: boolean;       // Tab: Support (Messages/Cases)
     viewFulfillTab?: boolean;       // Tab: Fulfill
     viewReviewsTab?: boolean;       // Tab: Reviews
+    viewDesignTab?: boolean;        // Tab: Design
+    viewTemplatesTab?: boolean;     // Tab: Templates
+    viewShopEvaluationTab?: boolean; // Tab: Shop Evaluation
+    viewWorkloadTab?: boolean;      // Tab: Workload
 
     // === KPI PERMISSIONS ===
     viewKpiOrders?: boolean;        // KPI Card: Total Orders
@@ -21,6 +25,17 @@ export interface UserPermissions {
     viewKpiFunds?: boolean;         // KPI Card: Funds
     viewKpiCost?: boolean;          // KPI Card: Cost
     viewKpiEarn?: boolean;          // KPI Card: Earn (Funds - Cost)
+    viewCompanyPerformance?: boolean;
+    viewDesignerIdeaPerformance?: boolean;
+    viewDesignerFulfillmentPerformance?: boolean;
+    viewResearchDevelopmentPerformance?: boolean;
+    viewScalePerformance?: boolean;
+    viewCustomerServicePerformance?: boolean;
+    viewFulfillmentPerformance?: boolean;
+    viewKpiConfiguration?: boolean;
+    viewOwnPerformanceData?: boolean;
+    viewTeamPerformanceData?: boolean;
+    viewAllPerformanceData?: boolean;
 
     // === PROVIDER/PLATFORM PERMISSIONS ===
     viewMerchizeData?: boolean;     // Data: Merchize provider info/charts
@@ -38,6 +53,8 @@ export interface UserPermissions {
     canResyncOrder?: boolean;       // Action: Resync single order
     canSyncData?: boolean;          // Action: Manual sync from email/API
     canManageTemplatePoints?: boolean; // Lead: configure Designer template points
+    canApproveKpi?: boolean;
+    canProposeKpi?: boolean;
 
     // Allow any other custom permissions
     [key: string]: boolean | undefined;
@@ -46,15 +63,19 @@ export interface UserPermissions {
 const READ_ONLY_PERMISSIONS: Array<keyof UserPermissions> = [
     'viewOverviewTab', 'viewOrderListTab', 'viewProductsTab',
     'viewSupportTab', 'viewFulfillTab', 'viewReviewsTab',
+    'viewDesignTab', 'viewTemplatesTab', 'viewShopEvaluationTab', 'viewWorkloadTab',
     'viewKpiOrders', 'viewKpiShops', 'viewKpiRevenue', 'viewKpiFunds',
     'viewKpiCost', 'viewKpiEarn', 'viewMerchizeData', 'viewPrintwayData',
     'viewEbayData', 'viewEtsyData',
+    'viewCompanyPerformance', 'viewDesignerIdeaPerformance', 'viewDesignerFulfillmentPerformance',
+    'viewResearchDevelopmentPerformance', 'viewScalePerformance', 'viewCustomerServicePerformance',
+    'viewFulfillmentPerformance', 'viewKpiConfiguration', 'viewOwnPerformanceData',
 ];
 
 const MANAGEMENT_PERMISSIONS: Array<keyof UserPermissions> = [
     'canEditCost', 'canExportData', 'canManageUsers', 'canManageMailSettings',
     'canManageSettings', 'canManageMappings', 'canResyncOrder', 'canSyncData',
-    'canManageTemplatePoints',
+    'canManageTemplatePoints', 'canApproveKpi', 'canProposeKpi', 'viewTeamPerformanceData', 'viewAllPerformanceData',
 ];
 
 const LEADER_ROLES = new Set<SharedRole>([
@@ -83,6 +104,9 @@ export const getDashboardPermissionsForRole = (role: SharedRole | null): UserPer
 
     permissions.canExportData = LEADER_ROLES.has(role);
     permissions.canManageTemplatePoints = LEADER_ROLES.has(role);
+    permissions.canProposeKpi = LEADER_ROLES.has(role);
+    permissions.canApproveKpi = LEADER_ROLES.has(role);
+    permissions.viewTeamPerformanceData = LEADER_ROLES.has(role);
 
     return permissions;
 };
