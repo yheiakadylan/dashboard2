@@ -1,0 +1,2 @@
+import PerformanceSectionPage from '../components/PerformanceSectionPage';
+export default function DesignerFulfillmentPage() { return <PerformanceSectionPage sectionId="designer-fulfillment" title="Designer Fulfillment" />; }

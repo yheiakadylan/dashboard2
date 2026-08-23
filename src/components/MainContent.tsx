@@ -14,7 +14,6 @@ import ProductsTab from "./tabs/ProductsTab";
 import OrderListTab from "./tabs/OrderListTab";
 import FulfillTab from "./tabs/FulfillTab";
 import SupportTab from "./tabs/SupportTab";
-import KpiManagement from "./tabs/KpiManagement";
 import DesignTab from "./tabs/DesignTab";
 import TempleteTab from "./tabs/TempleteTab";
 import ShopEvaluationTab from "./tabs/ShopEvaluationTab";
@@ -117,9 +116,6 @@ const MainContent: React.FC<MainContentProps> = ({
 
         case "Fulfill":
           return <FulfillTab processedData={processedData} />;
-
-        case "KPI":
-          return <KpiManagement />;
 
         case "Design":
           return <DesignTab />;

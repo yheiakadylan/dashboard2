@@ -1,153 +1,166 @@
-// api/_lib/fcmHelper.ts
-import { getDb, initFirebaseAdmin } from './firebaseAdminHelper.js';
+import {
+  FieldValue,
+  type DocumentData,
+  type DocumentReference,
+  type QueryDocumentSnapshot,
+} from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
+import { getDb, initFirebaseAdmin } from './firebaseAdminHelper.js';
 
-// Initialize Admin SDK
 initFirebaseAdmin();
 
-const BATCH_SIZE = 500; // FCM giới hạn ~500 tokens / 1 request
+const APP_ID = 'dashboard';
+const BATCH_SIZE = 500;
+const INVALID_TOKEN_CODES = new Set([
+  'messaging/invalid-registration-token',
+  'messaging/registration-token-not-registered',
+]);
 
 const db = getDb();
 const messaging = getMessaging();
 
-/**
- * Xoá các token FCM không còn hợp lệ khỏi collection user_roles
- * tokens: list token bị FCM báo lỗi
- */
-async function removeInvalidTokens(tokens: string[]) {
-  if (!tokens.length) return;
+type AuthenticationSnapshot = QueryDocumentSnapshot<DocumentData>;
+type TokenOwners = Map<string, Set<DocumentReference<DocumentData>>>;
 
-  const userRolesRef = db.collection('user_roles');
+const normalizeTokens = (value: unknown): string[] => Array.isArray(value)
+  ? value.filter((token): token is string => typeof token === 'string' && token.trim().length > 0)
+  : [];
 
-  for (const token of tokens) {
-    try {
-      const snap = await userRolesRef
-        .where('fcmTokens', 'array-contains', token)
-        .get();
+const normalizeSettings = (value: unknown): Record<string, boolean> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean'),
+  );
+};
 
-      if (snap.empty) continue;
-
-      const batch = db.batch();
-
-      snap.forEach((doc) => {
-        const data = doc.data();
-        const oldTokens: string[] = data.fcmTokens || [];
-        const newTokens = oldTokens.filter((t) => t !== token);
-        batch.update(doc.ref, { fcmTokens: newTokens });
-      });
-
-      await batch.commit();
-      console.log(`[FCM] Cleaned token ${token} from ${snap.size} user_roles`);
-    } catch (err) {
-      console.error('[FCM] Error cleaning token', token, err);
-    }
-  }
-}
-
-/**
- * Gửi multicast (data-only) + tự cleanup token lỗi
- */
-async function sendMulticastWithCleanup(
-  tokens: string[],
-  data: { [key: string]: string }
-) {
-  if (!tokens.length) return;
-
-  for (let i = 0; i < tokens.length; i += BATCH_SIZE) {
-    const batchTokens = tokens.slice(i, i + BATCH_SIZE);
-
-    const message = {
-      // ❗ KHÔNG dùng `notification` để tránh iOS hiển thị 2 lần
-      data,
-      tokens: batchTokens,
-    };
-
-    try {
-      const response = await messaging.sendEachForMulticast(message);
-      console.log(
-        `[FCM] Batch ${i / BATCH_SIZE}: success=${response.successCount}, failed=${response.failureCount}`
-      );
-
-      if (response.failureCount > 0) {
-        const failedTokens: string[] = [];
-        response.responses.forEach((resp, idx) => {
-          if (!resp.success) {
-            failedTokens.push(batchTokens[idx]);
-          }
-        });
-
-        if (failedTokens.length) {
-          console.log('[FCM] Need cleanup tokens:', failedTokens.length);
-          await removeInvalidTokens(failedTokens);
-        }
-      }
-    } catch (error) {
-      console.error('[FCM] Error sending multicast batch:', error);
-    }
-  }
-}
-
-/**
- * Gửi push notification tới tất cả user trong 1 team
- * - Lọc theo notificationSettings[type] == true
- * - Dùng fcmTokens trong user_roles
- * - Giới hạn tối đa 3 token / user (tránh spam nhiều token trên cùng 1 máy)
- */
-export const sendPushNotificationToUsers = async (
+const loadAuthenticationProfiles = async (
   userIdsOrTeamId: string | string[],
-  notificationType: 'order' | 'funds' | 'summary' | 'login',
-  payload: { title: string; body: string; url?: string }
-) => {
-  const userRolesRef = db.collection('user_roles');
-
-  // Ở app hiện tại bạn đang dùng teamId (SHARED_USER_ID)
-  const teamId =
-    typeof userIdsOrTeamId === 'string'
-      ? userIdsOrTeamId
-      : userIdsOrTeamId[0];
-
-  const snapshot = await userRolesRef.where('teamId', '==', teamId).get();
-
-  if (snapshot.empty) {
-    console.log('[FCM] No user_roles found for teamId:', teamId);
-    return;
+): Promise<AuthenticationSnapshot[]> => {
+  if (Array.isArray(userIdsOrTeamId)) {
+    const userIds = [...new Set(userIdsOrTeamId.map(String).map(value => value.trim()).filter(Boolean))];
+    if (userIds.length === 0) return [];
+    const snapshots = await db.getAll(...userIds.map(uid => db.collection('authentication').doc(uid)));
+    return snapshots.filter((snapshot): snapshot is AuthenticationSnapshot => snapshot.exists);
   }
 
-  const allTokens: string[] = [];
+  const teamId = String(userIdsOrTeamId || '').trim();
+  if (!teamId) return [];
+  const snapshot = await db.collection('authentication').where('teamId', '==', teamId).get();
+  return snapshot.docs;
+};
 
-  snapshot.forEach((doc) => {
-    const data = doc.data();
-    const settings = data.notificationSettings || {};
-    const tokens: string[] = data.fcmTokens || [];
+const addTokenOwner = (
+  tokenOwners: TokenOwners,
+  token: string,
+  owner: DocumentReference<DocumentData>,
+) => {
+  const owners = tokenOwners.get(token) || new Set<DocumentReference<DocumentData>>();
+  owners.add(owner);
+  tokenOwners.set(token, owners);
+};
 
-    // Check preference (Default: ON. Only skip if explicitly false)
-    if (settings[notificationType] === false) return;
-    if (!Array.isArray(tokens) || tokens.length === 0) return;
+const removeInvalidTokens = async (tokens: string[], tokenOwners: TokenOwners) => {
+  const uniqueTokens = [...new Set(tokens)];
+  if (uniqueTokens.length === 0) return;
 
-    // Giới hạn số token / user (giữ 3 token cuối cùng)
-    const limitedTokens = tokens.slice(-3);
-    allTokens.push(...limitedTokens);
+  const updates = new Map<string, { ref: DocumentReference<DocumentData>; tokens: string[] }>();
+  uniqueTokens.forEach(token => {
+    tokenOwners.get(token)?.forEach(ref => {
+      const entry = updates.get(ref.path) || { ref, tokens: [] };
+      entry.tokens.push(token);
+      updates.set(ref.path, entry);
+    });
   });
 
-  // Deduplicate tokens
-  const uniqueTokens = [...new Set(allTokens)];
+  if (updates.size === 0) return;
+  const batch = db.batch();
+  updates.forEach(({ ref, tokens: invalidTokens }) => {
+    batch.update(ref, {
+      fcmTokens: FieldValue.arrayRemove(...invalidTokens),
+      fcmUpdatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  await batch.commit();
+  console.log(`[FCM:${APP_ID}] Cleaned ${uniqueTokens.length} invalid tokens from ${updates.size} documents.`);
+};
 
-  if (uniqueTokens.length === 0) {
-    console.log('[FCM] No tokens to send for teamId:', teamId);
+const sendMulticastWithCleanup = async (
+  tokens: string[],
+  data: Record<string, string>,
+  tokenOwners: TokenOwners,
+) => {
+  for (let index = 0; index < tokens.length; index += BATCH_SIZE) {
+    const batchTokens = tokens.slice(index, index + BATCH_SIZE);
+    try {
+      const response = await messaging.sendEachForMulticast({ data, tokens: batchTokens });
+      const invalidTokens: string[] = [];
+
+      response.responses.forEach((result, resultIndex) => {
+        const errorCode = result.error?.code;
+        if (!result.success && errorCode && INVALID_TOKEN_CODES.has(errorCode)) {
+          invalidTokens.push(batchTokens[resultIndex]);
+        }
+      });
+
+      if (invalidTokens.length > 0) {
+        await removeInvalidTokens(invalidTokens, tokenOwners);
+      }
+      console.log(
+        `[FCM:${APP_ID}] Batch ${index / BATCH_SIZE}: success=${response.successCount}, failed=${response.failureCount}`,
+      );
+    } catch (error) {
+      console.error(`[FCM:${APP_ID}] Error sending multicast batch:`, error);
+    }
+  }
+};
+
+export const sendPushNotificationToUsers = async (
+  userIdsOrTeamId: string | string[],
+  notificationType: 'order' | 'funds' | 'summary' | 'login' | 'case' | 'help',
+  payload: { title: string; body: string; url?: string },
+) => {
+  const profiles = await loadAuthenticationProfiles(userIdsOrTeamId);
+  if (profiles.length === 0) {
+    console.log(`[FCM:${APP_ID}] No matching authentication profiles.`);
     return;
   }
 
-  console.log(
-    `[FCM] Sending type=${notificationType} to ${uniqueTokens.length} tokens`
-  );
+  const appRefs = profiles.map(profile => profile.ref.collection('apps').doc(APP_ID));
+  const appSnapshots = await db.getAll(...appRefs);
+  const tokenOwners: TokenOwners = new Map();
+  const allTokens: string[] = [];
 
-  // Gửi data-only, để service worker tự show notification
-  const data = {
+  profiles.forEach((_, index) => {
+    const appSnapshot = appSnapshots[index];
+    const appData = appSnapshot.exists ? appSnapshot.data() || {} : {};
+    if (appData.enabled !== true) return;
+
+    const settings = normalizeSettings(appData.notificationSettings);
+    const settingKey = notificationType === 'case' || notificationType === 'help'
+      ? 'support'
+      : notificationType;
+    if (settings[settingKey] === false) return;
+
+    const selectedTokens = normalizeTokens(appData.fcmTokens).slice(-3);
+
+    selectedTokens.forEach(token => {
+      allTokens.push(token);
+      addTokenOwner(tokenOwners, token, appRefs[index]);
+    });
+  });
+
+  const uniqueTokens = [...new Set(allTokens)];
+  if (uniqueTokens.length === 0) {
+    console.log(`[FCM:${APP_ID}] No enabled tokens for notification type ${notificationType}.`);
+    return;
+  }
+
+  await sendMulticastWithCleanup(uniqueTokens, {
+    appId: APP_ID,
     title: payload.title,
     body: payload.body,
     url: payload.url || '/',
     type: notificationType,
-  };
-
-  await sendMulticastWithCleanup(uniqueTokens, data);
+  }, tokenOwners);
 };

@@ -2,7 +2,6 @@ import { getDb } from './firebaseAdminHelper.js';
 import { SHARED_USER_ID } from '../../src/constants.js';
 import type { Account, Record as MailRecord } from './types.js';
 
-// --- ENV ---
 const LARK_WEBHOOK_URL = process.env.LARK_WEBHOOK_URL || '';
 const LARK_APP_ID = process.env.LARK_APP_ID || '';
 const LARK_APP_SECRET = process.env.LARK_APP_SECRET || '';
@@ -466,4 +465,131 @@ export async function sendLarkDailySummary(data: ReportData) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ msg_type: 'interactive', card }),
   }).catch(e => console.error('[larkHelper] webhook error', e));
+}
+
+export async function sendLarkShopHealthAlert(shopName: string, status: 'suspended' | 'recovered', _reason?: string | null) {
+  if (!LARK_WEBHOOK_URL) return { status: 0, responseText: 'LARK_WEBHOOK_URL is not set' };
+
+  const isSuspended = status === 'suspended';
+  const colorTemplate = isSuspended ? 'red' : 'green';
+
+  const card = {
+    config: {
+      wide_screen_mode: true,
+      enable_forward: true
+    },
+    header: {
+      title: { content: isSuspended ? '🚨 Cảnh Báo Shop Bị Suspend' : '✅ Thông Báo Shop Đã Hoạt Động Lại', tag: 'plain_text' },
+      template: colorTemplate,
+    },
+    elements: [
+      {
+        tag: 'div',
+        text: {
+          tag: 'lark_md',
+          content: `**Shop**: **${shopName}**\n**Trạng thái**: ${isSuspended ? '🔴 Suspended' : '🟢 Active'}\n**Thời gian**: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} (UTC+7)`
+        }
+      }
+    ]
+  };
+
+  const resp = await fetch(LARK_WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ msg_type: 'interactive', card }),
+  }).catch(e => {
+    console.error('[larkHelper] health alert webhook error', e);
+    throw e;
+  });
+
+  const responseText = await resp.text();
+  let responseJson: any = null;
+  try {
+    responseJson = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    responseJson = null;
+  }
+
+  const larkCode = responseJson?.StatusCode ?? responseJson?.code;
+  if (!resp.ok || (larkCode !== undefined && Number(larkCode) !== 0)) {
+    throw new Error(`Lark webhook failed: HTTP ${resp.status} ${responseText.slice(0, 300)}`);
+  }
+
+  console.log(`[LARK] Shop health alert sent: ${resp.status}`);
+  return { status: resp.status, responseText };
+}
+
+export interface LarkWorkerAlert {
+  type: 'worker_lost' | 'review_error';
+  shopName: string;
+  workerAccount: string;
+  occurredAt: string;
+  lastHeartbeat?: string | null;
+  version?: string | null;
+  action?: string | null;
+  error?: string | null;
+}
+
+export async function sendLarkWorkerAlert(alert: LarkWorkerAlert) {
+  if (!LARK_WEBHOOK_URL) return { status: 0, responseText: 'LARK_WEBHOOK_URL is not set' };
+
+  const typeLabel = alert.type === 'worker_lost'
+    ? 'WORKER LOST'
+    : alert.type === 'review_error'
+      ? 'REVIEW CRAWLER ERROR'
+      : 'LISTING CRAWLER ERROR';
+  const formatTime = (value: string | null | undefined) => {
+    const date = new Date(String(value || ''));
+    return Number.isNaN(date.getTime())
+      ? '--'
+      : `${date.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} (UTC+7)`;
+  };
+  const truncate = (value: unknown, length = 800) => {
+    const text = String(value || '').trim();
+    return text.length > length ? `${text.slice(0, length)}...` : text || '--';
+  };
+
+  const card = {
+    config: { wide_screen_mode: true, enable_forward: true },
+    header: {
+      title: { content: typeLabel, tag: 'plain_text' },
+      template: 'red',
+    },
+    elements: [
+      {
+        tag: 'div',
+        text: {
+          tag: 'lark_md',
+          content: [
+            `**Shop**: ${truncate(alert.shopName, 120)}`,
+            `**Worker**: ${truncate(alert.workerAccount, 160)}`,
+            alert.version ? `**Build**: v${truncate(alert.version, 40)}` : '',
+            alert.action ? `**Action**: ${truncate(alert.action, 120)}` : '',
+            alert.lastHeartbeat ? `**Last heartbeat**: ${formatTime(alert.lastHeartbeat)}` : '',
+            alert.error ? `**Error**: ${truncate(alert.error)}` : '',
+            `**Detected**: ${formatTime(alert.occurredAt)}`,
+          ].filter(Boolean).join('\n'),
+        },
+      },
+    ],
+  };
+
+  const resp = await fetch(LARK_WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ msg_type: 'interactive', card }),
+    signal: AbortSignal.timeout(10000),
+  });
+  const responseText = await resp.text();
+  let responseJson: any = null;
+  try {
+    responseJson = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    responseJson = null;
+  }
+  const larkCode = responseJson?.StatusCode ?? responseJson?.code;
+  if (!resp.ok || (larkCode !== undefined && Number(larkCode) !== 0)) {
+    throw new Error(`Lark webhook failed: HTTP ${resp.status} ${responseText.slice(0, 300)}`);
+  }
+  return { status: resp.status, responseText };
 }

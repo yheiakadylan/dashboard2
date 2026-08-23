@@ -1,70 +1,225 @@
-import { Record, ProcessedData, KpiData, KpiValue, TableData, Account, OverviewChartData, SummaryChartData, FulfillChartData, TopProduct } from '../types';
-import { getHighResImageUrl } from './imageUtils';
+import { Record, ProcessedData, KpiData, KpiValue, Account } from '../types';
 import { decodeHTMLEntities } from './htmlDecode';
+import { 
+    formatVariantForDisplay, 
+    cleanVariantForAggregation,
+    removeAccents 
+} from './variantHelpers';
+import { calculateItemNetRevenue, getItemQuantity, getOrderItemRevenueContext } from './revenueUtils';
+import { getPreviousPeriodLabel } from './periodComparison';
 
-const formatCurrency = (value: number): string => {
-    // Per user request to simplify KPI card display, always use a '$' symbol
-    // as the currency code (e.g., AUD) is displayed separately.
-    return '$' + new Intl.NumberFormat('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    }).format(value);
+export type ProcessingScope = 'all' | 'overview' | 'orders' | 'products' | 'fulfill' | 'support';
+
+const moneyFormatter = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+
+const dateFormatterCache = new Map<string, {
+    date: Intl.DateTimeFormat;
+    hour: Intl.DateTimeFormat;
+    dateTime: Intl.DateTimeFormat;
+}>();
+
+const getDateFormatters = (timeZone: string) => {
+    const cached = dateFormatterCache.get(timeZone);
+    if (cached) return cached;
+
+    const formatters = {
+        date: new Intl.DateTimeFormat('en-CA', {
+            timeZone,
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        }),
+        hour: new Intl.DateTimeFormat('en-US', {
+            timeZone, hour: '2-digit', hour12: false
+        }),
+        dateTime: new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            year: '2-digit', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hour12: false
+        }),
+    };
+
+    dateFormatterCache.set(timeZone, formatters);
+    return formatters;
 };
 
-const isRefundedStatus = (r: Record): boolean => {
-    if (!r) return false;
-    return r.source === 'Etsy_Refunded' || r.status === 'Refunded';
-};
+// --- Pure Utility Functions (Hoisted) ---
+function formatCurrency(value: number): string {
+    return '$' + moneyFormatter.format(value);
+}
 
-const formatDate = (dateStr: string, timeZone: string): string => {
+function formatNumber(value: number): string {
+    return moneyFormatter.format(value);
+}
+
+function formatDate(dateStr: string, timeZone: string): string {
     try {
         const date = new Date(dateStr);
         if (isNaN(date.getTime())) return 'Invalid Date';
-        return new Intl.DateTimeFormat('en-CA', { // 'en-CA' gives YYYY-MM-DD
-            timeZone,
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit'
-        }).format(date);
-    } catch (e) {
-        return 'Invalid Date';
-    }
-};
+        return getDateFormatters(timeZone).date.format(date);
+    } catch (e) { return 'Invalid Date'; }
+}
 
-const formatHour = (dateStr: string, timeZone: string): string => {
+function formatHour(dateStr: string, timeZone: string): string {
     try {
         const date = new Date(dateStr);
         if (isNaN(date.getTime())) return 'Invalid Hour';
-        const hour = new Intl.DateTimeFormat('en-US', {
-            timeZone,
-            hour: '2-digit',
-            hour12: false
-        }).format(date);
-        // Handle midnight case which might be formatted as "24"
+        const hour = getDateFormatters(timeZone).hour.format(date);
         return `${hour === '24' ? '00' : hour}:00`;
-    } catch (e) {
-        return 'Invalid Hour';
-    }
-};
+    } catch (e) { return 'Invalid Hour'; }
+}
 
-const formatDateTime = (dateStr: string, timeZone: string): string => {
+function formatDateTime(dateStr: string, timeZone: string): string {
     try {
         const date = new Date(dateStr);
         if (isNaN(date.getTime())) return 'Invalid Date';
-        return new Intl.DateTimeFormat('en-US', {
-            timeZone,
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-        }).format(date).replace(',', '');
-    } catch (e) {
-        return 'Invalid Date';
+        return getDateFormatters(timeZone).dateTime.format(date).replace(',', '');
+    } catch (e) { return 'Invalid Date'; }
+}
+
+function formatSource(source: string): string {
+    if (!source) return '';
+    if (source === 'Etsy_Sales') return 'Etsy';
+    if (source === 'Ebay_Sales') return 'eBay';
+    if (source === 'Etsy_Case') return 'Etsy Case';
+    if (source === 'Etsy_Help') return 'Etsy Help';
+    return source.replace(/_/g, ' ');
+}
+
+const UNCATEGORIZED_CATEGORY_CODE = 'NO_SKU';
+const UNCATEGORIZED_CATEGORY_LABEL = 'No SKU';
+const INVALID_PRODUCT_SKUS = new Set(['', '-', 'NULL', 'NULL_RATE_LIMIT']);
+
+function normalizeProductSku(sku: string | undefined | null): string {
+    const cleanSku = decodeHTMLEntities(String(sku || '').trim()).toUpperCase();
+    return INVALID_PRODUCT_SKUS.has(cleanSku) ? '' : cleanSku;
+}
+
+function normalizeCategoryCode(code: string | undefined | null): string {
+    const cleanCode = decodeHTMLEntities(String(code || '').trim()).toUpperCase().replace(/[\s\u00A0]+/g, '');
+    return cleanCode || UNCATEGORIZED_CATEGORY_CODE;
+}
+
+function getCategoryCodeFromSku(sku: string): string {
+    if (!sku) return UNCATEGORIZED_CATEGORY_CODE;
+    return normalizeCategoryCode(sku.split('-')[0]);
+}
+
+function normalizeProductNameKey(name: string): string {
+    return removeAccents(name).toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function getProductIdentity(sku: string, name: string): { key: string; label: string } {
+    if (sku) return { key: `sku:${sku}`, label: sku };
+
+    const nameKey = normalizeProductNameKey(name);
+    return {
+        key: `name:${nameKey || 'unknown'}`,
+        label: name || 'Unknown',
+    };
+}
+
+function updateProductDisplayMeta(target: any, name: string, image: string | undefined | null, dtLocal: string): void {
+    const updatedAt = Date.parse(dtLocal) || 0;
+
+    if (!target.name || updatedAt >= (target.nameUpdatedAt || 0)) {
+        target.name = name;
+        target.nameUpdatedAt = updatedAt;
+    }
+
+    if (image && (!target.image || updatedAt >= (target.imageUpdatedAt || 0))) {
+        target.image = image;
+        target.imageUpdatedAt = updatedAt;
     }
 }
 
-// Helper function to convert eBay image URLs to higher resolution
-// MOVED TO utils/imageUtils.ts
+function sortTopProductsByNameGroup<T extends { name: string; quantity: number; sku?: string; revenue?: number }>(products: T[]): T[] {
+    const groupQuantity = new Map<string, number>();
 
-export const processData = (
+    products.forEach(product => {
+        const nameKey = normalizeProductNameKey(product.name);
+        groupQuantity.set(nameKey, (groupQuantity.get(nameKey) || 0) + product.quantity);
+    });
+
+    return products.sort((a, b) => {
+        const aNameKey = normalizeProductNameKey(a.name);
+        const bNameKey = normalizeProductNameKey(b.name);
+        const groupDiff = (groupQuantity.get(bNameKey) || 0) - (groupQuantity.get(aNameKey) || 0);
+        if (groupDiff !== 0) return groupDiff;
+
+        const nameDiff = aNameKey.localeCompare(bNameKey);
+        if (nameDiff !== 0) return nameDiff;
+
+        const quantityDiff = b.quantity - a.quantity;
+        if (quantityDiff !== 0) return quantityDiff;
+
+        const revenueDiff = (b.revenue || 0) - (a.revenue || 0);
+        if (revenueDiff !== 0) return revenueDiff;
+
+        return (a.sku || '').localeCompare(b.sku || '');
+    });
+}
+
+function getOptimizedImageProps(src: string | undefined | null): { src: string | null, fullSrc?: string } {
+    if (!src) return { src: null };
+    if (src.length > 50000 && src.startsWith('data:')) return { src: src.substring(0, 500) };
+    
+    // Etsy image optimization
+    // Convert fullxfull to 75x75 for thumbnail, keep fullxfull for preview
+    if (src.includes('etsystatic.com') && src.includes('il_fullxfull.')) {
+        return {
+            src: src.replace('il_fullxfull.', 'il_75x75.'),
+            fullSrc: src
+        };
+    }
+    
+    return { src, fullSrc: src };
+}
+
+
+function isRefundedStatus(r: Record): boolean {
+    if (!r) return false;
+    return r.source === 'Etsy_Refunded' || r.status === 'Refunded';
+}
+
+function extractSize(variant: string | undefined): string {
+    const v = (variant || '').toLowerCase();
+    const match = v.match(/\b(xs|s|m|l|xl|2xl|3xl|4xl|5xl)\b/i) || v.match(/\b(\d+oz)\b/i) || v.match(/\b(\d+x\d+)\b/i);
+    return match ? match[0].toUpperCase() : 'Standard';
+}
+
+function calculatePercentageChange(current: number, previous: number) {
+    if (previous === 0) return { change: current > 0 ? Infinity : 0, direction: (current > 0 ? 'up' : 'neutral') as 'up' | 'down' | 'neutral' };
+    const change = ((current - previous) / previous) * 100;
+    return { change: Math.abs(change), direction: (change > 0 ? 'up' : (change < 0 ? 'down' : 'neutral')) as 'up' | 'down' | 'neutral' };
+}
+
+type ShopSummaryAccumulator = {
+    revenue: Map<string, number>;
+    orders: Set<string>;
+    funds: Map<string, number>;
+    cost: Map<string, number>;
+    refund: Map<string, number>;
+    refOrderIds: Set<string>;
+};
+
+const createShopSummaryAccumulator = (): ShopSummaryAccumulator => ({
+    revenue: new Map(),
+    orders: new Set(),
+    funds: new Map(),
+    cost: new Map(),
+    refund: new Map(),
+    refOrderIds: new Set(),
+});
+
+const getShopSummaryAccumulator = (map: Map<string, ShopSummaryAccumulator>, shopEmail: string) => {
+    if (!map.has(shopEmail)) map.set(shopEmail, createShopSummaryAccumulator());
+    return map.get(shopEmail)!;
+};
+
+// --- Main Process Function ---
+export function processData(
     records: Record[],
     previousRecords: Record[] | null,
     accounts: Account[],
@@ -72,910 +227,765 @@ export const processData = (
     timeZone: string,
     role: string,
     permissions: { [key: string]: boolean },
-    manualCosts: any[]
-): ProcessedData => {
+    manualCosts: any[],
+    exchangeRates: { [currency: string]: number } | null,
+    categories: any[] = [],
+    etsyReviews: any[] = [],
+    scope: ProcessingScope = 'all'
+): ProcessedData {
+    const needsAll = scope === 'all';
+    const needsOverview = needsAll || scope === 'overview';
+    const needsKpiSummary = needsAll || scope === 'overview';
+    const needsProductStats = needsAll || scope === 'products';
+    const needsOrderRows = needsAll || scope === 'orders';
+    const needsFulfill = needsAll || scope === 'fulfill';
+    const needsSupport = needsAll || scope === 'support';
     const accountLabelMap = new Map(accounts.map(acc => [acc.email, acc.label || acc.email]));
+    const categoryNameMap = new Map(categories.map(c => [normalizeCategoryCode(c.code), c.name]));
+    categoryNameMap.set(UNCATEGORIZED_CATEGORY_CODE, UNCATEGORIZED_CATEGORY_LABEL);
 
-    // --- DEDUPLICATION LOGIC ---
-    // Filter out duplicates based on order_id and dt_local
-    const uniqueRecordsMap = new Map<string, Record>();
-    records.forEach(r => {
-        // If it's an order with an ID
-        if (r.kind === 'order' && r.order_id) {
-            const key = `${r.order_id}_${r.dt_local}`;
 
-            if (!uniqueRecordsMap.has(key)) {
-                uniqueRecordsMap.set(key, r);
+
+    // --- 1. Deduplication pass ---
+    const deduplicate = (recs: Record[]) => {
+        const uniqueMap = new Map<string, Record>();
+        recs.forEach(r => {
+            if (r.kind === 'order' && r.order_id) {
+                const key = `${r.order_id}_${r.dt_local}`;
+                const existing = uniqueMap.get(key);
+                if (!existing || (!existing.details && r.details)) uniqueMap.set(key, r);
             } else {
-                // Duplicate found. Keep the one with more info (e.g. details) if possible
-                const existing = uniqueRecordsMap.get(key)!;
-                // Prefer the one with details if the existing one doesn't have them
-                if (!existing.details && r.details) {
-                    uniqueRecordsMap.set(key, r);
-                }
-                // If both have details or neither, the first one (existing) stays.
+                uniqueMap.set(r.id || Math.random().toString(36), r);
             }
-        } else {
-            // For non-orders (Funds, Help, Case) or orders without ID (N/A), keep them.
-            // Use record ID as key to ensure uniqueness in map, or a random string if ID missing
-            uniqueRecordsMap.set(r.id || Math.random().toString(36), r);
-        }
-    });
-
-    const uniqueRecordsRaw = Array.from(uniqueRecordsMap.values());
-    
-    // --- Merge Refunded Status into Original Orders ---
-    const statusMap = new Map<string, { status: string, refund_details?: any, refund_dt?: string, refund_amount?: number }>();
-    
-    uniqueRecordsRaw.forEach(r => {
-        if (r.kind === 'order' && r.order_id && r.source === 'Etsy_Refunded') {
-            const existing = statusMap.get(r.order_id);
-            const amt = Math.abs(r.amount);
-            if (existing) {
-                existing.refund_amount = (existing.refund_amount || 0) + amt;
-                if (r.refund_details) existing.refund_details = r.refund_details; // Override or merge details
-            } else {
-                statusMap.set(r.order_id, { status: 'Refunded', refund_details: r.refund_details, refund_dt: r.dt_local, refund_amount: amt });
-            }
-        }
-    });
-
-    const uniqueRecords = uniqueRecordsRaw.filter(r => {
-        if (r.kind === 'order' && r.order_id) {
-            if (r.source === 'Etsy_Refunded') return false; // Hide standalone refund records
-            
-            const refundInfo = statusMap.get(r.order_id);
-            if (refundInfo) {
-                // Merge info into the original order
-                r.status = refundInfo.status;
-                if (!r.refund_details && refundInfo.refund_details) {
-                    r.refund_details = refundInfo.refund_details;
-                }
-                // Also store the refund amount inside refund_details if it doesn't exist, or we can just attach it to the record
-                if (!r.refund_details) {
-                     r.refund_details = {};
-                }
-                r.refund_details.total_refund_amount = refundInfo.refund_amount;
-            }
-        }
-        return true;
-    });
-    // ---------------------------
-
-    const overviewData = calculateOverview(uniqueRecords, filterDateRange, timeZone, role, permissions);
-    const orders = getOrderList(uniqueRecords, accountLabelMap, timeZone);
-    const ebay = getPlatformRecords(uniqueRecords, 'Ebay_Sales', accountLabelMap, timeZone);
-    const etsy = getPlatformRecords(uniqueRecords, 'Etsy_Sales', accountLabelMap, timeZone);
-    const cases = getSupportRecords(uniqueRecords, 'case', accountLabelMap, timeZone);
-    const help = getSupportRecords(uniqueRecords, 'help', accountLabelMap, timeZone);
-    const fulfill = (role === 'owner' || permissions.viewFulfill)
-        ? getFulfillRecords(uniqueRecords, accountLabelMap, timeZone, manualCosts, filterDateRange)
-        : { table: { headers: ['Fulfill'], rows: [["Permission Denied"]] }, merchizeChartData: [], printwayChartData: [] };
-
-    const { kpis: summaryKpis, table: summaryTable, chartData: summaryChartData, topProductsByShop } = (role === 'owner' || permissions.viewSales)
-        ? calculateSummary(uniqueRecords, previousRecords, accountLabelMap, role, permissions, manualCosts, filterDateRange)
-        : { kpis: {}, table: { headers: ['Summary'], rows: [["Permission Denied"]] }, chartData: [], topProductsByShop: {} };
-
-    return {
-        overview: overviewData,
-        orders,
-        ebay,
-        etsy,
-        cases,
-        help,
-        fulfill,
-        summary: { kpis: summaryKpis, table: summaryTable, chartData: summaryChartData, topProductsByShop },
-        products: {
-            headers: ['Image', 'Product Name', 'Shop', 'Quantity', 'Revenue'],
-            rows: (() => {
-                const productStats = new Map<string, { image: any, name: string, shop: string, quantity: number, revenue: number, currency: string }>();
-
-                uniqueRecords.forEach(r => {
-                    if (r.kind !== 'order') return;
-
-                    const shopName = accountLabelMap.get(r.account) || r.account;
-                    const tax = r.details?.financials?.tax || 0;
-                    const netRevenue = r.amount - tax; // Revenue minus Tax
-
-                    if (r.details && r.details.items && r.details.items.length > 0) {
-                        // Calculate total list value to determine weights
-                        const totalListValue = r.details.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-
-                        r.details.items.forEach(item => {
-                            const name = decodeHTMLEntities(item.name.trim()); // Decode HTML entities and ensure no leading/trailing spaces
-                            const key = `${name}_${shopName}`;
-
-                            // Calculate weight ensuring no division by zero
-                            const weight = totalListValue > 0 ? (item.price * item.quantity) / totalListValue : (1 / r.details!.items.length);
-                            const itemRevenue = netRevenue * weight;
-
-                            // Image Logic (High Res) -> Refactored to use util
-                            const image = getHighResImageUrl(item.image) || item.image;
-
-                            const current = productStats.get(key) || {
-                                image: image,
-                                name: name,
-                                shop: shopName,
-                                quantity: 0,
-                                revenue: 0,
-                                currency: r.currency || 'USD'
-                            };
-
-                            // Update stats
-                            // Use first available image if current is missing
-                            if (!current.image && image) current.image = image;
-
-                            current.quantity += item.quantity;
-                            current.revenue += itemRevenue;
-
-                            productStats.set(key, current);
-                        });
-                    } else if (r.product_name && r.product_name !== 'N/A') {
-                        // Fallback for records without details but with product_name
-                        const names = r.product_name.split(',').map(n => n.trim()).filter(n => n);
-                        if (names.length > 0) {
-                            const itemRevenue = netRevenue / names.length; // Equal split
-                            names.forEach(name => {
-                                const key = `${name}_${shopName}`;
-                                const current = productStats.get(key) || {
-                                    image: null,
-                                    name: name,
-                                    shop: shopName,
-                                    quantity: 0,
-                                    revenue: 0,
-                                    currency: r.currency || 'USD'
-                                };
-                                current.quantity += 1; // Assume 1
-                                current.revenue += itemRevenue;
-                                productStats.set(key, current);
-                            });
-                        }
-                    }
-                });
-
-                return Array.from(productStats.values())
-                    .sort((a, b) => b.revenue - a.revenue)
-                    .map(p => [
-                        { type: 'image', src: p.image, fullSrc: p.image, alt: p.name },
-                        p.name,
-                        p.shop,
-                        p.quantity,
-                        {
-                            type: 'value_with_unit',
-                            value: p.revenue,
-                            display: `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(p.revenue)} ${p.currency}`
-                        }
-                    ]);
-            })()
-        }
-    };
-};
-
-const calculateOverview = (
-    records: Record[],
-    filterDateRange: { from: string, to: string },
-    timeZone: string,
-    role: string,
-    permissions: { [key: string]: boolean }
-): { table: TableData, chartData: OverviewChartData[] } => {
-
-    const fromDate = new Date(filterDateRange.from);
-    const toDate = new Date(filterDateRange.to);
-    const diffTime = Math.abs(toDate.getTime() - fromDate.getTime()) + 1000;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const isHourlyViewForChart = diffDays <= 2;
-    const getChartGroupingKey = (dateStr: string): string => {
-        return isHourlyViewForChart ? formatHour(dateStr, timeZone) : formatDate(dateStr, timeZone);
-    };
-
-    const dailyDataForTable: {
-        [date: string]: {
-            orders: Set<string>,
-            revenue: { [currency: string]: number },
-            funds: { [currency: string]: number },
-            cost: { [currency: string]: number }
-        }
-    } = {};
-
-    const groupedDataForChart: {
-        [key: string]: {
-            orders: Set<string>,
-            revenue: { [currency: string]: number },
-        }
-    } = {};
-
-    const allCurrenciesForTable = { revenue: new Set<string>(), funds: new Set<string>(), cost: new Set<string>() };
-    const allCurrenciesForChart = new Set<string>();
-
-    records.forEach(r => {
-        const currency = r.currency || 'USD';
-        const dailyGroupKey = formatDate(r.dt_local, timeZone);
-        if (!dailyDataForTable[dailyGroupKey]) {
-            dailyDataForTable[dailyGroupKey] = { orders: new Set(), revenue: {}, funds: {}, cost: {} };
-        }
-        if (r.kind === 'order' && r.order_id) {
-            dailyDataForTable[dailyGroupKey].orders.add(r.order_id);
-            if (r.amount > 0) {
-                dailyDataForTable[dailyGroupKey].revenue[currency] = (dailyDataForTable[dailyGroupKey].revenue[currency] || 0) + r.amount;
-                allCurrenciesForTable.revenue.add(currency);
-            }
-            if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
-                dailyDataForTable[dailyGroupKey].cost['USD'] = (dailyDataForTable[dailyGroupKey].cost['USD'] || 0) + r.cost_total;
-                allCurrenciesForTable.cost.add('USD');
-            }
-        } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewFunds)) {
-            dailyDataForTable[dailyGroupKey].funds[currency] = (dailyDataForTable[dailyGroupKey].funds[currency] || 0) + r.amount;
-            allCurrenciesForTable.funds.add(currency);
-        }
-
-        const chartGroupKey = getChartGroupingKey(r.dt_local);
-        if (!groupedDataForChart[chartGroupKey]) {
-            groupedDataForChart[chartGroupKey] = { orders: new Set(), revenue: {} };
-        }
-        if (r.kind === 'order' && r.order_id && r.amount > 0) {
-            groupedDataForChart[chartGroupKey].orders.add(r.order_id);
-            groupedDataForChart[chartGroupKey].revenue[currency] = (groupedDataForChart[chartGroupKey].revenue[currency] || 0) + r.amount;
-            allCurrenciesForChart.add(currency);
-        }
-    });
-
-    const sortedRevenueCurrencies = Array.from(allCurrenciesForTable.revenue).sort();
-    const sortedFundsCurrencies = Array.from(allCurrenciesForTable.funds).sort();
-    const sortedCostCurrencies = Array.from(allCurrenciesForTable.cost).sort();
-
-    const revenueHeaders = sortedRevenueCurrencies.map(c => `Revenue (${c})`);
-    const fundsHeaders = (role === 'owner' || permissions.viewFunds) ? sortedFundsCurrencies.map(c => `Funds (${c})`) : [];
-    const costHeaders = (role === 'owner' || permissions.viewFulfill) ? sortedCostCurrencies.map(c => `Cost (${c})`) : [];
-
-    const headers = [
-        "Date",
-        "Order Count",
-        ...revenueHeaders,
-        ...fundsHeaders,
-        ...costHeaders,
-        "Details"
-    ];
-
-    const tableRows = Object.entries(dailyDataForTable)
-        .map(([date, data]) => {
-            const revenueValues = sortedRevenueCurrencies.map(c => data.revenue[c] || 0);
-            const fundsValues = (role === 'owner' || permissions.viewFunds) ? sortedFundsCurrencies.map(c => data.funds[c] || 0) : [];
-            const costValues = (role === 'owner' || permissions.viewFulfill) ? sortedCostCurrencies.map(c => data.cost[c] || 0) : [];
-
-            return [
-                date,
-                data.orders.size,
-                ...revenueValues,
-                ...fundsValues,
-                ...costValues,
-                { type: 'button' as const, label: 'Click for details', id: date } // Details button - id is the date
-            ] as any; // Type assertion to resolve complex type inference
-        })
-        .sort((a, b) => new Date(b[0] as string).getTime() - new Date(a[0] as string).getTime());
-
-    const sortedChartRevenueCurrencies = Array.from(allCurrenciesForChart).sort();
-    const chartData = Object.entries(groupedDataForChart)
-        .map(([groupKey, data]) => {
-            const revenueData: { [key: string]: number } = {};
-            for (const currency of sortedChartRevenueCurrencies) {
-                revenueData[`revenue${currency}`] = data.revenue[currency] || 0;
-            }
-            return {
-                date: groupKey,
-                orderCount: data.orders.size,
-                ...revenueData,
-            };
-        })
-        .sort((a, b) => {
-            if (isHourlyViewForChart) {
-                return (a.date as string).localeCompare(b.date as string);
-            }
-            return new Date(a.date as string).getTime() - new Date(b.date as string).getTime();
         });
-
-    return { table: { headers, rows: tableRows }, chartData };
-}
-
-const getOrderList = (records: Record[], accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Currency", "Cost", "Provider", "FF Code", "Case", "Help", "Account", "DateTime", "Source"];
-    const orders = records.filter(r => r.kind === 'order');
-    const cases = records.filter(r => r.kind === 'case');
-    const helps = records.filter(r => r.kind === 'help');
-
-    const caseMap = new Map(cases.map(c => [c.order_id, c.case_msg || 'Yes']));
-    const helpMap = new Map(helps.map(h => [h.order_id, h.help_kind || 'Yes']));
-
-    const sortedOrders = [...orders].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
-
-    const rows = sortedOrders.map(o => {
+        return Array.from(uniqueMap.values());
+    };
 
 
-        // --- New logic to get product name and image ---
-        let productName = o.product_name || 'N/A';
-        let variants = '-';
-        let productImage = null;
-        let fullProductImage = null;
+    const uniqueRecords = deduplicate(records);
+    const hasPreviousPeriod = previousRecords !== null;
+    const uniquePrevRecords = previousRecords ? deduplicate(previousRecords) : [];
 
-        if (o.details && o.details.items && o.details.items.length > 0) {
-            const itemNames = o.details.items.map(i => decodeHTMLEntities(i.name)).join(', ');
-            if (itemNames) {
-                productName = itemNames;
+    // --- 2. Preparatory Maps (Status, Cases, Helps) ---
+    // These are fast one-pass maps for correlation later
+    const statusMap = new Map<string, { status: string, refund_details?: any, refund_dt?: string }>();
+    const caseMap = new Map<string, string>();
+    const helpMap = new Map<string, string>();
+    const reviewMap = new Map<string, any>();
+    const validOrderIds = new Set<string>();
+
+    etsyReviews.forEach(rev => {
+        if (rev.order_id) reviewMap.set(String(rev.order_id), rev);
+    });
+
+    uniqueRecords.forEach(r => {
+        if (r.kind === 'order' && r.order_id) {
+            if (r.source === 'Etsy_Refunded') {
+                statusMap.set(r.order_id, { status: 'Refunded', refund_details: r.refund_details, refund_dt: r.dt_local });
+            } else {
+                validOrderIds.add(r.order_id);
             }
-            // Join variants
-            const itemVariants = o.details.items.map(i => {
-                let v = decodeHTMLEntities(i.variant);
-                if (i.variant2) {
-                    v += (v ? ' | ' : '') + decodeHTMLEntities(i.variant2);
+        } else if (r.kind === 'case' && r.order_id) {
+            caseMap.set(r.order_id, r.case_msg || 'Yes');
+        } else if (r.kind === 'help' && r.order_id) {
+            helpMap.set(r.order_id, r.help_kind || 'Yes');
+        }
+    });
+
+    // --- 3. Single-Pass Execution for ALL Current Data ---
+    const diffDays = Math.ceil(Math.abs(new Date(filterDateRange.to).getTime() - new Date(filterDateRange.from).getTime() + 1000) / (1000 * 60 * 60 * 24));
+    const isHourly = diffDays <= 2;
+
+    // Accumulators
+    const overviewDaily = new Map<string, { orders: Set<string>, rev: Map<string, number>, funds: Map<string, number>, cost: Map<string, number> }>();
+    const overviewChart = new Map<string, { orders: Set<string>, rev: Map<string, number> }>();
+    const overviewAllCurrs = { rev: new Set<string>(), funds: new Set<string>(), cost: new Set<string>(), chart: new Set<string>() };
+
+    // --- Pre-fill overviewDaily to ensure all dates in range are shown even if 0 ---
+    if (needsOverview) try {
+        let currentDate = new Date(filterDateRange.from + "T00:00:00Z");
+        const endDate = new Date(filterDateRange.to + "T00:00:00Z");
+        if (!isNaN(currentDate.getTime()) && !isNaN(endDate.getTime()) && currentDate <= endDate) {
+            while (currentDate <= endDate) {
+                const dKey = currentDate.toISOString().slice(0, 10);
+                if (!overviewDaily.has(dKey)) {
+                    overviewDaily.set(dKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
                 }
-                return v;
-            }).filter(v => v).join('; ');
-            if (itemVariants) {
-                variants = itemVariants;
+                if (!isHourly && !overviewChart.has(dKey)) {
+                    overviewChart.set(dKey, { orders: new Set(), rev: new Map() });
+                }
+                currentDate.setUTCDate(currentDate.getUTCDate() + 1);
             }
-
-            // Get image of the first item
-            const rawImage = o.details.items[0].image || null;
-
-            // Convert to high-res for BOTH thumbnail and preview -> instant loading
-            productImage = getHighResImageUrl(rawImage);
-            fullProductImage = productImage;
         }
-        // --- End of new logic ---
+    } catch (e) {
+        console.error("Error prefilling dates", e);
+    }
 
-        // Map Source
-        let displaySource = o.source;
-        if (o.source === 'Etsy_Sales') displaySource = 'Etsy';
-        else if (o.source === 'Ebay_Sales') displaySource = 'eBay';
-
-        let provider = o.provider || '-';
-        if (!o.provider && o.ff_code) {
-           if (o.ff_code.startsWith('PWN')) provider = 'Printway';
-           else if (o.ff_code !== '-' && o.ff_code !== 'owner') provider = 'Merchize';
-        }
-
-        return [
-            { type: 'image' as const, src: productImage, fullSrc: fullProductImage, alt: productName }, // New cell for image
-            productName, // New cell for product name
-            variants, // New cell for variants
-            o.order_id || 'N/A',
-            o.amount,
-            o.currency || 'USD',
-            { type: 'editable_cost' as const, value: o.cost_total ?? null, recordId: o.id!, isManual: !!o.is_manual_cost },
-            { type: 'editable_provider' as const, value: provider, recordId: o.id! }, // New cell for provider
-            { type: 'editable_ffcode' as const, value: o.ff_code || null, recordId: o.id! },
-            o.order_id && caseMap.has(o.order_id) ? 'Yes' : 'No',
-            o.order_id && helpMap.has(o.order_id) ? 'Yes' : 'No',
-            accountLabelMap.get(o.account) || o.account,
-            formatDateTime(o.dt_local, timeZone),
-            displaySource,
-            o.dt_local, // Add raw ISO string for filtering, will not be displayed (Index 14)
-            o.source, // Add source string for filtering, will not be displayed (Index 15)
-            o.id!, // Add record ID for click-to-view detail (Index 16)
-            isRefundedStatus(o) // Hidden boolean for refunded styling (Index 17)
-        ];
-    });
-
-    return { headers, rows };
-}
-
-const getPlatformRecords = (records: Record[], source: 'Ebay_Sales' | 'Etsy_Sales', accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "DateTime", "Actions"];
-    const platformRecords = records.filter(r => r.source === source && r.kind === 'order');
-
-    const sortedRecords = [...platformRecords].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
-
-    const rows = sortedRecords.map(r => {
-        // Create a list of actions for the Action column
-        const actions = [];
-        if (r.details) {
-            actions.push({ type: 'view', label: 'View', id: r.id! });
-        }
-
-        // Show Resync if email_id exists
-        if (r.email_id) {
-            actions.push({ type: 'resync', label: 'Resync', id: r.id! });
-        }
-
-        // --- Logic from getOrderList ---
-        let productName = r.product_name || 'N/A';
-        let productImage = null;
-        let fullProductImage = null;
-
-        if (r.details && r.details.items && r.details.items.length > 0) {
-            const itemNames = r.details.items.map(i => decodeHTMLEntities(i.name)).join(', ');
-            if (itemNames) {
-                productName = itemNames;
-            }
-            const rawImage = r.details.items[0].image || null;
-
-            // Convert to high-res for BOTH thumbnail and preview -> instant loading
-            productImage = getHighResImageUrl(rawImage);
-            fullProductImage = productImage;
-        }
-        // --- End of logic ---
-
-        return [
-            { type: 'image', src: productImage, fullSrc: fullProductImage, alt: productName },
-            productName,
-            r.order_id || 'N/A',
-            r.amount,
-            r.currency || 'USD',
-            accountLabelMap.get(r.account) || r.account,
-            formatDateTime(r.dt_local, timeZone),
-            { type: 'action_group', actions } as any,
-            isRefundedStatus(r)
-        ];
-    });
-
-    return { headers, rows };
-}
-
-const getSupportRecords = (records: Record[], kind: 'case' | 'help', accountLabelMap: Map<string, string>, timeZone: string): TableData => {
-    const headers = kind === 'case'
-        ? ["Order Number", "Message", "Source", "Account", "DateTime"]
-        : ["Order Number", "Help Kind", "Source", "Account", "DateTime"];
-
-    const supportRecords = records.filter(r => r.kind === kind);
-    const sortedRecords = [...supportRecords].sort((a, b) => new Date(b.dt_local).getTime() - new Date(a.dt_local).getTime());
-
-    const rows = sortedRecords.map(r => [
-        r.order_id || 'N/A',
-        kind === 'case' ? decodeHTMLEntities(r.case_msg || 'N/A') : decodeHTMLEntities(r.help_kind || 'N/A'),
-        r.source,
-        accountLabelMap.get(r.account) || r.account,
-        formatDateTime(r.dt_local, timeZone),
-        r.dt_local // Hidden column for sorting
-    ]);
-
-    return { headers, rows };
-}
-
-const getFulfillRecords = (
-    records: Record[],
-    accountLabelMap: Map<string, string>,
-    timeZone: string,
-    manualCosts: any[],
-    filterDateRange: { from: string, to: string }
-): { table: TableData; merchizeChartData: FulfillChartData[]; printwayChartData: FulfillChartData[]; allProductChartData: FulfillChartData[]; totalCost: number; } => {
-
-    const headers = ["Date", "Order Number", "Product Name", "Provider", "Fulfillment Code", "Cost (USD)", "Shop Account"];
-
+    const kpiRaw = { orderIds: new Set<string>(), shops: new Set<string>(), revenue: new Map<string, number>(), funds: new Map<string, number>(), cost: new Map<string, number>(), refOrderIds: new Set<string>(), refund: new Map<string, number>() };
+    const shopSummaryData = new Map<string, ShopSummaryAccumulator>();
+    
+    const pByShop = new Map<string, Map<string, any>>();
+    const pByCat = new Map<string, Map<string, any>>();
+    const productStatsTableMap = new Map<string, any>();
+    const variantStatsTableMap = new Map<string, any>();
+    
+    const ordersTabRows: any[][] = [];
+    const ebayRows: any[][] = [];
+    const etsyRows: any[][] = [];
+    const caseRows: any[][] = [];
+    const helpRows: any[][] = [];
+    
+    const fulfillRows: any[][] = [];
+    const fulfillCounts = { all: new Map<string, number>(), refunded: new Map<string, number>() };
     let fulfillTotalCost = 0;
-    const fulfillStats = { totalCount: 0 };
+    const fulfillStats = { totalCount: 0, refCount: 0 };
 
-    // 1. Xử lý Manual Costs (Chi phí nhập tay)
-    const filteredManualCosts = manualCosts.filter(cost =>
-        cost.date >= filterDateRange.from && cost.date <= filterDateRange.to
-    );
+    uniqueRecords.forEach(r => {
+        const currency = r.currency || 'USD';
+        const dKey = needsOverview ? formatDate(r.dt_local, timeZone) : '';
+        const cKey = needsOverview ? (isHourly ? formatHour(r.dt_local, timeZone) : dKey) : '';
+        const shopEmail = r.account;
+        const shopLabel = accountLabelMap.get(shopEmail) || shopEmail;
+        
+        // -- Overview Accumulation --
+        if (needsOverview && !overviewDaily.has(dKey)) overviewDaily.set(dKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
+        const od = needsOverview ? overviewDaily.get(dKey)! : null;
+        if (needsOverview && !overviewChart.has(cKey)) overviewChart.set(cKey, { orders: new Set(), rev: new Map() });
+        const oc = needsOverview ? overviewChart.get(cKey)! : null;
 
-    const manualRows = filteredManualCosts.map(cost => {
-        fulfillTotalCost += cost.cost;
-        fulfillStats.totalCount++;
-        return [
-            cost.date,
-            "N/A (Manual)",
-            "N/A (Manual)",
-            cost.providerName,
-            "owner",
-            cost.cost,
-            "Manual Entry"
-        ];
-    });
+        // -- Record Kind Router --
+        if (r.kind === 'order') {
+            const sInfo = statusMap.get(r.order_id || '');
+            const isRef = isRefundedStatus(r) || sInfo?.status === 'Refunded';
+            const isEtsyRefundedSource = r.source === 'Etsy_Refunded';
 
-    // 2. Xử lý Email Records (Chi phí từ API/Email)
-    const fulfillRecords = records.filter(r => r.kind === 'order' && (r.ff_code || r.cost_total || r.product_name));
-
-    const merchizeProductCounts = new Map<string, number>();
-    const printwayProductCounts = new Map<string, number>();
-    const allProductCounts = new Map<string, number>();
-
-    const emailRows = fulfillRecords.map(r => {
-        const ffCode = r.ff_code || '-';
-        let provider = r.provider || '-';
-        if (!r.provider && ffCode) {
-            if (ffCode.startsWith('PWN')) {
-                provider = 'Printway';
-            } else if (ffCode !== '-' && ffCode !== 'owner') {
-                provider = 'Merchize';
-            }
-        }
-
-        fulfillStats.totalCount++;
-        if (r.cost_total) fulfillTotalCost += r.cost_total;
-
-        const productNameStr = r.product_name || '-';
-
-        if (productNameStr && productNameStr !== '-') {
-            const products = productNameStr.split(',').map(p => p.trim());
-            products.forEach(product => {
-                if (product) {
-                    allProductCounts.set(product, (allProductCounts.get(product) || 0) + 1);
-                    
-                    // Note: 'provider' could be an editable cell object or string, but we are in the map
-                    if (provider === 'Merchize') {
-                        merchizeProductCounts.set(product, (merchizeProductCounts.get(product) || 0) + 1);
-                    } else if (provider === 'Printway') {
-                        printwayProductCounts.set(product, (printwayProductCounts.get(product) || 0) + 1);
-                    }
-                }
-            });
-        }
-
-        return [
-            formatDate(r.dt_local, timeZone),
-            r.order_id || 'N/A',
-            productNameStr,
-            { type: 'editable_provider' as const, value: provider, recordId: r.id! },
-            { type: 'editable_ffcode' as const, value: r.ff_code || null, recordId: r.id! },
-            { type: 'editable_cost' as const, value: r.cost_total ?? null, recordId: r.id!, isManual: !!r.is_manual_cost },
-            accountLabelMap.get(r.account) || r.account
-        ];
-    });
-
-    // 3. Calculate Chart Data
-    const processCounts = (counts: Map<string, number>): FulfillChartData[] => {
-        const sorted = Array.from(counts.entries())
-            .map(([name, count]) => ({ name, count }))
-            .sort((a, b) => b.count - a.count);
-        // Take top 10 and reverse for chart display (highest on top)
-        return sorted.slice(0, 10).reverse();
-    };
-
-    const merchizeChartData = processCounts(merchizeProductCounts);
-    const printwayChartData = processCounts(printwayProductCounts);
-    const allProductChartData = processCounts(allProductCounts);
-
-    // 4. Kết hợp và Sắp xếp
-    emailRows.sort((a, b) => new Date(b[0] as string).getTime() - new Date(a[0] as string).getTime());
-
-    const rows = [...manualRows, ...emailRows];
-
-    return { 
-        table: { headers, rows }, 
-        merchizeChartData, 
-        printwayChartData, 
-        allProductChartData, 
-        totalCost: fulfillTotalCost, 
-    };
-}
-
-const calculateSummary = (
-    records: Record[],
-    previousRecords: Record[] | null,
-    accountLabelMap: Map<string, string>,
-    role: string,
-    permissions: { [key: string]: boolean },
-    manualCosts: any[],
-    filterDateRange: { from: string; to: string }
-): { kpis: KpiData, table: TableData, chartData: SummaryChartData[], topProductsByShop: { [shopName: string]: TopProduct[] } } => {
-
-    const calculatePercentageChange = (current: number, previous: number): { change: number; direction: 'up' | 'down' | 'neutral' } => {
-        if (previous === 0) {
-            return {
-                change: current > 0 ? Infinity : 0,
-                direction: current > 0 ? 'up' : 'neutral',
-            };
-        }
-        const change = ((current - previous) / previous) * 100;
-        return {
-            change: Math.abs(change),
-            direction: change > 0 ? 'up' : (change < 0 ? 'down' : 'neutral'),
-        };
-    };
-
-    type RawKpis = {
-        orderIds: Set<string>;
-        refOrderIds: Set<string>;
-        shops: Set<string>;
-        revenueByCurrency: { [c: string]: number };
-        refundByCurrency: { [c: string]: number };
-        fundsByCurrency: { [c: string]: number };
-        costByCurrency: { [c: string]: number };
-    };
-
-    const getRawKpis = (recordsToProcess: Record[]): RawKpis => {
-        const raw: RawKpis = {
-            orderIds: new Set(),
-            refOrderIds: new Set(),
-            shops: new Set(),
-            revenueByCurrency: {},
-            refundByCurrency: {},
-            fundsByCurrency: {},
-            costByCurrency: {},
-        };
-        recordsToProcess.forEach(r => {
-            raw.shops.add(r.account);
-            const currency = r.currency || 'USD';
-            if (r.kind === 'order') {
+            if (!isEtsyRefundedSource) {
+                // KPIs & Summary
                 if (r.order_id) {
-                    raw.orderIds.add(r.order_id);
-                    if (isRefundedStatus(r)) {
-                        raw.refOrderIds.add(r.order_id);
-                        const refAmt = r.refund_details?.total_refund_amount || r.refund_details?.refundAmount || 0;
-                        if (refAmt > 0) {
-                            raw.refundByCurrency[currency] = (raw.refundByCurrency[currency] || 0) + refAmt;
-                        }
+                    if (needsKpiSummary) {
+                        kpiRaw.orderIds.add(r.order_id);
+                        kpiRaw.shops.add(shopEmail);
+                    }
+                    if (needsOverview) {
+                        od!.orders.add(r.order_id);
+                        oc!.orders.add(r.order_id);
                     }
                 }
                 if (r.amount > 0) {
-                    raw.revenueByCurrency[currency] = (raw.revenueByCurrency[currency] || 0) + r.amount;
+                    if (needsOverview) {
+                        od!.rev.set(currency, (od!.rev.get(currency) || 0) + r.amount);
+                        oc!.rev.set(currency, (oc!.rev.get(currency) || 0) + r.amount);
+                        overviewAllCurrs.rev.add(currency);
+                        overviewAllCurrs.chart.add(currency);
+                    }
+                    if (needsKpiSummary) {
+                        kpiRaw.revenue.set(currency, (kpiRaw.revenue.get(currency) || 0) + r.amount);
+                    }
                 }
-                if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
-                    raw.costByCurrency['USD'] = (raw.costByCurrency['USD'] || 0) + r.cost_total;
+                if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) {
+                    if (needsOverview) {
+                        od!.cost.set('USD', (od!.cost.get('USD') || 0) + r.cost_total);
+                        overviewAllCurrs.cost.add('USD');
+                    }
+                    if (needsKpiSummary) {
+                        kpiRaw.cost.set('USD', (kpiRaw.cost.get('USD') || 0) + r.cost_total);
+                    }
                 }
-            } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewFunds)) {
-                raw.fundsByCurrency[currency] = (raw.fundsByCurrency[currency] || 0) + r.amount;
+
+                // Shop Summary Meta data
+                if (needsKpiSummary) {
+                    const sd = getShopSummaryAccumulator(shopSummaryData, shopEmail);
+                    if (r.order_id) sd.orders.add(r.order_id);
+                    if (r.amount > 0) sd.revenue.set(currency, (sd.revenue.get(currency) || 0) + r.amount);
+                    if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) sd.cost.set('USD', (sd.cost.get('USD') || 0) + r.cost_total);
+                }
+
+                // Product Statistics (Summary & Products Tab)
+                if (needsProductStats && r.details?.items?.length) {
+                    const financials = r.details.financials;
+                    const revenueContext = getOrderItemRevenueContext(r.details.items, financials);
+
+                    r.details.items.forEach(item => {
+                        const name = decodeHTMLEntities(item.name.trim());
+                        const variant = decodeHTMLEntities(item.variant?.trim() || '');
+                        const cleaned = cleanVariantForAggregation(variant);
+                        const displayedVariant = formatVariantForDisplay(cleaned);
+                        // SKU is the canonical product identity. Product name is only the display label.
+                        const sku = normalizeProductSku(item.sku);
+                        const rawSku = decodeHTMLEntities(String(item.sku || '').trim()).toUpperCase();
+                        const displayedSku = sku || (rawSku === 'NULL' || rawSku === 'NULL_RATE_LIMIT' ? rawSku : '');
+                        const productIdentity = getProductIdentity(sku, name);
+                        const groupingKey = productIdentity.key;
+                        const groupingKeyLower = groupingKey.toLowerCase();
+                        
+                        const catCode = getCategoryCodeFromSku(sku);
+
+                        const catName = categoryNameMap.get(catCode) || catCode;
+                        
+                        const itemQuantity = getItemQuantity(item);
+                        // Tax is ignored since it's remitted by Etsy and doesn't affect seller's net revenue
+                        const itemRevenue = calculateItemNetRevenue(item, revenueContext);
+                        
+                        const itemRevenueUSD = (currency === 'USD' ? itemRevenue : (exchangeRates?.[currency] ? itemRevenue * exchangeRates[currency] : itemRevenue));
+                        const size = extractSize(variant);
+
+                        // Summary Stats
+                        if (!pByShop.has(shopLabel)) pByShop.set(shopLabel, new Map());
+                        const ps = pByShop.get(shopLabel)!;
+                        if (!ps.has(groupingKey)) ps.set(groupingKey, { name, sku, qty: 0, rev: 0, revUSD: 0, image: item.image, cat: catCode, classification: variant, size, currency });
+                        const s = ps.get(groupingKey);
+                        updateProductDisplayMeta(s, name, item.image, r.dt_local);
+                        s.qty += itemQuantity; s.rev += itemRevenue; s.revUSD += itemRevenueUSD;
+
+                        if (!pByCat.has(catCode)) pByCat.set(catCode, new Map());
+                        const pc = pByCat.get(catCode)!;
+                        if (!pc.has(groupingKey)) pc.set(groupingKey, { name, sku, qty: 0, rev: 0, revUSD: 0, image: item.image, shop: shopLabel, classification: variant, size, currency });
+                        const c = pc.get(groupingKey);
+                        updateProductDisplayMeta(c, name, item.image, r.dt_local);
+                        c.qty += itemQuantity; c.rev += itemRevenue; c.revUSD += itemRevenueUSD;
+
+                        // Detailed Products Tab Map
+                        const prodKey = `${groupingKeyLower}|${displayedSku.toLowerCase()}|${displayedVariant}|${shopEmail.toLowerCase()}`;
+                        
+                        if (!productStatsTableMap.has(prodKey)) {
+                            productStatsTableMap.set(prodKey, { 
+                                image: item.image, 
+                                name, 
+                                sku: displayedSku,
+                                groupingKey: productIdentity.label,
+                                variant: displayedVariant, 
+                                category: catName, 
+                                categoryCode: catCode, 
+                                shop: shopLabel, 
+                                quantity: 0, 
+                                revenue: 0, 
+                                revenueUSD: 0, 
+                                currency 
+                            });
+                        }
+                        const pt = productStatsTableMap.get(prodKey);
+                        updateProductDisplayMeta(pt, name, item.image, r.dt_local);
+                        pt.quantity += itemQuantity; pt.revenue += itemRevenue; pt.revenueUSD += itemRevenueUSD;
+
+                        // Variant aggregation - smarter grouping (no spaces)
+                        const varKey = `${catName}|${displayedVariant}`;
+                        
+                        if (!variantStatsTableMap.has(varKey)) {
+                            variantStatsTableMap.set(varKey, { 
+                                category: catName, 
+                                categoryCode: catCode, 
+                                variant: displayedVariant, 
+                                quantity: 0, 
+                                revenue: 0, 
+                                revenueUSD: 0, 
+                                currency 
+                            });
+                        }
+                        const vt = variantStatsTableMap.get(varKey);
+                        vt.quantity += itemQuantity; vt.revenue += itemRevenue; vt.revenueUSD += itemRevenueUSD;
+
+
+
+                    });
+                }
+
+                // Tab Specific Rows (Orders, Etsy, eBay)
+                if (needsOrderRows) {
+                const shopPName = (r.details?.items?.length ? r.details.items.map(i => decodeHTMLEntities(i.name)).join(', ') : '') || r.product_name || 'N/A';
+                const pImg = r.details?.items?.[0]?.image || null;
+                const pVars = r.details?.items?.length ? r.details.items.map(i => decodeHTMLEntities(i.variant)).filter(v => v).join('; ') : '-';
+                const finalStatus = sInfo?.status || r.status || (isRef ? 'Refunded' : 'New'); // Đảm bảo trạng thái refund đồng nhất
+                const refundDtStr = sInfo?.refund_dt ? formatDateTime(sInfo.refund_dt, timeZone) : '';
+                const dateDisplay = formatDateTime(r.dt_local, timeZone);
+                const finalDateCell = (isRef && refundDtStr) ? { type: 'text_with_subtitle' as const, main: dateDisplay, subtitle: `Refund: ${refundDtStr}`, subtitleClass: 'text-red-600 font-bold bg-red-100 rounded px-1' } : dateDisplay;
+
+                const reviewData = r.order_id ? reviewMap.get(r.order_id) : null;
+                const rating = reviewData?.rating || '-';
+
+                const commonOrderRow = [
+                    { type: 'image' as const, ...getOptimizedImageProps(pImg), alt: shopPName }, shopPName, pVars, r.order_id || 'N/A', r.amount, currency,
+                    r.cost_total ?? null, r.ff_code || '-', rating, r.order_id && caseMap.has(r.order_id) ? caseMap.get(r.order_id) : 'No',
+                    r.order_id && helpMap.has(r.order_id) ? helpMap.get(r.order_id) : 'No', shopLabel,
+                    finalDateCell, formatSource(r.source), r.id, r.dt_local, r.source, finalStatus === 'Refunded'
+                ];
+                ordersTabRows.push(commonOrderRow);
+
+                if (r.source === 'Etsy_Sales') {
+                    etsyRows.push([{ type: 'image' as const, ...getOptimizedImageProps(pImg), alt: shopPName }, shopPName, r.order_id || 'N/A', r.amount, currency, shopLabel, finalDateCell, { type: 'action_group', actions: r.id ? [{ type: 'view', label: 'View', id: r.id }] : [] }, finalStatus === 'Refunded', r.dt_local]);
+                } else if (r.source === 'Ebay_Sales') {
+                    ebayRows.push([{ type: 'image' as const, ...getOptimizedImageProps(pImg), alt: shopPName }, shopPName, r.order_id || 'N/A', r.amount, currency, shopLabel, finalDateCell, { type: 'action_group', actions: r.id ? [{ type: 'view', label: 'View', id: r.id }] : [] }, finalStatus === 'Refunded', r.dt_local]);
+                }
+                }
+
+                // Fulfillment logic
+                if (needsFulfill && (r.ff_code || r.cost_total || r.product_name)) {
+                    fulfillStats.totalCount++;
+                    if (isRef) fulfillStats.refCount++; // Chỉ đếm refund cho các record có dữ liệu fulfillment
+
+                    const ffCode = r.ff_code || '-';
+                    if (r.cost_total) fulfillTotalCost += r.cost_total;
+                    let provider = r.fulfill_provider;
+                    if (!provider || provider === '-') provider = ffCode.startsWith('PWN') ? 'Printway' : (ffCode !== '-' && ffCode !== 'owner' ? 'Merchize' : '-');
+                    
+                    const ffDateVal = formatDate(r.fulfill_date || r.dt_local, timeZone);
+                    const refDateOnlyStr = sInfo?.refund_dt ? formatDate(sInfo.refund_dt, timeZone) : '';
+                    const finalFfDateCell = (isRef && refDateOnlyStr) ? { type: 'text_with_subtitle' as const, main: ffDateVal, subtitle: `Refund: ${refDateOnlyStr}`, subtitleClass: 'text-red-600 font-bold bg-red-100 rounded px-1' } : ffDateVal;
+
+                    fulfillRows.push([
+                        finalFfDateCell, r.order_id || 'N/A',
+                        isRef ? { type: 'text_with_subtitle' as const, main: r.product_name || '-', subtitle: `Refund: ${r.refund_details?.reason || sInfo?.refund_details?.reason || 'Refunded'}`, subtitleClass: 'text-red-500 font-medium' } : (r.product_name || '-'),
+                        provider, ffCode, r.cost_total ?? null, shopLabel, isRef, r.fulfill_date || r.dt_local
+                    ]);
+
+                    if (r.product_name) {
+                        const items = r.product_name.split(',').map(p => p.trim());
+                        items.forEach(p => {
+                            if (!p) return;
+                            fulfillCounts.all.set(p, (fulfillCounts.all.get(p) || 0) + 1);
+                            if (isRef) fulfillCounts.refunded.set(p, (fulfillCounts.refunded.get(p) || 0) + 1);
+                        });
+                    }
+
+                }
+            } else if (r.order_id && validOrderIds.has(r.order_id)) {
+                // Etsy Refunded Record
+                if (needsKpiSummary) {
+                const refundCurr = r.refund_details?.refundCurrency || currency;
+                const refundAmt = r.refund_details?.refundAmount || Math.abs(r.amount);
+                kpiRaw.refOrderIds.add(r.order_id);
+                kpiRaw.refund.set(refundCurr, (kpiRaw.refund.get(refundCurr) || 0) + refundAmt);
+                
+                const sd = getShopSummaryAccumulator(shopSummaryData, shopEmail);
+                sd.refOrderIds.add(r.order_id);
+                sd.refund.set(refundCurr, (sd.refund.get(refundCurr) || 0) + refundAmt);
+                }
             }
-        });
-        return raw;
-    };
 
-    const currentRawKpis = getRawKpis(records);
-    const previousRawKpis = previousRecords ? getRawKpis(previousRecords) : null;
+        } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewKpiFunds)) {
+            if (needsOverview) {
+            od!.funds.set(currency, (od!.funds.get(currency) || 0) + r.amount);
+            overviewAllCurrs.funds.add(currency);
+            }
+            if (needsKpiSummary) {
+            kpiRaw.funds.set(currency, (kpiRaw.funds.get(currency) || 0) + r.amount);
+            
+            const sd = getShopSummaryAccumulator(shopSummaryData, shopEmail);
+            sd.funds.set(currency, (sd.funds.get(currency) || 0) + r.amount);
+            }
 
-    const filteredManualCosts = manualCosts.filter(cost =>
-        cost.date >= filterDateRange.from && cost.date <= filterDateRange.to
-    );
+        } else if (needsSupport && r.kind === 'case') {
+            caseRows.push([r.order_id || 'N/A', decodeHTMLEntities(r.case_msg || 'N/A'), formatSource(r.source), shopLabel, formatDateTime(r.dt_local, timeZone), r.dt_local]);
+        } else if (needsSupport && r.kind === 'help') {
+            helpRows.push([r.order_id || 'N/A', decodeHTMLEntities(r.help_kind || 'N/A'), formatSource(r.source), shopLabel, formatDateTime(r.dt_local, timeZone), r.dt_local]);
+        }
+    });
 
-    if (role === 'owner' || permissions.viewFulfill) {
-        filteredManualCosts.forEach(cost => {
-            const currency = cost.currency || 'USD';
-            currentRawKpis.costByCurrency[currency] = (currentRawKpis.costByCurrency[currency] || 0) + cost.cost;
+    // -- Add Manual Costs to KPI & Daily --
+    if ((needsOverview || needsKpiSummary || needsFulfill) && (role === 'owner' || permissions.viewKpiCost)) {
+        manualCosts.filter(c => c.date >= filterDateRange.from && c.date <= filterDateRange.to).forEach(c => {
+            const cur = c.currency || 'USD';
+            const costUSD = (cur === 'USD' ? c.cost : (exchangeRates?.[cur] ? c.cost * exchangeRates[cur] : c.cost));
+            if (needsKpiSummary) kpiRaw.cost.set('USD', (kpiRaw.cost.get('USD') || 0) + costUSD);
+            
+            const dKey = c.date;
+            if (needsOverview) {
+                if (!overviewDaily.has(dKey)) overviewDaily.set(dKey, { orders: new Set(), rev: new Map(), funds: new Map(), cost: new Map() });
+                overviewDaily.get(dKey)!.cost.set('USD', (overviewDaily.get(dKey)!.cost.get('USD') || 0) + costUSD);
+                overviewAllCurrs.cost.add('USD');
+            }
+
+            // Add manual fulfill rows
+            if (needsFulfill) {
+            fulfillRows.push([c.date, "N/A (Manual)", "N/A (Manual)", c.providerName, "owner", costUSD, "Manual Entry", false, c.date]);
+            fulfillTotalCost += costUSD;
+            fulfillStats.totalCount++; // Tăng count để refund rate chính xác
+            }
         });
     }
 
-    const kpis: KpiData = {};
+    // --- 4. Previous Period KPIs Loop ---
+    const pKpiRaw = { orderIds: new Set<string>(), revenue: new Map<string, number>(), funds: new Map<string, number>(), cost: new Map<string, number>() };
+    const previousShopSummaryData = new Map<string, ShopSummaryAccumulator>();
+    if (needsKpiSummary) uniquePrevRecords.forEach(r => {
+        const cur = r.currency || 'USD';
+        if (r.kind === 'order' && r.source !== 'Etsy_Refunded') {
+            const previousShop = getShopSummaryAccumulator(previousShopSummaryData, r.account);
+            if (r.order_id) pKpiRaw.orderIds.add(r.order_id);
+            if (r.amount > 0) pKpiRaw.revenue.set(cur, (pKpiRaw.revenue.get(cur) || 0) + r.amount);
+            if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) pKpiRaw.cost.set('USD', (pKpiRaw.cost.get('USD') || 0) + r.cost_total);
+            if (r.order_id) previousShop.orders.add(r.order_id);
+            if (r.amount > 0) previousShop.revenue.set(cur, (previousShop.revenue.get(cur) || 0) + r.amount);
+            if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewKpiCost)) previousShop.cost.set('USD', (previousShop.cost.get('USD') || 0) + r.cost_total);
+        } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewKpiFunds)) {
+            const previousShop = getShopSummaryAccumulator(previousShopSummaryData, r.account);
+            pKpiRaw.funds.set(cur, (pKpiRaw.funds.get(cur) || 0) + r.amount);
+            previousShop.funds.set(cur, (previousShop.funds.get(cur) || 0) + r.amount);
+        }
+    });
 
-    const ordersComparison = previousRawKpis ? calculatePercentageChange(currentRawKpis.orderIds.size, previousRawKpis.orderIds.size) : {};
-    kpis['Total Orders'] = {
-        value: currentRawKpis.orderIds.size.toString(),
-        ...ordersComparison,
-        refundInfo: currentRawKpis.refOrderIds.size > 0 ? `${currentRawKpis.refOrderIds.size} refunded` : undefined
-    };
+    // --- 5. Final Transformations ---
+    const getMapVal = (m: Map<string, number>, k: string) => m.get(k) || 0;
+    
+    // -- Overview Table & Chart --
+    const sortedDaily = Array.from(overviewDaily.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+    const sortedRevCurrs = Array.from(overviewAllCurrs.rev).sort();
+    const sortedFundsCurrs = Array.from(overviewAllCurrs.funds).sort();
+    const sortedCostCurrs = Array.from(overviewAllCurrs.cost).sort();
+    
+    const overviewHeaders = ["Date", "Order Count", ...sortedRevCurrs.map(c => `Revenue (${c})`), ...((role === 'owner' || permissions.viewKpiFunds) ? sortedFundsCurrs.map(c => `Funds (${c})`) : []), ...((role === 'owner' || permissions.viewKpiCost) ? sortedCostCurrs.map(c => `Cost (${c})`) : []), "Details"];
+    const overviewRows = sortedDaily.map(([date, data]) => [
+        date, data.orders.size, ...sortedRevCurrs.map(c => getMapVal(data.rev, c)),
+        ...((role === 'owner' || permissions.viewKpiFunds) ? sortedFundsCurrs.map(c => getMapVal(data.funds, c)) : []),
+        ...((role === 'owner' || permissions.viewKpiCost) ? sortedCostCurrs.map(c => getMapVal(data.cost, c)) : []),
+        { type: 'button' as const, label: 'Click for details', id: date }
+    ]);
+    
+    const overviewChartData = Array.from(overviewChart.entries()).sort((a, b) => isHourly ? a[0].localeCompare(b[0]) : a[0].localeCompare(b[0])).map(([key, data]) => {
+        const item: any = { date: key, orderCount: data.orders.size };
+        Array.from(overviewAllCurrs.chart).forEach(c => item[`revenue${c}`] = getMapVal(data.rev, c));
+        return item;
+    });
 
-    kpis['Shops'] = { value: currentRawKpis.shops.size.toString() };
+    // -- Summary KPIs --
+    const previousPeriodLabel = getPreviousPeriodLabel(filterDateRange);
 
-    const processFinancialKpi = (
-        currentData: { [c: string]: number },
-        previousData: { [c: string]: number } | null,
-        refundData?: { [c: string]: number }
-    ): { [currency: string]: KpiValue } | null => {
-        const allCurrencies = new Set([...Object.keys(currentData), ...(previousData ? Object.keys(previousData) : [])]);
-        if (allCurrencies.size === 0) return null;
-
-        const financialKpis: { [currency: string]: KpiValue } = {};
-        Array.from(allCurrencies).sort().forEach(c => {
-            const current = currentData[c] || 0;
-            const previous = previousData?.[c] || 0;
-            const refund = refundData?.[c] || 0;
-            const comparison = previousRawKpis ? calculatePercentageChange(current, previous) : {};
-            financialKpis[c] = {
-                value: formatCurrency(current),
-                ...comparison,
-                ...(refund > 0 ? { refundInfo: `${formatCurrency(refund)} refunded` } : {})
+    const transformKpiMap = (curr: Map<string, number>, prev: Map<string, number>) => {
+        const res: any = {};
+        const all = hasPreviousPeriod
+            ? new Set([...Array.from(curr.keys()), ...Array.from(prev.keys())])
+            : new Set(Array.from(curr.keys()));
+        all.forEach(c => {
+            const v = curr.get(c) || 0;
+            const p = prev.get(c) || 0;
+            if (v < 0.01 && p < 0.01) return;
+            res[c] = {
+                value: formatCurrency(v),
+                ...(hasPreviousPeriod
+                    ? {
+                        previousValue: formatCurrency(p),
+                        previousLabel: previousPeriodLabel,
+                        ...calculatePercentageChange(v, p)
+                    }
+                    : {})
             };
         });
-        return financialKpis;
-    }
-
-    const revenueKpis = processFinancialKpi(currentRawKpis.revenueByCurrency, previousRawKpis?.revenueByCurrency || null, currentRawKpis.refundByCurrency);
-    kpis['Revenue'] = revenueKpis || { value: '---' };
-
-    if (role === 'owner' || permissions.viewFunds) {
-        const fundsKpis = processFinancialKpi(currentRawKpis.fundsByCurrency, previousRawKpis?.fundsByCurrency || null);
-        kpis['Funds'] = fundsKpis || { value: '---' };
-    } else {
-        kpis['Funds'] = { value: '---' };
-    }
-
-    if (role === 'owner' || permissions.viewFulfill) {
-        const costKpis = processFinancialKpi(currentRawKpis.costByCurrency, previousRawKpis?.costByCurrency || null);
-        kpis['Cost'] = costKpis || { value: '---' };
-    } else {
-        kpis['Cost'] = { value: '---' };
-    }
-
-    const shopData: {
-        [account: string]: {
-            orders: Set<string>,
-            revenue: { [currency: string]: number },
-            funds: { [currency: string]: number },
-            cost: { [currency: string]: number },
-            refund: { [currency: string]: number },
-            refOrderIds: Set<string>
-        }
-    } = {};
-
-    // Initialize shopData for ALL accounts to ensure 0-order shops are listed
-    accountLabelMap.forEach((_label, email) => {
-        shopData[email] = { revenue: {}, orders: new Set(), funds: {}, cost: {}, refund: {}, refOrderIds: new Set() };
-    });
-
-    const allTableCurrencies = { revenue: new Set<string>(), funds: new Set<string>(), cost: new Set<string>() };
-
-    // --- LOGIC TÍNH TOÁN TOP PRODUCTS ---
-    const productStatsByShop: { [key: string]: Map<string, { qty: number, rev: number, image?: string }> } = {};
-
-    records.forEach(r => {
-        const shopLabel = accountLabelMap.get(r.account) || r.account;
-
-        if (!shopData[r.account]) {
-            shopData[r.account] = { revenue: {}, orders: new Set(), funds: {}, cost: {}, refund: {}, refOrderIds: new Set() };
-        }
-
-        // Init Product Stats Map for Shop
-        if (!productStatsByShop[shopLabel]) {
-            productStatsByShop[shopLabel] = new Map();
-        }
-
-        const currency = r.currency || 'USD';
-        if (r.kind === 'order') {
-            if (r.order_id) shopData[r.account].orders.add(r.order_id);
-            if (isRefundedStatus(r)) {
-                if (r.order_id) shopData[r.account].refOrderIds.add(r.order_id);
-                const refAmt = r.refund_details?.total_refund_amount || r.refund_details?.refundAmount || 0;
-                if (refAmt > 0) {
-                    shopData[r.account].refund[currency] = (shopData[r.account].refund[currency] || 0) + refAmt;
-                }
-            }
-            if (r.amount > 0) {
-                shopData[r.account].revenue[currency] = (shopData[r.account].revenue[currency] || 0) + r.amount;
-                allTableCurrencies.revenue.add(currency);
-            }
-            if (r.cost_total && r.cost_total > 0 && (role === 'owner' || permissions.viewFulfill)) {
-                shopData[r.account].cost['USD'] = (shopData[r.account].cost['USD'] || 0) + r.cost_total;
-                allTableCurrencies.cost.add('USD');
-            }
-
-            // --- Aggregate Product Stats ---
-            // Priority 1: Use parsed item details
-            if (r.details && r.details.items && r.details.items.length > 0) {
-                r.details.items.forEach(item => {
-                    const name = decodeHTMLEntities(item.name.trim());
-                    const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
-
-                    // --- High Res Image Logic --- -> Refactored
-                    const image = getHighResImageUrl(item.image || current.image);
-
-                    productStatsByShop[shopLabel].set(name, {
-                        qty: current.qty + item.quantity,
-                        rev: current.rev + (item.quantity * item.price),
-                        image: image
-                    });
-                });
-            }
-            // Priority 2: Use product_name from record (likely from Cost APIs)
-            else if (r.product_name && r.product_name !== '-' && r.product_name !== 'N/A') {
-                const names = r.product_name.split(',').map(n => n.trim()).filter(n => n);
-                names.forEach(name => {
-                    const current = productStatsByShop[shopLabel].get(name) || { qty: 0, rev: 0 };
-                    // Assume quantity 1 and split amount if multiple names, or just assign amount to each for simplicity approx
-                    // For 'Best Selling' by quantity, just incrementing qty is safer
-                    productStatsByShop[shopLabel].set(name, {
-                        qty: current.qty + 1,
-                        rev: current.rev + r.amount, // Rough estimate
-                        image: current.image
-                    });
-                });
-            }
-        } else if (r.kind === 'Funds' && r.amount > 0 && (role === 'owner' || permissions.viewFunds)) {
-            shopData[r.account].funds[currency] = (shopData[r.account].funds[currency] || 0) + r.amount;
-            allTableCurrencies.funds.add(currency);
-        }
-    });
-
-    const manualCostData: { cost: { [currency: string]: number } } = { cost: {} };
-    if ((role === 'owner' || permissions.viewFulfill) && filteredManualCosts.length > 0) {
-        filteredManualCosts.forEach(cost => {
-            const currency = cost.currency || 'USD';
-            manualCostData.cost[currency] = (manualCostData.cost[currency] || 0) + cost.cost;
-            allTableCurrencies.cost.add(currency);
-        });
-    }
-
-    const sortedRevenueCurrencies = Array.from(allTableCurrencies.revenue).sort();
-    const sortedFundsCurrencies = Array.from(allTableCurrencies.funds).sort();
-    // sortedCostCurrencies removed as it was unused
-
-    // --- Consolidated Column Logic ---
-    const formatMixedCurrency = (amountMap: { [c: string]: number }): { value: number, display: string } => {
-        const currencies = Object.keys(amountMap).sort();
-        if (currencies.length === 0) return { value: 0, display: '--' };
-
-        let totalVal = 0;
-        const parts = currencies.map(c => {
-            const val = amountMap[c];
-            totalVal += val;
-            return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val) + ' ' + c;
-        });
-
-        return { value: totalVal, display: parts.join(' + ') };
+        return res;
     };
 
-    const tableHeaders = ["Shop", "Orders", "Revenue"];
-    if (role === 'owner' || permissions.viewFunds) tableHeaders.push("Funds");
-    if (role === 'owner' || permissions.viewFulfill) tableHeaders.push("Cost (USD)");
+    /**
+     * Enhances a per-currency KPI map with USD totals and refund info.
+     * Type-safe, immutable, and handles conversion for all currencies.
+     */
+    const addUSDToKpi = (
+        kpiMap: { [currency: string]: KpiValue },
+        rawMap: Map<string, number>,
+        previousRawMap?: Map<string, number>,
+        refundMap?: Map<string, number>
+    ): { [currency: string]: KpiValue } => {
+        if (!exchangeRates) return kpiMap;
 
-    const tableRows = Object.entries(shopData).map(([account, data]) => {
-        const revenue = formatMixedCurrency(data.revenue);
-        const refund = formatMixedCurrency(data.refund);
+        let totalUSD = 0;
+        let previousTotalUSD = 0;
+        let totalRefundUSD = 0;
+        const result: { [currency: string]: KpiValue } = {};
 
-        const row = [
-            accountLabelMap.get(account) || account,
-            data.refOrderIds.size > 0 
-                ? { type: 'text_with_subtitle' as const, main: data.orders.size.toString(), subtitle: `↩ ${data.refOrderIds.size}`, subtitleClass: 'text-red-500 font-medium' } 
-                : data.orders.size,
-            refund.value > 0 
-                ? { type: 'text_with_subtitle' as const, main: revenue.display, subtitle: `↩ ${refund.display}`, subtitleClass: 'text-red-500 font-medium' } 
-                : { type: 'value_with_unit' as const, value: revenue.value, display: revenue.display }
-        ];
+        // 1. Process main currency entries
+        Object.entries(kpiMap).forEach(([currency, val]) => {
+            const rate = exchangeRates[currency] || (currency === 'USD' ? 1 : 0);
+            const usd = (rawMap.get(currency) || 0) * rate;
+            const previousUSD = (previousRawMap?.get(currency) || 0) * rate;
+            totalUSD += usd;
+            previousTotalUSD += previousUSD;
 
-        if (role === 'owner' || permissions.viewFunds) {
-            const funds = formatMixedCurrency(data.funds);
-            row.push({ type: 'value_with_unit' as const, value: funds.value, display: funds.display });
+            const refundOriginal = refundMap?.get(currency) || 0;
+            const refundUSD = refundOriginal * rate;
+
+            result[currency] = {
+                ...val,
+                usdValue: usd,
+                conversionRate: rate,
+                ...(refundOriginal > 0 ? { refundOriginal, refundUSD } : {})
+            };
+        });
+
+        // 2. Global refund calculation (includes currencies not in rawMap/kpiMap)
+        if (refundMap) {
+            refundMap.forEach((amt, curr) => {
+                const rate = exchangeRates[curr] || (curr === 'USD' ? 1 : 0);
+                totalRefundUSD += amt * rate;
+            });
         }
 
-        if (role === 'owner' || permissions.viewFulfill) {
-            // Cost is default USD per user request, but we handle the map sum for valid display number
-            let totalCost = 0;
-            Object.values(data.cost).forEach(v => totalCost += v);
-            row.push(totalCost);
-        }
+        // 3. Add USD_TOTAL entry
+        result['USD_TOTAL'] = {
+            value: formatCurrency(totalUSD),
+            ...(hasPreviousPeriod
+                ? {
+                    previousValue: formatCurrency(previousTotalUSD),
+                    previousLabel: previousPeriodLabel,
+                    ...calculatePercentageChange(totalUSD, previousTotalUSD)
+                }
+                : {}),
+            conversionDetails: { 
+                originalAmounts: Object.fromEntries(rawMap), 
+                rates: exchangeRates 
+            },
+            ...(totalRefundUSD > 0 ? { 
+                refundInfo: `${formatCurrency(totalRefundUSD)} refunded`,
+                refundUSD: totalRefundUSD 
+            } : {})
+        };
 
-        return row;
-    }).sort((a, b) => (b[1] as number) - (a[1] as number));
+        return result;
+    };
 
-    if ((role === 'owner' || permissions.viewFulfill) && Object.keys(manualCostData.cost).length > 0) {
-        let totalManualCost = 0;
-        Object.values(manualCostData.cost).forEach(v => totalManualCost += v);
+    const kpis: KpiData = {
+        'Total Orders': { 
+            value: kpiRaw.orderIds.size.toString(), 
+            ...(hasPreviousPeriod
+                ? {
+                    previousValue: pKpiRaw.orderIds.size.toString(),
+                    previousLabel: previousPeriodLabel,
+                    ...calculatePercentageChange(kpiRaw.orderIds.size, pKpiRaw.orderIds.size)
+                }
+                : {}),
+            refundInfo: kpiRaw.refOrderIds.size > 0 ? `${kpiRaw.refOrderIds.size} refunded` : undefined 
+        },
+        'Shops': { value: kpiRaw.shops.size.toString() },
+        'Revenue': addUSDToKpi(transformKpiMap(kpiRaw.revenue, pKpiRaw.revenue), kpiRaw.revenue, pKpiRaw.revenue, kpiRaw.refund)
+    };
+    if (role === 'owner' || permissions.viewKpiFunds) kpis['Funds'] = addUSDToKpi(transformKpiMap(kpiRaw.funds, pKpiRaw.funds), kpiRaw.funds, pKpiRaw.funds);
+    if (role === 'owner' || permissions.viewKpiCost) kpis['Cost'] = transformKpiMap(kpiRaw.cost, pKpiRaw.cost);
 
-        const manualRow = [
-            "Manual Entry",
-            0,
-            { type: 'value_with_unit' as const, value: 0, display: '--' } // Revenue
-        ];
+    // -- Earn KPI (Funds - Cost) --
+    if (role === 'owner' || permissions.viewKpiEarn) {
+        const getMapTotalUSD = (m: Map<string, number>) => {
+            let total = 0;
+            m.forEach((v, c) => {
+                const rate = c === 'USD' ? 1 : (exchangeRates?.[c] || 1);
+                total += v * rate;
+            });
+            return total;
+        };
 
-        if (role === 'owner' || permissions.viewFunds) {
-            manualRow.push({ type: 'value_with_unit' as const, value: 0, display: '--' }); // Funds
-        }
+        const earnUSD = getMapTotalUSD(kpiRaw.funds) - getMapTotalUSD(kpiRaw.cost);
+        const pEarnUSD = pKpiRaw ? (getMapTotalUSD(pKpiRaw.funds) - getMapTotalUSD(pKpiRaw.cost)) : 0;
+        
+        // Calculate original amounts for Earn by currency: Funds - Cost
+        const earnOriginalAmounts: { [curr: string]: number } = {};
+        const allCurrs = new Set([...Array.from(kpiRaw.funds.keys()), ...Array.from(kpiRaw.cost.keys())]);
+        allCurrs.forEach(c => {
+            const val = (kpiRaw.funds.get(c) || 0) - (kpiRaw.cost.get(c) || 0);
+            if (val !== 0) earnOriginalAmounts[c] = val;
+        });
 
-        // Manual Cost is typically strictly Cost, so we push it if the column exists
-        // Since we are inside the 'if (viewFulfill)', the Cost column exists.
-        manualRow.push(totalManualCost);
-
-        tableRows.push(manualRow);
+        kpis['Earn'] = {
+            value: formatCurrency(earnUSD),
+            ...(hasPreviousPeriod
+                ? {
+                    previousValue: formatCurrency(pEarnUSD),
+                    previousLabel: previousPeriodLabel,
+                    ...calculatePercentageChange(earnUSD, pEarnUSD)
+                }
+                : {}),
+            usdValue: earnUSD,
+            conversionDetails: exchangeRates ? {
+                originalAmounts: earnOriginalAmounts,
+                rates: exchangeRates
+            } : undefined
+        };
     }
 
-    const summaryChartData = Object.entries(shopData).map(([account, data]) => {
-        const chartEntry: any = {
-            shop: accountLabelMap.get(account) || account,
+    // -- Summary Table --
+    const formatMix = (m: Map<string, number>) => {
+        const cs = Array.from(m.keys()).sort();
+        if (!cs.length) return { value: 0, display: '--', map: {} };
+        let t = 0;
+        const disp = cs.map(c => {
+            const v = m.get(c) || 0;
+            t += (c === 'USD' ? v : (exchangeRates?.[c] ? v * exchangeRates[c] : v));
+            return formatCurrency(v) + ' ' + c;
+        }).join(' + ');
+        return { value: t, display: disp, map: Object.fromEntries(m) };
+    };
+
+    const sumMap = (m: Map<string, number>) => Array.from(m.values()).reduce((sum, value) => sum + value, 0);
+    const getDeltaDirection = (current: number, previous: number) => calculatePercentageChange(current, previous).direction;
+    const getDeltaSuffix = (current: number, previous: number) => {
+        const delta = calculatePercentageChange(current, previous);
+        if (delta.direction === 'neutral') return '0.0%';
+        if (delta.change === Infinity) return 'New';
+        return `${delta.change.toFixed(1)}%`;
+    };
+    const makePreviousSubtitle = (previousDisplay: string, currentValue: number, previousValue: number) =>
+        `${previousPeriodLabel}: ${previousDisplay} (${getDeltaSuffix(currentValue, previousValue)})`;
+    const withPreviousSubtitle = (
+        cell: any,
+        currentValue: number,
+        previousDisplay: string,
+        previousValue: number,
+        previousAmountMap?: { [c: string]: number }
+    ) => {
+        if (!hasPreviousPeriod) return cell;
+        const subtitle = makePreviousSubtitle(previousDisplay, currentValue, previousValue);
+        const trendDirection = getDeltaDirection(currentValue, previousValue);
+        const currentClass = 'text-gray-900 dark:text-white';
+        const previousClass = 'text-gray-400 dark:text-gray-500 font-medium';
+
+        if (cell && typeof cell === 'object' && cell.type === 'text_with_subtitle') {
+            return {
+                ...cell,
+                mainClass: currentClass,
+                trendDirection,
+                subtitle,
+                subtitleClass: previousClass,
+                subtitleLabel: previousPeriodLabel,
+                subtitleValue: previousDisplay,
+                subtitleAmountMap: previousAmountMap,
+                subtitleDelta: getDeltaSuffix(currentValue, previousValue),
+                subtitleDeltaDirection: trendDirection,
+                extraSubtitle: cell.subtitle,
+                extraSubtitleClass: cell.subtitleClass,
+                extraSubtitleLabel: 'Refund',
+                extraSubtitleAmountMap: cell.subtitleAmountMap
+            };
+        }
+
+        if (cell && typeof cell === 'object' && cell.type === 'value_with_unit') {
+            return {
+                type: 'text_with_subtitle' as const,
+                main: cell.display,
+                mainClass: currentClass,
+                trendDirection,
+                subtitle,
+                subtitleClass: previousClass,
+                mainAmountMap: cell.amountMap,
+                subtitleAmountMap: previousAmountMap,
+                subtitleLabel: previousPeriodLabel,
+                subtitleValue: previousDisplay,
+                subtitleDelta: getDeltaSuffix(currentValue, previousValue),
+                subtitleDeltaDirection: trendDirection,
+                value: currentValue
+            };
+        }
+
+        return {
+            type: 'text_with_subtitle' as const,
+            main: String(cell),
+            mainClass: currentClass,
+            trendDirection,
+            subtitle,
+            subtitleClass: previousClass,
+            subtitleLabel: previousPeriodLabel,
+            subtitleValue: previousDisplay,
+            subtitleDelta: getDeltaSuffix(currentValue, previousValue),
+            subtitleDeltaDirection: trendDirection,
+            value: currentValue
         };
-        // Revenue
-        for (const currency of sortedRevenueCurrencies) {
-            chartEntry[`revenue${currency}`] = data.revenue[currency] || 0;
-        }
-        // Funds (Update: Include Funds in Chart Data)
-        for (const currency of sortedFundsCurrencies) {
-            chartEntry[`funds${currency}`] = data.funds[currency] || 0;
-        }
-        return chartEntry;
+    };
+
+    const summaryShopKeys = new Set([...Array.from(shopSummaryData.keys()), ...Array.from(previousShopSummaryData.keys())]);
+    const summaryRows = Array.from(summaryShopKeys).map((acc) => {
+        const data = shopSummaryData.get(acc) || createShopSummaryAccumulator();
+        const previousData = previousShopSummaryData.get(acc) || createShopSummaryAccumulator();
+        const rev = formatMix(data.revenue), ref = formatMix(data.refund), funds = formatMix(data.funds);
+        const previousRev = formatMix(previousData.revenue);
+        const previousFunds = formatMix(previousData.funds);
+        const costValue = sumMap(data.cost);
+        const previousCostValue = sumMap(previousData.cost);
+        const earnValue = (funds.value || 0) - costValue;
+        const previousEarnValue = (previousFunds.value || 0) - previousCostValue;
+        const orderCell = data.refOrderIds.size > 0
+            ? { type: 'text_with_subtitle' as const, main: data.orders.size.toString(), subtitle: `Refund: ${data.refOrderIds.size}`, subtitleClass: 'text-red-500 font-medium' }
+            : data.orders.size;
+        const revenueCell = ref.value > 0
+            ? { type: 'text_with_subtitle' as const, main: rev.display, subtitle: `Refund: ${ref.display}`, subtitleClass: 'text-red-500 font-medium', mainAmountMap: rev.map, subtitleAmountMap: ref.map }
+            : { type: 'value_with_unit' as const, value: rev.value, display: rev.display, amountMap: rev.map };
+        return [
+            accountLabelMap.get(acc) || acc,
+            withPreviousSubtitle(orderCell, data.orders.size, previousData.orders.size.toString(), previousData.orders.size),
+            withPreviousSubtitle(revenueCell, rev.value, previousRev.display, previousRev.value, previousRev.map),
+            ...((role === 'owner' || permissions.viewKpiFunds) ? [withPreviousSubtitle({ type: 'value_with_unit' as const, value: funds.value, display: funds.display, amountMap: funds.map }, funds.value, previousFunds.display, previousFunds.value, previousFunds.map)] : []),
+            ...((role === 'owner' || permissions.viewKpiCost) ? [withPreviousSubtitle({ type: 'value_with_unit' as const, value: costValue, display: formatCurrency(costValue), amountMap: { 'USD': costValue } }, costValue, formatCurrency(previousCostValue), previousCostValue, { 'USD': previousCostValue })] : []),
+            ...((role === 'owner' || permissions.viewKpiEarn) ? [withPreviousSubtitle({ 
+                type: 'value_with_unit' as const, 
+                value: earnValue, 
+                display: formatCurrency(earnValue), 
+                amountMap: { 'USD': earnValue } 
+            }, earnValue, formatCurrency(previousEarnValue), previousEarnValue, { 'USD': previousEarnValue })] : [])
+        ];
+    }).sort((a: any, b: any) => {
+        const getV = (v: any) => (typeof v === 'object' && v !== null ? (v.main ? parseInt(v.main) : (v.value || 0)) : v);
+        return getV(b[1]) - getV(a[1]);
     });
 
-    // --- TRANSFORM PRODUCT STATS TO SORTED ARRAY ---
-    const topProductsByShop: { [shopName: string]: TopProduct[] } = {};
-    Object.keys(productStatsByShop).forEach(shop => {
-        const stats = productStatsByShop[shop];
-        const sortedProducts = Array.from(stats.entries())
-            .map(([name, stat]) => ({
-                name,
-                quantity: stat.qty,
-                revenue: stat.rev,
-                image: stat.image
-            }))
-            .sort((a, b) => b.quantity - a.quantity) // Sort by Quantity DESC
-        // .slice(0, 100); // Increased limit to Top 100
-        topProductsByShop[shop] = sortedProducts;
+    const summaryChartData = Array.from(shopSummaryData.entries()).map(([acc, data]) => {
+        const res: any = { shop: accountLabelMap.get(acc) || acc };
+        sortedRevCurrs.forEach(c => res[`revenue${c}`] = data.revenue.get(c) || 0);
+        sortedFundsCurrs.forEach(c => res[`funds${c}`] = data.funds.get(c) || 0);
+        return res;
     });
 
-    return { kpis, table: { headers: tableHeaders, rows: tableRows }, chartData: summaryChartData, topProductsByShop };
+    // -- Top Products Transformers --
+    const transformStats = (stats: Map<string, Map<string, any>>) => {
+        const res: any = {};
+        stats.forEach((map, key) => {
+            res[key] = sortTopProductsByNameGroup(Array.from(map.entries()).map(([n, s]: [any, any]) => ({
+                sku: s.sku || '', name: s.name || (String(n).startsWith('name:') ? String(n).slice(5) : String(n)), quantity: s.qty, revenue: s.rev, revenueUSD: s.revUSD, image: s.image,
+                category: s.cat || key, shop: s.shop || key, classification: s.classification, size: s.size, currency: s.currency
+            })));
+        });
+        return res;
+    };
+
+    const catComp = Array.from(pByCat.entries()).map(([cat, stats]) => {
+        let tQ = 0, tR = 0, tRUSD = 0, tImg = undefined, mQ = -1, tCurr = 'USD';
+        stats.forEach((s: any) => { 
+            tQ += s.qty; tR += s.rev; tRUSD += s.revUSD; tCurr = s.currency;
+            if (s.qty > mQ) { mQ = s.qty; tImg = s.image; } 
+        });
+        return { name: categoryNameMap.get(cat) || cat, code: cat, quantity: tQ, revenue: tR, revenueUSD: tRUSD, image: tImg, currency: tCurr };
+    }).sort((a, b) => b.quantity - a.quantity);
+
+    // -- Fulfill Logic --
+    const processCounts = (counts: Map<string, number>) => Array.from(counts.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 10).reverse();
+
+    // -- Products Tab Rows --
+    const finalProductRows = Array.from(productStatsTableMap.values()).sort((a, b) => {
+        const catCmp = a.categoryCode.localeCompare(b.categoryCode);
+        if (catCmp !== 0) return catCmp;
+        return b.revenue - a.revenue;
+    }).map(p => [
+        { type: 'image', ...getOptimizedImageProps(p.image), alt: p.name }, p.sku || '', p.name, p.category, p.variant, p.shop, p.quantity,
+        { type: 'value_with_unit', value: p.revenue, display: `${formatNumber(p.revenue)} ${p.currency}` },
+        p.currency, p.revenue, p.categoryCode, p.groupingKey
+    ]);
+
+    const finalVariantRows = Array.from(variantStatsTableMap.values()).sort((a, b) => b.revenue - a.revenue).map(v => [
+        v.category, v.variant, v.quantity,
+        { type: 'value_with_unit', value: v.revenue, display: `${formatNumber(v.revenue)} ${v.currency}` },
+        v.currency, v.revenue, v.categoryCode
+    ]);
+
+    return {
+        overview: { table: { headers: overviewHeaders, rows: overviewRows as any }, chartData: overviewChartData },
+        orders: { headers: ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Curren", "Cost", "FF Code", "Rating", "Case", "Help", "Account", "Date", "Source"], rows: ordersTabRows.sort((a, b) => (b[15] || '').localeCompare(a[15] || '')) },
+        ebay: { headers: ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"], rows: ebayRows.sort((a, b) => (b[9] || '').localeCompare(a[9] || '')) },
+        etsy: { headers: ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"], rows: etsyRows.sort((a, b) => (b[9] || '').localeCompare(a[9] || '')) },
+        cases: { headers: ["Order Number", "Message", "Source", "Account", "Date"], rows: caseRows.sort((a, b) => (b[5] || '').localeCompare(a[5] || '')) },
+        help: { headers: ["Order Number", "Help Kind", "Source", "Account", "Date"], rows: helpRows.sort((a, b) => (b[5] || '').localeCompare(a[5] || '')) },
+        fulfill: {
+            table: { headers: ["Date", "Order Number", "Product Name", "Provider", "Fulfillment Code", "Cost (USD)", "Shop Account"], rows: fulfillRows.sort((a, b) => (b[8] || '').localeCompare(a[8] || '')) as any },
+            merchizeChartData: [], printwayChartData: [], // Opt: Removed redundant provider-specific chart calculations
+            allProductChartData: processCounts(fulfillCounts.all), refundedChartData: processCounts(fulfillCounts.refunded),
+            totalCost: fulfillTotalCost, refundRate: fulfillStats.totalCount > 0 ? (fulfillStats.refCount / fulfillStats.totalCount) * 100 : 0
+        },
+
+        summary: {
+            kpis, table: { headers: ["Shop", "Orders", "Revenue", ...((role === 'owner' || permissions.viewKpiFunds) ? ["Funds"] : []), ...((role === 'owner' || permissions.viewKpiCost) ? ["Cost (USD)"] : []), ...((role === 'owner' || permissions.viewKpiEarn) ? ["Earn"] : [])], rows: summaryRows as any },
+            chartData: summaryChartData, topProductsByShop: transformStats(pByShop), topProductsByCategory: transformStats(pByCat), topProductsBySize: {}, categoryComparison: catComp
+        },
+        products: { headers: ['Image', 'SKU', 'Product Name', 'Category', 'Variant/Size', 'Shop', 'Quantity', 'Revenue'], rows: finalProductRows },
+        variants: { headers: ['Category', 'Variant/Size', 'Quantity', 'Revenue'], rows: finalVariantRows }
+    };
 }

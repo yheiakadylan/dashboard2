@@ -1,0 +1,523 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Dashboard và Workload dùng authentication làm nguồn hồ sơ và phân quyền duy nhất.
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAuthenticationAdmin() {
+      return isSignedIn()
+        && request.auth.token.email == 'haitrinh2605204@gmail.com';
+    }
+
+    function getAuthenticationProfile() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/authentication/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/authentication/$(request.auth.uid)).data
+        : null;
+    }
+
+    function getAuthenticationProfileFor(userId) {
+      return isSignedIn()
+        && userId is string
+        && exists(/databases/$(database)/documents/authentication/$(userId))
+        ? get(/databases/$(database)/documents/authentication/$(userId)).data
+        : null;
+    }
+
+    function getAuthenticationApp(appId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/authentication/$(request.auth.uid)/apps/$(appId))
+        ? get(/databases/$(database)/documents/authentication/$(request.auth.uid)/apps/$(appId)).data
+        : null;
+    }
+
+    function getRolePermissionConfiguration(appId) {
+      let profile = getAuthenticationProfile();
+      let role = profile != null ? profile.get('role', null) : null;
+      return role != null
+        && exists(/databases/$(database)/documents/authentication/_settings/permission_roles/$(role)/apps/$(appId))
+        ? get(/databases/$(database)/documents/authentication/_settings/permission_roles/$(role)/apps/$(appId)).data
+        : null;
+    }
+
+    function isValidSharedRole(role) {
+      return role in [
+        'ADMIN', 'MANAGER',
+        'CS_SUPPORT', 'CS_FULFILL',
+        'LEADCS_SUPPORT', 'LEADCS_FULFILL',
+        'DS_FULFILL', 'DS_IDEA', 'LEADDS_FULFILL', 'LEADDS_IDEA',
+        'IDEA_RD', 'IDEA_SCALE', 'LEADIDEA_RD', 'LEADIDEA_SCALE'
+      ];
+    }
+
+    function hasActiveAuthenticationProfile() {
+      let profile = getAuthenticationProfile();
+      return profile != null
+        && profile.get('active', false) == true
+        && isValidSharedRole(profile.get('role', null));
+    }
+
+    function getSharedRole() {
+      let profile = getAuthenticationProfile();
+      return isAuthenticationAdmin()
+        ? 'ADMIN'
+        : (hasActiveAuthenticationProfile() ? profile.get('role', null) : null);
+    }
+
+    function hasAuthenticationAppAccess(appId) {
+      let app = getAuthenticationApp(appId);
+      return isAuthenticationAdmin()
+        || (hasActiveAuthenticationProfile()
+            && app != null
+            && app.get('enabled', false) == true);
+    }
+
+    function hasAuthenticationPermission(appId, permission, fallback) {
+      let configuration = getRolePermissionConfiguration(appId);
+      let configuredRolePermissions = configuration != null ? configuration.get('permissions', {}) : {};
+      let rolePermissions = configuredRolePermissions is map ? configuredRolePermissions : {};
+      let app = getAuthenticationApp(appId);
+      let configuredUserPermissions = app != null ? app.get('permissions', {}) : {};
+      let userPermissions = configuredUserPermissions is map ? configuredUserPermissions : {};
+      let configuredRolePermission = rolePermissions.get(permission, fallback);
+      let inheritedPermission = configuredRolePermission is bool ? configuredRolePermission : fallback;
+      let configuredUserPermission = userPermissions.get(permission, inheritedPermission);
+      return isAuthenticationAdmin()
+        || (hasAuthenticationAppAccess(appId)
+            && (configuredUserPermission is bool
+                ? configuredUserPermission
+                : inheritedPermission));
+    }
+
+    function hasDashboardAccess() {
+      return hasAuthenticationAppAccess('dashboard');
+    }
+
+    function hasWorkloadAccess() {
+      return hasAuthenticationAppAccess('workload');
+    }
+
+    function hasDashboardPermission(permission, fallback) {
+      return hasAuthenticationPermission('dashboard', permission, fallback);
+    }
+
+    function hasDashboardTeamAccess(teamId) {
+      let profile = getAuthenticationProfile();
+      return isAuthenticationAdmin()
+        || (hasDashboardAccess()
+            && profile.get('teamId', null) == teamId);
+    }
+
+    function hasWorkloadTeamAccess(teamId) {
+      let profile = getAuthenticationProfile();
+      return isAuthenticationAdmin()
+        || (hasAuthenticationAppAccess('workload')
+            && profile != null
+            && profile.get('teamId', null) == teamId);
+    }
+
+    function hasSharedAccountAccess(teamId) {
+      return hasDashboardTeamAccess(teamId)
+        || hasWorkloadTeamAccess(teamId);
+    }
+
+    function isAuthenticationManagement() {
+      return isAuthenticationAdmin()
+        || getSharedRole() in ['ADMIN', 'MANAGER'];
+    }
+
+    function isAuthenticationLeader() {
+      return getSharedRole() in [
+        'LEADCS_SUPPORT', 'LEADCS_FULFILL',
+        'LEADDS_FULFILL', 'LEADDS_IDEA',
+        'LEADIDEA_RD', 'LEADIDEA_SCALE'
+      ];
+    }
+
+    function canProposeKpi() {
+      return hasDashboardPermission(
+        'canProposeKpi',
+        isAuthenticationManagement() || isAuthenticationLeader()
+      );
+    }
+
+    function canApproveKpi() {
+      return hasDashboardPermission('canApproveKpi', isAuthenticationManagement());
+    }
+
+    function canManageTemplatePoints() {
+      return hasDashboardPermission(
+        'canManageTemplatePoints',
+        isAuthenticationManagement()
+          || getSharedRole() in ['LEADDS_FULFILL', 'LEADDS_IDEA']
+      );
+    }
+
+    function isRoleInKpiSection(role, sectionId) {
+      return (sectionId == 'designer-idea' && role in ['DS_IDEA', 'LEADDS_IDEA'])
+        || (sectionId == 'designer-fulfillment' && role in ['DS_FULFILL', 'LEADDS_FULFILL'])
+        || (sectionId == 'research-development' && role in ['IDEA_RD', 'LEADIDEA_RD'])
+        || (sectionId == 'scale' && role in ['IDEA_SCALE', 'LEADIDEA_SCALE'])
+        || (sectionId == 'customer-service' && role in ['CS_SUPPORT', 'LEADCS_SUPPORT'])
+        || (sectionId == 'fulfillment' && role in ['CS_FULFILL', 'LEADCS_FULFILL']);
+    }
+
+    function isValidKpiProposalCreate(teamId) {
+      let proposal = request.resource.data;
+      let sectionId = proposal.get('sectionId', proposal.get('departmentId', null));
+      let scope = proposal.get('scope', null);
+      let scopeId = proposal.get('scopeId', null);
+      let targetProfile = scope == 'employee' ? getAuthenticationProfileFor(scopeId) : null;
+      return proposal.get('status', null) == 'pending'
+        && proposal.get('active', true) == false
+        && proposal.get('createdBy', null) == request.auth.uid
+        && proposal.get('updatedBy', null) == request.auth.uid
+        && proposal.get('targetValue', 0) is number
+        && proposal.get('targetValue', 0) > 0
+        && proposal.get('period', null) in ['daily', 'weekly', 'monthly', 'quarterly']
+        && proposal.get('effectiveFrom', null) is string
+        && proposal.get('effectiveTo', null) is string
+        && proposal.get('effectiveFrom', null) <= proposal.get('effectiveTo', null)
+        && sectionId in ['designer-idea', 'designer-fulfillment', 'customer-service', 'fulfillment']
+        && ((sectionId == 'designer-idea' && proposal.get('metricCode', null) == 'DS_IDEA_POINTS')
+            || (sectionId == 'designer-fulfillment' && proposal.get('metricCode', null) == 'DS_FF_POINTS')
+            || (sectionId == 'customer-service' && proposal.get('metricCode', null) == 'CS_ORDERS_CLOSED')
+            || (sectionId == 'fulfillment' && proposal.get('metricCode', null) == 'FF_DONE'))
+        && (isAuthenticationManagement() || isRoleInKpiSection(getSharedRole(), sectionId))
+        && ((scope == 'department' && scopeId == sectionId)
+            || (scope == 'employee'
+                && targetProfile != null
+                && targetProfile.get('active', false) == true
+                && targetProfile.get('teamId', null) == teamId
+                && isRoleInKpiSection(targetProfile.get('role', null), sectionId)));
+    }
+
+    function isValidKpiProposalReview() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let nextStatus = after.get('status', null);
+      let affected = after.diff(before).affectedKeys();
+      return before.get('status', null) == 'pending'
+        && before.get('sectionId', before.get('departmentId', null)) in [
+          'designer-idea', 'designer-fulfillment', 'customer-service', 'fulfillment'
+        ]
+        && !(before.get('proposerRole', null) == 'leader'
+             && before.get('createdBy', null) == request.auth.uid)
+        && ((nextStatus == 'approved'
+             && after.get('active', false) == true
+             && after.get('approvedBy', null) == request.auth.uid
+             && affected.hasOnly([
+               'status', 'active', 'effectiveTo',
+               'approvedAt', 'approvedBy', 'approvedByName', 'updatedAt'
+             ]))
+            || (nextStatus == 'rejected'
+                && after.get('active', true) == false
+                && after.get('rejectedBy', null) == request.auth.uid
+                && after.get('rejectionReason', '') is string
+                && after.get('rejectionReason', '').size() > 0
+                && affected.hasOnly([
+                  'status', 'active',
+                  'rejectedAt', 'rejectedBy', 'rejectedByName',
+                  'rejectionReason', 'updatedAt'
+                ])));
+    }
+
+    function isValidKpiSnapshotSupersede() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return (before.get('status', null) == 'approved'
+              || (before.get('status', null) == null && before.get('active', false) == true))
+        && after.get('status', null) == before.get('status', null)
+        && after.diff(before).affectedKeys().hasOnly([
+          'active', 'effectiveTo', 'supersededById', 'updatedAt'
+        ]);
+    }
+
+    function resolveConfiguredPermission(rolePermissions, userPermissions, permission, fallback) {
+      let configuredRolePermission = rolePermissions.get(permission, fallback);
+      let inheritedPermission = configuredRolePermission is bool ? configuredRolePermission : fallback;
+      let configuredUserPermission = userPermissions.get(permission, inheritedPermission);
+      return configuredUserPermission is bool ? configuredUserPermission : inheritedPermission;
+    }
+
+    // =========================================================
+    // SHARED AUTHENTICATION & APP ACCESS
+    // =========================================================
+
+    match /authentication/{userId} {
+      allow read: if isSignedIn()
+                  && (request.auth.uid == userId
+                      || isAuthenticationAdmin()
+                      || hasDashboardAccess()
+                      || hasWorkloadAccess());
+      allow create, delete: if isAuthenticationAdmin();
+      allow update: if isAuthenticationAdmin()
+                    || (request.auth.uid == userId
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['displayName', 'photoURL']));
+
+      // Chỉ giữ quyền xóa để dọn schema data/common cũ trong giai đoạn migration.
+      match /data/{documentId} {
+        allow delete: if isAuthenticationAdmin();
+        allow read, create, update: if false;
+      }
+
+      match /apps/{appId} {
+        allow read: if isSignedIn()
+                    && (request.auth.uid == userId || isAuthenticationAdmin());
+        allow create, delete: if isAuthenticationAdmin();
+        allow update: if isAuthenticationAdmin()
+                      || (request.auth.uid == userId
+                          && appId in ['dashboard', 'workload']
+                          && request.resource.data.diff(resource.data).affectedKeys()
+                            .hasOnly(['fcmTokens', 'notificationSettings', 'fcmUpdatedAt']));
+      }
+
+      match /permission_roles/{role}/apps/{appId} {
+        allow read: if isAuthenticationAdmin()
+                    || (hasActiveAuthenticationProfile()
+                        && getAuthenticationProfile().get('role', null) == role);
+        allow create, update, delete: if isAuthenticationAdmin();
+      }
+    }
+
+    // =========================================================
+    // 2. TEAM DATA
+    // =========================================================
+
+    match /user/{teamId} {
+      allow read, write: if hasDashboardTeamAccess(teamId);
+    }
+
+    match /user/{teamId}/accounts/{documents=**} {
+      allow read: if hasSharedAccountAccess(teamId);
+      allow create, update: if hasSharedAccountAccess(teamId);
+      allow delete: if false;
+    }
+
+    match /user/{teamId}/kpi_targets/{documents=**} {
+      allow read: if hasDashboardTeamAccess(teamId);
+      allow create: if hasDashboardTeamAccess(teamId)
+                    && canProposeKpi()
+                    && isValidKpiProposalCreate(teamId);
+      allow update: if hasDashboardTeamAccess(teamId)
+                    && canApproveKpi()
+                    && (isValidKpiProposalReview() || isValidKpiSnapshotSupersede());
+      allow delete: if hasDashboardTeamAccess(teamId)
+                    && canApproveKpi()
+                    && resource.data.get('status', null) != 'approved'
+                    && resource.data.get('active', false) == false;
+    }
+
+    match /user/{teamId}/quarterly_performance_reviews/{documents=**} {
+      allow read, write: if false;
+    }
+
+    match /user/{teamId}/listings/{documents=**} {
+      allow read: if hasDashboardTeamAccess(teamId)
+                  && hasDashboardPermission('viewSales', true);
+      allow write: if hasDashboardTeamAccess(teamId);
+    }
+
+    match /user/{teamId}/settings/{documentId} {
+      allow read: if hasDashboardTeamAccess(teamId);
+      allow write: if hasDashboardTeamAccess(teamId)
+                   && (documentId == 'templates'
+                       ? canManageTemplatePoints()
+                       : (!(documentId in ['pod_teams', 'performance_calendar']) || isAuthenticationManagement()));
+    }
+
+    match /user/{teamId}/performance_baseline_buckets/{documentId} {
+      allow read: if hasDashboardTeamAccess(teamId);
+      allow write: if false;
+    }
+
+    match /user/{teamId}/{collectionId}/{documents=**} {
+      allow read, write: if collectionId != 'accounts'
+                         && collectionId != 'kpi_targets'
+                         && collectionId != 'quarterly_performance_reviews'
+                         && collectionId != 'listings'
+                         && collectionId != 'settings'
+                         && collectionId != 'performance_baseline_buckets'
+                         && hasDashboardTeamAccess(teamId);
+    }
+// =========================================================
+    // HELPER FUNCTIONS (Đã được viết lại để chống lỗi Null)
+    // =========================================================
+    function getRole() {
+      return getSharedRole();
+    }
+
+    function isAdmin() { return getRole() in ['ADMIN', 'MANAGER']; }
+    function isLeadCS() { return getRole() in ['LEADCS_SUPPORT', 'LEADCS_FULFILL']; }
+    function isCS() { return getRole() in ['CS_SUPPORT', 'CS_FULFILL', 'LEADCS_SUPPORT', 'LEADCS_FULFILL']; }
+    function isLeadDS() { return getRole() in ['LEADDS_FULFILL', 'LEADDS_IDEA']; }
+    function isDS() { return getRole() in ['DS_FULFILL', 'DS_IDEA', 'LEADDS_FULFILL', 'LEADDS_IDEA']; }
+    function isLeadIdea() { return getRole() in ['LEADIDEA_RD', 'LEADIDEA_SCALE']; }
+    function isIdeaMember() { return getRole() in ['IDEA_RD', 'IDEA_SCALE']; }
+    function isIdeaRole() { return isIdeaMember() || isLeadIdea(); }
+    function isDepartmentLead() { return isLeadCS() || isLeadDS() || isLeadIdea(); }
+    function canManageUsersAuth() { return isAdmin() || isDepartmentLead(); }
+    function canViewAnalyst() { return isAdmin() || isDepartmentLead(); }
+
+    function isFulfillManager() { return isAdmin() || isCS(); }
+    function isIdeaManager() { return isAdmin() || isLeadIdea(); }
+
+    function canViewAllFulfillTasks() {
+      return hasAuthenticationPermission(
+        'workload',
+        'canViewAllFulfillTasks',
+        isAdmin() || isCS() || isLeadDS()
+      );
+    }
+
+    function canViewAllIdeaTasks() {
+      return hasAuthenticationPermission(
+        'workload',
+        'canViewAllIdeaTasks',
+        isAdmin() || isLeadIdea() || isLeadDS()
+      );
+    }
+
+    function canViewDesignerWorkload() {
+      return hasAuthenticationPermission(
+        'workload',
+        'canViewDesignerWorkload',
+        isAdmin() || isLeadDS()
+      );
+    }
+
+    function isMyTask(resourceData) {
+      return resourceData.get('designerId', null) == request.auth.uid || isLeadDS();
+    }
+
+    function isCreator(resourceData) {
+      return resourceData.get('createdBy', null) == request.auth.uid;
+    }
+
+    function isArtworkReadableTask(resourceData) {
+      return resourceData.get('status', null) in ['preview', 'in_review', 'done'];
+    }
+
+    function canReadFulfillTask(resourceData) {
+      let role = getRole();
+      let status = resourceData.get('status', null);
+      return resourceData.get('createdBy', null) == request.auth.uid
+        || (role in ['DS_FULFILL', 'DS_IDEA']
+            && (status == 'new'
+                || resourceData.get('designerId', null) == request.auth.uid))
+        || isArtworkReadableTask(resourceData)
+        || canViewAllFulfillTasks()
+        || (status == 'doing' && canViewDesignerWorkload());
+    }
+
+    function canReadIdeaTask(resourceData) {
+      let role = getRole();
+      let status = resourceData.get('status', null);
+      return (role in ['DS_FULFILL', 'DS_IDEA']
+            && (status == 'new'
+                || resourceData.get('designerId', null) == request.auth.uid))
+        || isArtworkReadableTask(resourceData)
+        || canViewAllIdeaTasks()
+        || (status == 'doing' && canViewDesignerWorkload());
+    }
+
+    // =========================================================
+    // TASKS COLLECTION (FULFILLMENT BOARD)
+    // =========================================================
+    match /tasks/{taskId} {
+      allow read: if isSignedIn() && canReadFulfillTask(resource.data);
+
+      allow create, update: if isSignedIn();
+
+      allow delete: if isSignedIn() && isFulfillManager();
+
+      match /logs/{logId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    // =========================================================
+    // IDEAS COLLECTION (IDEA BOARD)
+    // =========================================================
+    match /ideas/{ideaId} {
+      allow read: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      allow read: if isSignedIn() && canReadIdeaTask(resource.data);
+
+      allow create, update: if isSignedIn();
+
+      allow delete: if isSignedIn() && (isIdeaManager() || (isIdeaMember() && isCreator(resource.data)));
+
+      match /logs/{logId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+
+    // =========================================================
+    // ARTWORKS COLLECTION
+    // =========================================================
+    match /artworks/{artworkId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && getRole() != null;
+    }
+
+    // =========================================================
+    // NOTIFICATIONS
+    // =========================================================
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if false;
+    }
+    // =========================================================
+    // OTHER SETTINGS
+    // =========================================================
+    match /settings/templates {
+      allow read: if hasDashboardAccess() || hasWorkloadAccess();
+      allow write: if hasDashboardPermission(
+          'canManageTemplatePoints',
+          isAdmin() || isLeadDS()
+        )
+        || hasAuthenticationPermission(
+          'workload',
+          'canManageTemplates',
+          canManageUsersAuth()
+        );
+    }
+
+    match /settings/idea_config {
+      allow read: if hasWorkloadAccess();
+      allow write: if hasAuthenticationPermission(
+        'workload',
+        'canManageSystemConfig',
+        canManageUsersAuth()
+      );
+    }
+
+    match /settings/fulfill_config {
+      allow read: if hasWorkloadAccess();
+      allow write: if hasAuthenticationPermission(
+        'workload',
+        'canManageSystemConfig',
+        canManageUsersAuth()
+      );
+    }
+
+    match /sku_mappings/{mappingId} {
+      allow read: if isSignedIn();
+      allow write: if isFulfillManager();
+    }
+
+    match /product_template_mappings/{mappingId} {
+      allow read: if isSignedIn();
+      allow write: if isFulfillManager();
+    }
+  }
+}

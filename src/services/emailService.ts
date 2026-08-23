@@ -1,7 +1,7 @@
 // emailService.ts
 import { Account, Record } from '../types';
 import { Rule, RULES, parseMessage } from './rules';
-import { getMicrosoftToken, getGoogleAccessToken } from './authService';
+import { getMicrosoftToken, getGoogleAccessToken } from '../features/auth/services/authService';
 import { updateAccountsInFirebase, deleteRecordsByEmailId, addRecord } from './firebaseService';
 
 /**
@@ -349,15 +349,33 @@ async function fetchOutlookMessages(
     const fromISO = new Date(dateRange.from).toISOString();
     const toISO = new Date(dateRange.to).toISOString();
 
-    const subjectQuery = rule.query.match(/subject:"([^"]+)"/i)?.[1] || '';
-    if (!subjectQuery && !rule.query.includes('from:')) {
+    // Parse ALL subject:"..." clauses — supports OR queries (e.g. Etsy_Sales has 2 subject patterns)
+    const subjectMatches = [...rule.query.matchAll(/subject:"([^"]+)"/gi)].map(m => m[1]);
+    const fromQueryMatch = rule.query.match(/from:([\w@.-]+)/i);
+
+    if (subjectMatches.length === 0 && !fromQueryMatch) {
         console.warn(`Rule "${rule.name}" for Outlook has insufficient query filters. Skipping.`);
         return [];
     }
-    let filterParts = [`receivedDateTime ge ${fromISO}`, `receivedDateTime lt ${toISO}`];
-    if (subjectQuery) filterParts.push(`contains(subject, '${subjectQuery.replace(/'/g, "''")}')`);
-    const fromQueryMatch = rule.query.match(/from:([\w@.-]+)/i);
-    if (fromQueryMatch?.[1]) filterParts.push(`startsWith(from/emailAddress/address, '${fromQueryMatch[1]}')`);
+
+    const filterParts: string[] = [
+        `receivedDateTime ge ${fromISO}`,
+        `receivedDateTime lt ${toISO}`,
+    ];
+
+    if (subjectMatches.length === 1) {
+        filterParts.push(`contains(subject, '${subjectMatches[0].replace(/'/g, "''")}')`);
+    } else if (subjectMatches.length > 1) {
+        const orClause = subjectMatches
+            .map(s => `contains(subject, '${s.replace(/'/g, "''")}')`) 
+            .join(' or ');
+        filterParts.push(`(${orClause})`);
+    }
+
+    if (fromQueryMatch?.[1]) {
+        filterParts.push(`startsWith(from/emailAddress/address, '${fromQueryMatch[1]}')`);
+    }
+
     const filter = filterParts.join(' and ');
 
     let url: string | undefined =
@@ -440,12 +458,16 @@ export const checkEmailsExistInRange = async (account: Account, dateRange: { fro
                 const fromISO = new Date(dateRange.from).toISOString();
                 const toISO = new Date(dateRange.to).toISOString();
 
-                const subjectQuery = rule.query.match(/subject:"([^"]+)"/i)?.[1] || '';
-                if (!subjectQuery && !rule.query.includes('from:')) continue;
-
-                let filterParts = [`receivedDateTime ge ${fromISO}`, `receivedDateTime lt ${toISO}`];
-                if (subjectQuery) filterParts.push(`contains(subject, '${subjectQuery.replace(/'/g, "''")}')`);
+                const subjectMatches = [...rule.query.matchAll(/subject:"([^"]+)"/gi)].map(m => m[1]);
                 const fromQueryMatch = rule.query.match(/from:([\w@.-]+)/i);
+                if (subjectMatches.length === 0 && !fromQueryMatch) continue;
+
+                const filterParts = [`receivedDateTime ge ${fromISO}`, `receivedDateTime lt ${toISO}`];
+                if (subjectMatches.length === 1) {
+                    filterParts.push(`contains(subject, '${subjectMatches[0].replace(/'/g, "''")}')`);
+                } else if (subjectMatches.length > 1) {
+                    filterParts.push(`(${subjectMatches.map(s => `contains(subject, '${s.replace(/'/g, "''")}')`).join(' or ')})`);
+                }
                 if (fromQueryMatch?.[1]) filterParts.push(`startsWith(from/emailAddress/address, '${fromQueryMatch[1]}')`);
 
                 const filter = filterParts.join(' and ');
@@ -508,16 +530,23 @@ export const fetchAllRecords = async (
     setStatus: (status: string) => void,
     overrideDateRange?: { from: string, to: string },
     existingEmailIds?: Set<string>,
-    onProgress?: (progress: { current: number, total: number, message: string }) => void
+    onProgress?: (progress: { current: number, total: number, message: string }) => void,
+    ruleNames?: string[] // Added optional filter
 ): Promise<Record[]> => {
     setStatus(`Starting sync for ${accounts.length} account(s)...`);
 
     // Calculate total steps (Rules * Accounts)
     let totalSteps = 0;
     accounts.forEach(acc => {
-        const activeRules = RULES.filter(r =>
+        let activeRules = RULES.filter(r =>
             !r.platform || !acc.platforms || acc.platforms.length === 0 || acc.platforms.includes(r.platform)
         );
+
+        // Filter by ruleNames if provided
+        if (ruleNames && ruleNames.length > 0) {
+            activeRules = activeRules.filter(r => ruleNames.includes(r.name));
+        }
+
         totalSteps += activeRules.length;
     });
 
@@ -549,12 +578,17 @@ export const fetchAllRecords = async (
             // Filter rules based on account platforms
             // If account.platforms is empty/undefined, run all rules (default behavior)
             // Otherwise, only run rules that match the platform or have no specific platform
-            const activeRules = RULES.filter(r =>
+            let activeRules = RULES.filter(r =>
                 !r.platform ||
                 !account.platforms ||
                 account.platforms.length === 0 ||
                 account.platforms.includes(r.platform)
             );
+
+            // Filter by ruleNames if provided
+            if (ruleNames && ruleNames.length > 0) {
+                activeRules = activeRules.filter(r => ruleNames.includes(r.name));
+            }
 
             const rulePromises = activeRules.map(async (rule) => {
                 let fetchedRecords: Partial<Record>[] = [];
@@ -670,4 +704,132 @@ export const reprocessRecord = async (teamId: string, account: Account, record: 
     }
 
     return null;
+};
+
+export interface RawEmail {
+    id: string;
+    subject: string;
+    from: string;
+    date: string;
+    snippet: string;
+    body: string;
+    provider: 'gmail' | 'outlook';
+    account: string;
+}
+
+export const fetchEmailsRaw = async (
+    account: Account,
+    dateRange: { from: string, to: string },
+    searchQuery: string = ''
+): Promise<RawEmail[]> => {
+    if (account.provider === 'gmail') {
+        const authorizedFetch = createGmailFetcher(account);
+        const fromTimestamp = Math.floor(new Date(dateRange.from).getTime() / 1000);
+        const toDateObj = new Date(dateRange.to);
+        toDateObj.setDate(toDateObj.getDate() + 1);
+        const toTimestamp = Math.floor(toDateObj.getTime() / 1000);
+
+        let q = `after:${fromTimestamp} before:${toTimestamp}`;
+        if (searchQuery.trim()) {
+            q += ` ${searchQuery}`;
+        }
+
+        const listUrl = new URL('https://www.googleapis.com/gmail/v1/users/me/messages');
+        listUrl.searchParams.append('q', q);
+        listUrl.searchParams.append('maxResults', '50');
+
+        const listResponse = await authorizedFetch(listUrl.toString());
+        if (!listResponse.ok) {
+            const errorText = await listResponse.text();
+            throw new Error(`Gmail API error (list): Status ${listResponse.status}. Body: ${errorText}`);
+        }
+
+        const listData = await listResponse.json();
+        const messages = listData.messages || [];
+        if (messages.length === 0) return [];
+
+        const emails: RawEmail[] = [];
+        const CONCURRENCY_LIMIT = 8;
+
+        for (let i = 0; i < messages.length; i += CONCURRENCY_LIMIT) {
+            const batch = messages.slice(i, i + CONCURRENCY_LIMIT);
+            await Promise.all(batch.map(async (messageHeader: any) => {
+                try {
+                    const msgUrl = `https://www.googleapis.com/gmail/v1/users/me/messages/${messageHeader.id}?format=full`;
+                    const msgResponse = await authorizedFetch(msgUrl);
+                    if (!msgResponse.ok) return;
+
+                    const msgData = await msgResponse.json();
+                    const headers = msgData.payload?.headers || [];
+                    const subject = headers.find((h: any) => h.name.toLowerCase() === 'subject')?.value || '(No Subject)';
+                    const from = headers.find((h: any) => h.name.toLowerCase() === 'from')?.value || 'Unknown';
+                    const htmlBody = getHtmlFromGmailPayload(msgData.payload);
+                    const plainBody = getPlainTextFromGmailPayload(msgData.payload);
+                    const body = htmlBody || plainBody || '';
+                    const date = msgData.internalDate ? new Date(parseInt(msgData.internalDate)).toISOString() : new Date().toISOString();
+
+                    emails.push({
+                        id: msgData.id,
+                        subject,
+                        from,
+                        date,
+                        snippet: msgData.snippet || '',
+                        body,
+                        provider: 'gmail',
+                        account: account.email
+                    });
+                } catch (err) {
+                    console.error(`Failed to fetch gmail msg ${messageHeader.id}`, err);
+                }
+            }));
+        }
+
+        // Sort by date desc
+        emails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return emails;
+
+    } else if (account.provider === 'outlook') {
+        const accessToken = await getMicrosoftToken(account);
+        const fromISO = new Date(dateRange.from).toISOString();
+        const toDateObj = new Date(dateRange.to);
+        toDateObj.setDate(toDateObj.getDate() + 1);
+        const toISO = toDateObj.toISOString();
+
+        let url = `https://graph.microsoft.com/v1.0/me/messages?$filter=${encodeURIComponent(`receivedDateTime ge ${fromISO} and receivedDateTime lt ${toISO}`)}&$select=id,receivedDateTime,subject,bodyPreview,body,from&$orderby=receivedDateTime desc&$top=50`;
+
+        if (searchQuery.trim()) {
+            const fromYMD = dateRange.from.split('T')[0];
+            const toYMD = dateRange.to.split('T')[0];
+            const searchQueryEscaped = searchQuery.replace(/"/g, '\\"');
+            url = `https://graph.microsoft.com/v1.0/me/messages?$search=${encodeURIComponent(`received>=${fromYMD} AND received<=${toYMD} AND "${searchQueryEscaped}"`)}&$select=id,receivedDateTime,subject,bodyPreview,body,from&$top=50`;
+        }
+
+        const response = await fetchWithRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        if (response.status === 401) throw new Error(`Authentication failed for ${account.email}.`);
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`MS Graph API error: Status ${response.status}. Body: ${errorText}`);
+        }
+
+        const data = await response.json();
+        const messages = data.value || [];
+
+        return messages.map((m: any) => {
+            const fromName = m.from?.emailAddress?.name || '';
+            const fromAddr = m.from?.emailAddress?.address || '';
+            const from = fromName ? `${fromName} <${fromAddr}>` : fromAddr || 'Unknown';
+            return {
+                id: m.id,
+                subject: m.subject || '(No Subject)',
+                from,
+                date: m.receivedDateTime ? new Date(m.receivedDateTime).toISOString() : new Date().toISOString(),
+                snippet: m.bodyPreview || '',
+                body: m.body?.content || '',
+                provider: 'outlook',
+                account: account.email
+            };
+        });
+    }
+
+    return [];
 };

@@ -24,11 +24,18 @@ export interface NotificationMetadata {
     // CASE_HELP metadata
     case_id?: string;
     case_type?: string;
+    case_msg?: string;
+    help_kind?: string;
     customer_name?: string;
     customer_email?: string;
     priority?: 'High' | 'Normal' | 'Low';
     subject?: string;
     message?: string;
+    shopName?: string;
+    shopHealthKeys?: string[];
+    shopHealthStatus?: 'suspended' | 'recovered';
+    shopHealthAccountId?: string;
+    shopHealthCheckedAt?: string;
 
     // SUMMARY metadata
     summary_data?: {

@@ -1,27 +1,35 @@
-import { Tab } from "../types";
+import { Tab } from '../types';
+import { hasPermission, type UserPermissions } from './permissionHelper';
 
 export const getPermittedTabs = (
-  tabs: Tab[],
-  role: "owner" | "user",
-  permissions: { [key: string]: boolean },
+    tabs: Tab[],
+    role: 'owner' | 'user',
+    permissions: UserPermissions
 ): Tab[] => {
-  return tabs.filter((tab) => {
-    if (role === "owner") return true;
-    switch (tab) {
-      case "Overview":
-      case "Order List":
-      case "Products":
-      case "Shop Evaluation":
-      case "Support":
-        return permissions.viewSales;
-      case "Fulfill":
-        return permissions.viewFulfill;
-      case "KPI":
-      case "Design":
-      case "Templete":
-        return true;
-      default:
-        return false;
-    }
-  });
+    return tabs.filter(tab => {
+        if (role === 'owner') return true;
+
+        // Use granular tab permissions
+        switch (tab) {
+            case 'Overview':
+                return hasPermission(role, permissions, 'viewOverviewTab');
+            case 'Order List':
+                return hasPermission(role, permissions, 'viewOrderListTab');
+            case 'Products':
+                return hasPermission(role, permissions, 'viewProductsTab');
+            case 'Support':
+                return hasPermission(role, permissions, 'viewSupportTab');
+            case 'Fulfill':
+                return hasPermission(role, permissions, 'viewFulfillTab');
+            case 'Reviews':
+                return hasPermission(role, permissions, 'viewReviewsTab');
+            case 'Shop Evaluation':
+                return hasPermission(role, permissions, 'viewSales');
+            case 'Design':
+            case 'Templete':
+                return true;
+            default:
+                return false;
+        }
+    });
 };

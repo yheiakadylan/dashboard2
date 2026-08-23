@@ -6,6 +6,9 @@ import { SHARED_USER_ID } from '../src/constants.js';
 import { RULES, parseMessage } from '../src/services/rules.js';
 import type { Account, Record } from './_lib/types.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
+import { processNewOrder } from './_lib/orderService.js';
+import { getOrderTaskDocumentId } from '../src/utils/orderTaskPayload.js';
+import { markDailyCacheDirtyForISOValues } from './_lib/dailyCacheAdmin.js';
 
 // --- Helpers ---
 /*
@@ -115,6 +118,82 @@ const chunkArray = <T>(array: T[], size: number): T[][] => {
   return chunks;
 };
 
+const SAFE_BATCH_WRITE_LIMIT = 450;
+
+function isTaskEligibleOrder(record: Partial<Record> & { source?: string; account?: string }): boolean {
+  const itemCount = record.details?.items?.length || 0;
+  return (
+    (record.source === 'Etsy_Sales' || record.source === 'Ebay_Sales') &&
+    Boolean(record.order_id) &&
+    Boolean(record.account) &&
+    itemCount > 0
+  );
+}
+
+function getExpectedTaskIds(record: Partial<Record>): string[] {
+  const orderId = record.order_id;
+  const items = record.details?.items || [];
+  if (!orderId || items.length === 0) return [];
+  return items.map((_, index) => getOrderTaskDocumentId(orderId, index, items.length));
+}
+
+function estimateRecordWrites(record: Partial<Record> & { source?: string; account?: string }): number {
+  // 1 record write + optional sku_job + one task per item.
+  return 1 + (isTaskEligibleOrder(record) ? 1 + (record.details?.items?.length || 0) : 0);
+}
+
+function estimatePostOrderWrites(record: Partial<Record> & { source?: string; account?: string }): number {
+  return isTaskEligibleOrder(record) ? 1 + (record.details?.items?.length || 0) : 0;
+}
+
+function createBatchWriter(db: any, limit: number = SAFE_BATCH_WRITE_LIMIT) {
+  let batch = db.batch();
+  let writeCount = 0;
+  let commitCount = 0;
+
+  const commit = async () => {
+    if (writeCount === 0) return;
+    await batch.commit();
+    commitCount++;
+    batch = db.batch();
+    writeCount = 0;
+  };
+
+  const ensureCapacity = async (additionalWrites: number = 1) => {
+    if (writeCount > 0 && writeCount + additionalWrites > limit) {
+      await commit();
+    }
+  };
+
+  return {
+    async ensureCapacity(additionalWrites: number = 1) {
+      await ensureCapacity(additionalWrites);
+    },
+    set(ref: any, data: any, options?: any) {
+      if (options) batch.set(ref, data, options);
+      else batch.set(ref, data);
+      writeCount++;
+      return this;
+    },
+    update(ref: any, data: any) {
+      batch.update(ref, data);
+      writeCount++;
+      return this;
+    },
+    delete(ref: any) {
+      batch.delete(ref);
+      writeCount++;
+      return this;
+    },
+    async commit() {
+      await commit();
+    },
+    getCommitCount() {
+      return commitCount;
+    }
+  };
+}
+
 // --- Main Handler ---
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -126,6 +205,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const db = getDb();
   const syncStartTime = new Date().toISOString();
   let totalNewRecords = 0;
+  let totalTaskBackfills = 0;
 
   try {
     // 2. Lấy tất cả tài khoản Outlook
@@ -137,8 +217,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Map account để lấy thông tin (Label/Tên Shop)
     const outlookAccounts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Account));
-    // Tạo Map: Email -> Tên Shop (Label)
-    const accountLabelMap = new Map(outlookAccounts.map(acc => [acc.email, acc.label || acc.email]));
+    // Tạo Map: Email -> {id, label}
+    const accountInfoMap = new Map(outlookAccounts.map(acc => [acc.email, { id: acc.id, label: acc.label || acc.email }]));
 
     console.log(`[sync-outlook] Found ${outlookAccounts.length} Outlook account(s) to sync.`);
 
@@ -171,6 +251,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // 4. Lọc bỏ các email đã tồn tại (Copy logic từ firebaseService)
       const emailIdsToCheck = allNewRecords.map(r => r.email_id).filter(id => !!id) as string[];
       const existingEmailIds = new Set<string>();
+      const existingRecordsByEmailId = new Map<string, any>();
 
       if (emailIdsToCheck.length > 0) {
         const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
@@ -178,61 +259,136 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         for (const chunk of idChunks) {
           const q = recordsRef.where('email_id', 'in', chunk);
           const qSnapshot = await q.get();
-          qSnapshot.forEach(doc => existingEmailIds.add(doc.data().email_id));
+          qSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.email_id) {
+              existingEmailIds.add(data.email_id);
+              existingRecordsByEmailId.set(data.email_id, data);
+            }
+          });
         }
       }
 
       const recordsToAdd = allNewRecords.filter(
         r => !r.email_id || !existingEmailIds.has(r.email_id)
       );
+      const existingRecordsToCheck = allNewRecords.filter(
+        r => r.email_id && existingEmailIds.has(r.email_id) && isTaskEligibleOrder(r)
+      );
       totalNewRecords = recordsToAdd.length;
       console.log(`[sync-outlook] Found ${allNewRecords.length} total, ${existingEmailIds.size} existing, ${totalNewRecords} new records to add.`);
 
       // 5. Lưu record mới và cập nhật timestamp
-      if (totalNewRecords > 0) {
-        const batch = db.batch();
+      if (totalNewRecords > 0 || existingRecordsToCheck.length > 0) {
+        const batchWriter = createBatchWriter(db);
         const recordsRef = db.collection('user').doc(SHARED_USER_ID).collection('records');
 
         // --- CHUẨN BỊ THÔNG BÁO ---
-        const notificationEvents: { type: 'order' | 'funds', text: string }[] = [];
+        const notificationEvents: { type: 'order' | 'refund' | 'funds', text: string }[] = [];
 
-        recordsToAdd.forEach(record => {
+        for (const record of recordsToAdd as any[]) {
+          await batchWriter.ensureCapacity(estimateRecordWrites(record as any));
           const docRef = record.email_id
             ? recordsRef.doc(record.email_id)
             : recordsRef.doc();
           // Xóa id ảo nếu có trong object record
           const { id, ...recordData } = record as any;
-          batch.set(docRef, recordData);
+          batchWriter.set(docRef, recordData);
+
+          // --- TRIGGER SKU JOB & TASK CREATION ---
+          await processNewOrder(db, batchWriter, SHARED_USER_ID, record as any, accountInfoMap);
 
           // --- TẠO NỘI DUNG THÔNG BÁO ---
           // Lấy tên Shop từ Map
-          const shopName = accountLabelMap.get(record.account) || record.account;
+          const shopName = accountInfoMap.get(record.account)?.label || record.account;
 
           if (record.kind === 'order') {
-            notificationEvents.push({
-              type: 'order',
-              text: `New Order: ${record.order_id || 'Unknown'} - $${record.amount} (${shopName})`
-            });
+            const isRefund = record.source === 'Etsy_Refunded';
+            if (isRefund) {
+              notificationEvents.push({
+                type: 'refund',
+                text: `Refund: #${record.order_id || 'Unknown'} - $${Math.abs(record.refund_details.refundAmount)} ${record.refund_details.refundCurrency} (${shopName})`
+              });
+            } else {
+              notificationEvents.push({
+                type: 'order',
+                text: `New Order: #${record.order_id || 'Unknown'} - $${record.amount} ${record.currency} (${shopName})`
+              });
+            }
           } else if (record.kind === 'Funds') {
             notificationEvents.push({
               type: 'funds',
               text: `Funds Received: $${record.amount} ${record.currency} (${shopName})`
             });
           }
-        });
+        }
 
         // Cập nhật last_synced_at cho các tài khoản đã sync
-        outlookAccounts.forEach(account => {
-          const accRef = accountsRef.doc(account.id);
-          batch.update(accRef, { last_synced_at: syncStartTime });
-        });
+        if (existingRecordsToCheck.length > 0) {
+          const taskIdsToCheck = Array.from(new Set(existingRecordsToCheck.flatMap(record => [
+            ...getExpectedTaskIds(record),
+            ...(record.order_id ? [record.order_id] : []),
+          ])));
+          const existingTaskIds = new Set<string>();
 
-        await batch.commit();
+          for (const chunk of chunkArray(taskIdsToCheck, 300)) {
+            if (chunk.length === 0) continue;
+            const taskSnapshots = await db.getAll(...chunk.map(taskId => db.collection('tasks').doc(taskId)));
+            taskSnapshots.forEach((taskSnapshot: any) => {
+              if (taskSnapshot.exists) existingTaskIds.add(taskSnapshot.id);
+            });
+          }
+
+          for (const parsedRecord of existingRecordsToCheck) {
+            if (parsedRecord.order_id && existingTaskIds.has(parsedRecord.order_id)) continue;
+            const expectedTaskIds = getExpectedTaskIds(parsedRecord);
+            const missingTaskIds = expectedTaskIds.filter(taskId => !existingTaskIds.has(taskId));
+            if (missingTaskIds.length === 0) continue;
+
+            const storedRecord = parsedRecord.email_id
+              ? existingRecordsByEmailId.get(parsedRecord.email_id)
+              : null;
+            const recordForTaskSync = {
+              ...(storedRecord || {}),
+              ...parsedRecord,
+            };
+
+            await batchWriter.ensureCapacity(estimatePostOrderWrites(recordForTaskSync as any));
+            await processNewOrder(
+              db,
+              batchWriter,
+              SHARED_USER_ID,
+              recordForTaskSync as any,
+              accountInfoMap,
+              new Set(missingTaskIds),
+            );
+            missingTaskIds.forEach(taskId => existingTaskIds.add(taskId));
+            totalTaskBackfills++;
+          }
+        }
+
+        for (const account of outlookAccounts) {
+          await batchWriter.ensureCapacity(1);
+          const accRef = accountsRef.doc(account.id);
+          batchWriter.update(accRef, { last_synced_at: syncStartTime });
+        }
+
+        await batchWriter.commit();
+        console.log(`[sync-outlook] Committed writes in ${batchWriter.getCommitCount()} batch(es). Backfilled ${totalTaskBackfills} order task set(s).`);
+
+        await markDailyCacheDirtyForISOValues(
+          db,
+          SHARED_USER_ID,
+          ['records'],
+          recordsToAdd.map(record => record.dt_local),
+          'outlook-sync'
+        ).catch(error => console.warn('[sync-outlook] Failed to mark daily cache dirty:', error));
 
         // --- GỮI THÔNG BÁO PUSH (SAU KHI LƯU DB THÀNH CÔNG) ---
         if (notificationEvents.length > 0) {
-          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboard2-alpha-bay.vercel.app/';
           const orders = notificationEvents.filter(e => e.type === 'order');
+          const refunds = notificationEvents.filter(e => e.type === 'refund');
           const funds = notificationEvents.filter(e => e.type === 'funds');
 
           // Gửi thông báo Order
@@ -249,6 +405,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
                 title: 'New Orders',
                 body: `You have ${orders.length} new orders.`,
+                url: `${appUrl}/?tab=Order+List`
+              });
+            }
+          }
+
+          // Gửi thông báo Refund
+          if (refunds.length > 0) {
+            if (refunds.length === 1) {
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                title: 'Refund Processed',
+                body: refunds[0].text,
+                url: `${appUrl}/?tab=Order+List`
+              });
+            } else {
+              await sendPushNotificationToUsers(SHARED_USER_ID, 'order', {
+                title: 'Refunds Processed',
+                body: `You have ${refunds.length} successful refunds.`,
                 url: `${appUrl}/?tab=Order+List`
               });
             }
@@ -277,7 +450,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(200).json({
       message: 'Outlook sync complete.',
       accounts_synced: outlookAccounts.length,
-      new_records_added: totalNewRecords
+      new_records_added: totalNewRecords,
+      task_backfills: totalTaskBackfills
     });
 
   } catch (error: any) {

@@ -30,6 +30,7 @@ export const getCachedDateFormatter = (timeZone: string): Intl.DateTimeFormat =>
     return formatters.get(timeZone)!;
 };
 
+
 export const formatDateEfficiently = (dateStr: string, timeZone: string): string => {
     try {
         const date = new Date(dateStr);
@@ -40,3 +41,29 @@ export const formatDateEfficiently = (dateStr: string, timeZone: string): string
         return 'Invalid Date';
     }
 };
+
+/**
+ * Formats a date as relative time (e.g. "5 mins ago", "2 hours ago")
+ * Falls back to standard date format if > 2 days
+ */
+export function formatTimeAgo(dateInput: any): string {
+    if (!dateInput) return '';
+
+    // Handle Firestore Timestamp or standard Date/String
+    const date = dateInput.seconds
+        ? new Date(dateInput.seconds * 1000)
+        : new Date(dateInput);
+
+    if (isNaN(date.getTime())) return 'Invalid Date';
+
+    const now = new Date();
+    const diffInSeconds = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 1000));
+
+    // Logic: mins ago, hours ago, then date
+    if (diffInSeconds < 60) return 'Just now';
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} mins ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
+    if (diffInSeconds < 172800) return 'Yesterday'; // < 2 days
+
+    return date.toLocaleDateString();
+}

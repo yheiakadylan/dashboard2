@@ -1,37 +1,36 @@
 // File: api/get-costs-mz.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import type { CostData, Record, FulfillmentAccount } from './_lib/types.js';
+import { merchizeConfig } from './_lib/fulfillmentConfig.js';
+import type { CostData, Record } from './_lib/types.js';
 
 // --- START: Merchize Catalog Cache ---
 
 // Cache này sẽ lưu Map<VariantSKU, ProductName>
-let skuToNameMaps: { [accountId: string]: Map<string, string> } = {};
-let lastCatalogFetches: { [accountId: string]: number } = {};
+let skuToNameMap: Map<string, string> | null = null;
+let lastCatalogFetch = 0;
 const CATALOG_CACHE_TTL = 3600 * 1000; // Cache trong 1 giờ
 
 /**
  * Lấy toàn bộ catalog từ Merchize và tạo map tra cứu SKU -> Tên sản phẩm
  */
-async function fetchAndCacheMerchizeCatalog(account: FulfillmentAccount): Promise<Map<string, string>> {
+async function fetchAndCacheMerchizeCatalog(): Promise<Map<string, string>> {
     const now = Date.now();
-    const map = skuToNameMaps[account.id];
-    const lastFetch = lastCatalogFetches[account.id] || 0;
     // Nếu cache còn hạn, trả về cache
-    if (map && (now - lastFetch < CATALOG_CACHE_TTL)) {
-        return map;
+    if (skuToNameMap && (now - lastCatalogFetch < CATALOG_CACHE_TTL)) {
+        return skuToNameMap;
     }
 
     const newMap = new Map<string, string>();
     let page = 1;
     const limit = 50;
-    
+
     try {
         while (true) {
-            const apiUrl = `${account.base_url}/product/catalog?limit=${limit}&page=${page}`;
+            const apiUrl = `${merchizeConfig.base_url}/product/catalog?limit=${limit}&page=${page}`;
             const response = await fetch(apiUrl, {
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${account.api_token}`,
+                    'Authorization': `Bearer ${merchizeConfig.access_token}`,
                     'Content-Type': 'application/json'
                 }
             });
@@ -71,12 +70,12 @@ async function fetchAndCacheMerchizeCatalog(account: FulfillmentAccount): Promis
     } catch (e) {
         console.error("Exception during Merchize catalog fetch:", e);
         // Không cập nhật cache nếu lỗi, trả về cache cũ (nếu có)
-        return skuToNameMaps[account.id] || newMap; 
+        return skuToNameMap || newMap;
     }
 
-    skuToNameMaps[account.id] = newMap;
-    lastCatalogFetches[account.id] = now;
-    return newMap;
+    skuToNameMap = newMap;
+    lastCatalogFetch = now;
+    return skuToNameMap;
 }
 
 // --- END: Merchize Catalog Cache ---
@@ -91,57 +90,51 @@ const chunkArray = <T>(array: T[], size: number): T[][] => {
     return result;
 };
 
-async function fetchMerchizeCosts(orderIds: string[], account: FulfillmentAccount): Promise<CostData[]> {
-    if (!account.base_url || !account.api_token || orderIds.length === 0) {
+async function fetchMerchizeCosts(orderIds: string[]): Promise<CostData[]> {
+    if (!merchizeConfig.base_url || !merchizeConfig.access_token || orderIds.length === 0) {
+        console.log('Merchize config or orderIds missing. URL:', merchizeConfig.base_url, 'Has Token:', !!merchizeConfig.access_token, 'Order Count:', orderIds.length);
         return [];
     }
 
+    // --- BẮT ĐẦU THAY ĐỔI ---
     // 1. Lấy map SKU -> Tên sản phẩm (từ cache hoặc API)
-    const catalogMap = await fetchAndCacheMerchizeCatalog(account);
+    const catalogMap = await fetchAndCacheMerchizeCatalog();
+    // --- KẾT THÚC THAY ĐỔI ---
 
     const allCosts: CostData[] = [];
-    // Reduce chunk size to 50 since we send 2 requests per order ID
-    const chunks = chunkArray(orderIds, 50);
+    const chunks = chunkArray(orderIds, merchizeConfig.batch_size);
 
     for (const chunk of chunks) {
         try {
-            const ordersPayload = chunk.flatMap(id => {
-                const cleanId = id.replace(/^#/, '').trim();
-                return [
-                    { code: "", external_number: cleanId, identifier: "" },
-                    { code: "", external_number: `#${cleanId}`, identifier: "" }
-                ];
-            });
             const requestBody = {
-                orders: ordersPayload
+                orders: chunk.map(id => ({ code:"", external_number: id, identifier: "" }))
             };
-            
-            const apiUrl = `${account.base_url}/order/external/orders/list-orders-detail`;
-            
-            
+
+            const apiUrl = `${merchizeConfig.base_url}/order/external/orders/list-orders-detail`;
+
+
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${account.api_token}`,
+                    'Authorization': `Bearer ${merchizeConfig.access_token}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(requestBody),
             });
 
             const responseText = await response.text();
-            
+
             if (!response.ok) {
                 console.error("Raw Response Body on Error:", responseText);
-                continue; 
+                continue;
             }
 
             if (responseText) {
                 const data = JSON.parse(responseText);
                 if (data.success && Array.isArray(data.data)) {
                     for (const orderData of data.data) {
-                        const rawExternalNumber = orderData.external_number?.trim();
-                        if (rawExternalNumber) {
-                            const externalNumber = rawExternalNumber.replace(/^#/, '').trim();
+                        const externalNumber = orderData.external_number?.trim();
+                        if (externalNumber) {
 
                             // --- BẮT ĐẦU THAY ĐỔI: Lấy product_name ---
                             let product_name = 'N/A';
@@ -169,7 +162,7 @@ async function fetchMerchizeCosts(orderIds: string[], account: FulfillmentAccoun
                     console.warn('Merchize API response was not successful or data format is incorrect:', data);
                 }
             } else {
-                 console.warn('Merchize API returned an empty response body.');
+                console.warn('Merchize API returned an empty response body.');
             }
 
         } catch (e) {
@@ -188,14 +181,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const { records, accounts } = req.body as { records: Record[], accounts: FulfillmentAccount[] };
+        const { records } = req.body as { records: Record[] };
         if (!records || !Array.isArray(records)) {
             return res.status(400).json({ message: 'Missing "records" array in request body.' });
-        }
-        
-        const merchizeAccounts = (accounts || []).filter(a => a.provider === 'merchize');
-        if (merchizeAccounts.length === 0) {
-            return res.status(200).json({});
         }
 
         const orderRecords = records.filter(r => r.kind === 'order' && r.order_id);
@@ -205,12 +193,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const orderIds = Array.from(new Set(orderRecords.map(r => r.order_id!)));
 
-        const merchizeDataArrays = await Promise.all(merchizeAccounts.map(acc => fetchMerchizeCosts(orderIds, acc)));
-        const merchizeData = merchizeDataArrays.flat();
+        const merchizeData = await fetchMerchizeCosts(orderIds);
 
         // --- CẬP NHẬT LOGIC MERGE ---
         const costMap: { [key: string]: CostData } = {};
         for (const item of merchizeData) {
+            if (item.cost_total <= 0) continue;
             if (costMap[item.order_id]) {
                 costMap[item.order_id].cost_total += item.cost_total;
                 if (!costMap[item.order_id].ff_code && item.ff_code) {
@@ -224,6 +212,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 costMap[item.order_id] = { ...item };
             }
         }
+        // --- KẾT THÚC CẬP NHẬT ---
 
         return res.status(200).json(costMap);
     } catch (error) {

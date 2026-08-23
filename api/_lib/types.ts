@@ -25,12 +25,16 @@ export interface FulfillmentAccount {
 export interface OrderItem {
   name: string;
   variant?: string; // Material & Size, etc.
+  variant2?: string;
   personalization?: string;
   quantity: number;
   price: number;
   image?: string;
   transactionId?: string;
   sku?: string;
+  listingId?: string;
+  category_code?: string; // Added field
+  customerFiles?: string[];
 }
 
 export interface OrderDetails {
@@ -44,6 +48,7 @@ export interface OrderDetails {
     state: string;
     zip: string;
     country: string;
+    phone?: string;
   };
   items: OrderItem[];
   financials?: {
@@ -72,6 +77,7 @@ export interface Record {
   ff_code?: string;
   product_name?: string;
   details?: OrderDetails; // Added detailed info
+  category_code?: string; // Added field
 }
 
 export interface CostData {

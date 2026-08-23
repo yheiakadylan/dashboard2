@@ -2,6 +2,14 @@
 import { Record, OrderDetails, OrderItem, RefundDetails } from '../types';
 import { getHighResImageUrl } from '../utils/imageUtils.js';
 
+const isRulesVerboseEnabled = () => {
+  try {
+    return import.meta.env.DEV && localStorage.getItem('rulesVerbose') === '1';
+  } catch {
+    return false;
+  }
+};
+
 export interface Rule {
   name: string;
   query: string;
@@ -25,7 +33,7 @@ export const RULES: Rule[] = [
   {
     name: "Etsy_Sales",
     platform: "etsy",
-    query: 'subject:"You made a sale on Etsy"',
+    query: 'subject:"You made a sale on Etsy" OR subject:"Etsy Order confirmation for:"',
     // Kiểm tra body chứa "Order total" để validate là sales email thực
     amountOrderRe: new RegExp(
       `Order\\s+total\\s*:?\\s*[$£€]?\\s*(${AMOUNT_BIG})`,
@@ -507,12 +515,14 @@ const extractEtsyDetails = (html: string): OrderDetails => {
     }
 
     // 🔍 DEBUG LOG - Shipping Address
-    const _addrMethod = addrContent.match(/class=["']x_name["']/) ? 'OUTLOOK' : 'GMAIL_FALLBACK';
-    const _rawLines = stripHtmlBasic(addrContent).split('\n').map(l => l.trim()).filter(l => l);
-    console.group(`[DEBUG] ShippingAddress (method:${_addrMethod})`);
-    console.log('rawLines =>', _rawLines);
-    console.log('parsed =>', shippingAddress);
-    console.groupEnd();
+    if (isRulesVerboseEnabled()) {
+      const addrMethod = addrContent.match(/class=["']x_name["']/) ? 'OUTLOOK' : 'GMAIL_FALLBACK';
+      const rawLines = stripHtmlBasic(addrContent).split('\n').map(l => l.trim()).filter(l => l);
+      console.group(`[Rules] ShippingAddress (method:${addrMethod})`);
+      console.log('rawLines =>', rawLines);
+      console.log('parsed =>', shippingAddress);
+      console.groupEnd();
+    }
     // 🔍 END DEBUG
   }
 
@@ -573,7 +583,9 @@ const extractEtsyDetails = (html: string): OrderDetails => {
     });
 
     // 🚀 IN RA RAW 
-    console.log(`\n\n[raw_variant_data] => Item: "${title}" =>`, variantLines);
+    if (isRulesVerboseEnabled()) {
+      console.log(`[Rules] raw_variant_data: ${title}`, variantLines);
+    }
 
     let variant = "";
     let variant2 = "";
@@ -731,9 +743,11 @@ const extractEtsyDetails = (html: string): OrderDetails => {
   }
 
   // 🔍 DEBUG LOG - XÓA SAU KHI FIX XONG
-  console.group(`[DEBUG] Financials (shipping:${shippingFromTable ? 'TABLE' : 'REGEX'} tax:${taxFromTable ? 'TABLE' : 'REGEX'})`);
-  console.log({ itemTotal, discount, shipping, tax, orderTotal, currencyPrefix });
-  console.groupEnd();
+  if (isRulesVerboseEnabled()) {
+    console.group(`[Rules] Financials (shipping:${shippingFromTable ? 'TABLE' : 'REGEX'} tax:${taxFromTable ? 'TABLE' : 'REGEX'})`);
+    console.log({ itemTotal, discount, shipping, tax, orderTotal, currencyPrefix });
+    console.groupEnd();
+  }
   // 🔍 END DEBUG
 
   const financials = {
@@ -763,7 +777,7 @@ const extractEtsyDetails = (html: string): OrderDetails => {
 
 // ==================== REFUND EXTRACTION ====================
 
-const extractRefundDetails = (html: string, order_id: string): RefundDetails | null => {
+const extractRefundDetails = (html: string): RefundDetails | null => {
   const stripped = stripHtmlBasic(html);
 
   // 1. Extract Main Refund Amount
@@ -815,7 +829,9 @@ const extractRefundDetails = (html: string, order_id: string): RefundDetails | n
     }
   }
 
-  console.log('[RefundDetails] Extracted reason:', reason || '(empty)');
+  if (isRulesVerboseEnabled()) {
+    console.log('[Rules] RefundDetails reason:', reason || '(empty)');
+  }
 
   return {
     refundAmount,
@@ -941,7 +957,7 @@ export const parseMessage = (
 
     result.status = 'Refunded';
     try {
-      const refundDetails = extractRefundDetails(body, order_id);
+      const refundDetails = extractRefundDetails(body);
       if (refundDetails) {
         result.refund_details = refundDetails;
       }

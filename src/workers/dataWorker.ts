@@ -1,8 +1,9 @@
-import { processData } from '../utils/dataProcessing';
+import { processData, type ProcessingScope } from '../utils/dataProcessing';
 import { Record, Account, ManualCost } from '../types';
 
 interface WorkerMessage {
     requestId: number;
+    dataKey?: string;
     records: Record[];
     previousRecords: Record[] | null;
     accounts: Account[];
@@ -11,11 +12,16 @@ interface WorkerMessage {
     role: string;
     permissions: { [key: string]: boolean };
     manualCosts: ManualCost[];
+    exchangeRates: { [currency: string]: number } | null;
+    categories: any[];
+    etsyReviews: any[];
+    scope?: ProcessingScope;
 }
 
 self.onmessage = (e: MessageEvent<WorkerMessage>) => {
     const {
         requestId,
+        dataKey,
         records,
         previousRecords,
         accounts,
@@ -23,7 +29,11 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
         timeZone,
         role,
         permissions,
-        manualCosts
+        manualCosts,
+        exchangeRates,
+        categories,
+        etsyReviews,
+        scope = 'all'
     } = e.data;
 
     try {
@@ -35,11 +45,15 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
             timeZone,
             role,
             permissions,
-            manualCosts
+            manualCosts,
+            exchangeRates,
+            categories,
+            etsyReviews,
+            scope
         );
-        self.postMessage({ success: true, data: processed, requestId });
+        self.postMessage({ success: true, data: processed, requestId, scope, dataKey });
     } catch (error: any) {
         console.error(`[Worker] Error processing request #${requestId}:`, error);
-        self.postMessage({ success: false, error: error.message, requestId });
+        self.postMessage({ success: false, error: error.message, requestId, dataKey });
     }
 };

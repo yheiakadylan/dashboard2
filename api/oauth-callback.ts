@@ -17,12 +17,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     try {
         if (provider === 'google') {
-            return await handleGoogleCallback(req, res, code, redirectUri);
+            return await handleGoogleCallback(res, code, redirectUri);
         } else if (provider === 'microsoft') {
             if (!codeVerifier) {
                 return res.status(400).json({ message: 'PKCE code verifier is required for Microsoft.' });
             }
-            return await handleMicrosoftCallback(req, res, code, redirectUri, codeVerifier);
+            return await handleMicrosoftCallback(res, code, redirectUri, codeVerifier);
         } else {
             return res.status(400).json({ message: 'Invalid provider. Use "google" or "microsoft".' });
         }
@@ -32,7 +32,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleGoogleCallback(req: VercelRequest, res: VercelResponse, code: string, redirectUri: string) {
+async function handleGoogleCallback(res: VercelResponse, code: string, redirectUri: string) {
     if (!GOOGLE_CLIENT_SECRET) {
         return res.status(500).json({ message: 'Server configuration error: missing Google client secret.' });
     }
@@ -87,7 +87,7 @@ async function handleGoogleCallback(req: VercelRequest, res: VercelResponse, cod
     return res.status(200).json({ account: newAccount });
 }
 
-async function handleMicrosoftCallback(req: VercelRequest, res: VercelResponse, code: string, redirectUri: string, codeVerifier: string) {
+async function handleMicrosoftCallback(res: VercelResponse, code: string, redirectUri: string, codeVerifier: string) {
     if (!MICROSOFT_CLIENT_SECRET) {
         return res.status(500).json({ message: 'Server configuration error: missing Microsoft client secret.' });
     }

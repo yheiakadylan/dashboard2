@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #0f172a;
+      --primary-hover: #334155;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --good: #059669;
+      --warn: #ca8a04;
+      --bad: #dc2626;
+      --radius: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 390px;
+      height: 600px;
+      overflow: hidden;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .header {
+      background: var(--card);
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .app-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      overflow: hidden;
+      flex: 0 0 auto;
+    }
+
+    .app-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .app-title {
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    .app-subtitle {
+      color: var(--text-muted);
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .screen {
+      padding: 18px;
+    }
+
+    #main-app {
+      display: none;
+      height: calc(100% - 57px);
+      overflow: hidden;
+    }
+
+    .content {
+      height: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 16px 18px 20px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .row:last-child {
+      margin-bottom: 0;
+    }
+
+    .label {
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .val {
+      font-size: 12px;
+      font-weight: 700;
+      text-align: right;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 10px;
+    }
+
+    .input-group {
+      margin-bottom: 14px;
+    }
+
+    .input-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="number"] {
+      width: 100%;
+      padding: 9px 11px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.1);
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 7px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+
+    button:disabled {
+      opacity: .6;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--primary-hover);
+    }
+
+    .btn-outline {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .btn-outline:hover:not(:disabled) {
+      background: #f1f5f9;
+    }
+
+    .btn-danger {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: var(--bad);
+    }
+
+    .status-badge {
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      background: #ecfdf5;
+      color: var(--good);
+      border: 1px solid #a7f3d0;
+      white-space: nowrap;
+    }
+
+    .status-badge.running {
+      background: #eff6ff;
+      color: #2563eb;
+      border-color: #bfdbfe;
+    }
+
+    .status-badge.warn {
+      background: #fffbeb;
+      color: var(--warn);
+      border-color: #fde68a;
+    }
+
+    .status-badge.bad {
+      background: #fef2f2;
+      color: var(--bad);
+      border-color: #fecaca;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .summary-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px;
+      text-align: center;
+    }
+
+    .summary-value {
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .summary-label {
+      margin-top: 2px;
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      font-weight: 700;
+    }
+
+    .shop-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .shop-item {
+      display: grid;
+      grid-template-columns: auto auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px;
+    }
+
+    .shop-item.suspended {
+      border-color: #fecaca;
+      background: #fff7f7;
+    }
+
+    .shop-health-tick {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      line-height: 1;
+      font-weight: 900;
+      flex: 0 0 auto;
+    }
+
+    .shop-health-tick.live {
+      color: var(--good);
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+    }
+
+    .shop-health-tick.suspended {
+      color: var(--bad);
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+    }
+
+    .shop-name {
+      font-size: 13px;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .shop-meta {
+      margin-top: 3px;
+      color: var(--text-muted);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .rating {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .rating-main {
+      color: #d97706;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .rating-count {
+      margin-top: 2px;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .muted {
+      color: var(--text-muted);
+    }
+
+    .error {
+      color: var(--bad);
+      font-size: 12px;
+      margin-top: 10px;
+      text-align: center;
+      min-height: 16px;
+    }
+
+    .small-link {
+      width: auto;
+      padding: 5px 9px;
+      font-size: 11px;
+      border-radius: 6px;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <div class="app-icon">
+      <img src="icon.jpg" alt="Icon">
+    </div>
+    <div>
+      <div class="app-title">Etsy Shop Health</div>
+      <div class="app-subtitle">Ratings, review count, suspended shops</div>
+    </div>
+  </div>
+
+  <div id="login-screen" class="screen">
+    <div class="input-group">
+      <label class="input-label">Email</label>
+      <input type="text" id="loginEmail" placeholder="your@email.com">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Password</label>
+      <input type="password" id="loginPass" placeholder="Password">
+    </div>
+    <div class="input-group">
+      <label class="input-label">App URL (Environment)</label>
+      <select id="loginAppUrl"
+        style="width:100%; padding:8px; border-radius:6px; border:1px solid #ddd; background:#fff; font-size:12px; font-weight:600; color:#333; cursor:pointer;">
+        <option value="https://dashboard2-alpha-bay.vercel.app">Production (vercel.app)</option>
+        <option value="http://localhost:3000">Localhost (localhost:3000)</option>
+      </select>
+    </div>
+    <button id="loginBtn" class="btn-primary">Sign In</button>
+    <div id="loginError" class="error"></div>
+  </div>
+
+  <div id="main-app">
+    <div class="content">
+      <div class="section-title">
+        Overview
+        <span class="status-badge" id="serviceStatus">IDLE</span>
+      </div>
+
+      <div class="summary-grid">
+        <div class="summary-box">
+          <div class="summary-value" id="checkedCount">0</div>
+          <div class="summary-label">Checked</div>
+        </div>
+        <div class="summary-box">
+          <div class="summary-value" id="suspendedCount">0</div>
+          <div class="summary-label">Suspended</div>
+        </div>
+        <div class="summary-box">
+          <div class="summary-value" id="errorCount">0</div>
+          <div class="summary-label">Errors</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <span class="label">Last Check</span>
+          <span class="val" id="lastRun">Never</span>
+        </div>
+        <div class="row">
+          <span class="label">Current Shop</span>
+          <span class="val" id="currentShop">-</span>
+        </div>
+      </div>
+
+      <button id="runNowBtn" class="btn-primary">Check Selected Shops</button>
+      <button id="stopRunBtn" class="btn-danger" style="display:none; margin-top:8px;">Stop / Reset Check</button>
+
+      <div class="card" style="margin-top:14px;">
+        <div class="row">
+          <span class="label">Auto Check</span>
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700;">
+            <input type="checkbox" id="autoCheckEnable" style="width:auto;">
+            Enable
+          </label>
+        </div>
+        <div class="row">
+          <span class="label">Interval</span>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <input type="number" id="healthIntervalHours" value="24" min="1" style="width:72px; padding:6px 8px;">
+            <span class="val">hours</span>
+          </div>
+        </div>
+        <div class="row">
+          <span class="label">Next Check</span>
+          <span class="val" id="nextRun">Not scheduled</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="refreshShopsBtn" class="btn-outline">Refresh Shops</button>
+        <button id="saveConfigBtn" class="btn-outline">Save Selection</button>
+      </div>
+
+      <div id="saveMsg" class="error" style="color:#059669;"></div>
+
+      <div class="section-title" style="margin-top:16px;">
+        Shops
+        <button id="logoutBtn" class="btn-danger small-link">Logout</button>
+      </div>
+      <div class="shop-list" id="shopListContainer">
+        <div class="card muted" style="text-align:center;">No shops loaded</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>

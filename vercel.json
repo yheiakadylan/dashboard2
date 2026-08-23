@@ -1,8 +1,81 @@
 {
+  "rewrites": [
+    {
+      "source": "/admin",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/operations/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/kpi/:path*",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, proxy-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, proxy-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/version.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, proxy-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/firebase-messaging-sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, proxy-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/firebase-config.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, proxy-revalidate"
+        }
+      ]
+    }
+  ],
   "crons": [
     {
-      "path": "/api/design-overdue-check",
-      "schedule": "0 * * * *"
+      "path": "/api/sync-outlook",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/daily-summary",
+      "schedule": "30 7 * * *"
+    },
+    {
+      "path": "/api/backfill-daily-cache",
+      "schedule": "30 7,8,17 * * *"
+    },
+    {
+      "path": "/api/refresh-performance-baseline",
+      "schedule": "30 20 * * *"
     }
   ]
 }

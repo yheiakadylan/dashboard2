@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo, useRef } from 'react';
-import Toast, { ToastType } from '../components/Toast';
+import Toast, { ToastType } from '../components/ui/Toast';
 
 interface Notification {
   id: string;
@@ -16,12 +16,9 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // 1. Ref to track last notification for de-duplication
   const lastNotificationRef = useRef<{ message: string; time: number } | null>(null);
 
-  // 2. Dùng useCallback để hàm này không bị tạo mới mỗi lần render
   const addNotification = useCallback((message: string, type: ToastType) => {
-    // Check for duplicate within 2000ms (Increased to 2s to be safe)
     const now = Date.now();
     if (
       lastNotificationRef.current &&
@@ -38,21 +35,16 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     setNotifications((prev) => [...prev, { id, message, type }]);
   }, []);
 
-  // 1. Dùng useCallback cho hàm remove luôn
   const removeNotification = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
-  // 2. Dùng useMemo để gói object value lại. 
-  // Nó chỉ thay đổi khi addNotification thay đổi (mà ta đã dùng useCallback nên nó sẽ giữ nguyên).
   const contextValue = useMemo(() => ({ addNotification }), [addNotification]);
 
   return (
-    // Truyền contextValue đã được memoize vào Provider
     <NotificationContext.Provider value={contextValue}>
       {children}
 
-      {/* Toast Container */}
       <div className="fixed top-20 right-5 z-[9999] flex flex-col gap-2 pointer-events-none">
         {notifications.map((n) => (
           <div key={n.id} className="pointer-events-auto">

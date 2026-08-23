@@ -9,7 +9,6 @@ import {
   QuestionMarkCircleIcon,
   TruckIcon,
   TagIcon,
-  ChartBarIcon,
   BuildingStorefrontIcon,
   PaintBrushIcon,
   DocumentDuplicateIcon,
@@ -53,8 +52,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
         return <PaintBrushIcon className={className} />;
       case "Templete":
         return <DocumentDuplicateIcon className={className} />;
-      case "KPI":
-        return <ChartBarIcon className={className} />;
       case "Shop Evaluation":
         return <BuildingStorefrontIcon className={className} />;
       default:

@@ -15,12 +15,22 @@ import {
   Timestamp,
   updateDoc,
   deleteDoc,
-  setDoc,
+  setDoc
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
-import { getStorage } from "firebase/storage";
-import { getMessaging, isSupported } from "firebase/messaging";
-import { Account, Record } from "../types";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { Account, Record, UserProfile, Category, EtsyReview, PODTeam } from '../types';
+import {
+  fetchCachedDateRange,
+  getAffectedCacheDatesForISO,
+  markDailyCacheDirtyForDates,
+} from './dailyCacheService';
+import { recordNeedsSkuFetch } from '../utils/skuFetch';
+import {
+  buildOrderTaskPayload,
+  getOrderTaskDocumentId,
+  normalizeOrderShippingAddress,
+} from '../utils/orderTaskPayload';
 
 // Firebase configuration - uses VITE_ prefix for client-side access
 const firebaseConfig = {
@@ -34,246 +44,476 @@ const firebaseConfig = {
 
 // Validate all required Firebase config values
 const requiredFields: (keyof typeof firebaseConfig)[] = [
-  "apiKey",
-  "authDomain",
-  "projectId",
-  "storageBucket",
-  "messagingSenderId",
-  "appId",
+  'apiKey', 'authDomain', 'projectId', 'messagingSenderId', 'appId'
 ];
 
 for (const field of requiredFields) {
   if (!firebaseConfig[field]) {
     throw new Error(
       `Firebase configuration error: ${field} is missing. ` +
-        `Please set VITE_${field.replace(/([A-Z])/g, "_$1").toUpperCase()} in your environment variables.`,
+      `Please set VITE_${field.replace(/([A-Z])/g, '_$1').toUpperCase()} in your environment variables.`
     );
   }
 }
 
 // Initialize Firebase and Firestore.
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const auth = getAuth(app);
-export const storage = getStorage(app);
+export const firebaseApp = initializeApp(firebaseConfig);
+export const db = getFirestore(firebaseApp);
+export const auth = getAuth(firebaseApp);
+// Thiết lập ngôn ngữ mặc định cho email là Tiếng Việt
+auth.languageCode = 'en';
+export const storage = getStorage(firebaseApp);
 
-// HÀM QUAN TRỌNG: Khởi tạo messaging an toàn
-export const getMessagingInstance = async () => {
-  try {
-    const supported = await isSupported();
-    if (supported) {
-      return getMessaging(app);
-    }
-    console.warn("Firebase Messaging is not supported in this browser.");
-    return null;
-  } catch (err) {
-    console.error("Error checking messaging support:", err);
-    return null;
-  }
+// Helper: Upload Avatar
+export const uploadAvatar = async (file: File, userId: string): Promise<string> => {
+  const storageRef = ref(storage, `avatars/${userId}/${file.name}`);
+  const snapshot = await uploadBytes(storageRef, file);
+  return await getDownloadURL(snapshot.ref);
+};
+
+// === [NEW] Dashboard Avatar Upload (Overwrite strategy) ===
+export const uploadDashboardAvatar = async (file: File, userId: string): Promise<string> => {
+  // Save to fixed path "avatars_dashboard/{uid}" to ensure overwrite
+  const storageRef = ref(storage, `avatars_dashboard/${userId}`);
+  const snapshot = await uploadBytes(storageRef, file);
+  return await getDownloadURL(snapshot.ref);
+};
+
+export const updateAuthenticationProfile = async (
+  userId: string,
+  data: { displayName?: string; photoURL?: string },
+) => {
+  await setDoc(doc(db, 'authentication', userId), data, { merge: true });
 };
 
 const getTimezoneOffsetString = (timeZone: string, dateStr: string): string => {
   try {
     // Use noon of the given date to safely avoid DST crossover issues at midnight
     const date = new Date(dateStr + "T12:00:00Z");
-    const formatter = new Intl.DateTimeFormat("en-US", {
+    const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone,
-      timeZoneName: "longOffset",
+      timeZoneName: 'longOffset'
     });
     const parts = formatter.formatToParts(date);
-    const gmtPart = parts.find((p) => p.type === "timeZoneName");
+    const gmtPart = parts.find(p => p.type === 'timeZoneName');
 
     if (gmtPart) {
       // gmtPart.value is "GMT-07:00", "GMT+05:30", etc.
-      return gmtPart.value.replace("GMT", "");
+      return gmtPart.value.replace('GMT', '');
     }
 
-    console.warn(
-      `Could not determine offset for ${timeZone} using 'longOffset'. Falling back to UTC.`,
-    );
-    return "+00:00";
+    console.warn(`Could not determine offset for ${timeZone} using 'longOffset'. Falling back to UTC.`);
+    return '+00:00';
   } catch (e) {
-    console.error(
-      `Failed to get offset for timezone ${timeZone} for date ${dateStr}`,
-      e,
-    );
-    return "+00:00"; // Fallback to UTC
+    console.error(`Failed to get offset for timezone ${timeZone} for date ${dateStr}`, e);
+    return '+00:00'; // Fallback to UTC
   }
 };
 
-export const getAccountsFromFirebase = async (
-  teamId: string,
-): Promise<Account[]> => {
-  const accountsCol = collection(db, "user", teamId, "accounts");
+type DateLikeValue = string | number | Date | Timestamp | { seconds?: number; toDate?: () => Date } | null | undefined;
+
+const toISODateString = (value: DateLikeValue): string | undefined => {
+  if (!value) return undefined;
+
+  if (typeof value === 'string') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toISOString();
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  }
+
+  if (typeof value === 'number') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  }
+
+  if (value instanceof Timestamp) {
+    return value.toDate().toISOString();
+  }
+
+  if (typeof value.toDate === 'function') {
+    const date = value.toDate();
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  }
+
+  if (typeof value.seconds === 'number') {
+    return new Date(value.seconds * 1000).toISOString();
+  }
+
+  return undefined;
+};
+
+const normalizeRecordDateFields = <T extends Partial<Record>>(record: T): T => {
+  const normalizedDtLocal = toISODateString(record.dt_local as DateLikeValue);
+  const normalizedFulfillDate = toISODateString(record.fulfill_date as DateLikeValue);
+  const nextDtLocal = normalizedDtLocal && normalizedDtLocal !== record.dt_local ? normalizedDtLocal : undefined;
+  const nextFulfillDate = normalizedFulfillDate && normalizedFulfillDate !== record.fulfill_date ? normalizedFulfillDate : undefined;
+  if (!nextDtLocal && !nextFulfillDate) return record;
+
+  return {
+    ...record,
+    ...(nextDtLocal ? { dt_local: nextDtLocal } : {}),
+    ...(nextFulfillDate ? { fulfill_date: nextFulfillDate } : {}),
+  };
+};
+
+const resolveRecordOrderCreatedAt = (value: DateLikeValue): string => {
+  const normalized = toISODateString(value);
+  if (normalized) {
+    const date = new Date(normalized);
+    if (!Number.isNaN(date.getTime())) return date.toISOString();
+  }
+  return new Date().toISOString();
+};
+
+const normalizeReviewDateFields = <T extends Partial<EtsyReview>>(review: T): T => {
+  const normalizedCreateDate = toISODateString(review.create_date as DateLikeValue);
+  const normalizedUpdatedAt = toISODateString(review.updated_at as DateLikeValue);
+  const nextCreateDate = normalizedCreateDate && normalizedCreateDate !== review.create_date ? normalizedCreateDate : undefined;
+  const nextUpdatedAt = normalizedUpdatedAt && normalizedUpdatedAt !== review.updated_at ? normalizedUpdatedAt : undefined;
+  if (!nextCreateDate && !nextUpdatedAt) return review;
+
+  return {
+    ...review,
+    ...(nextCreateDate ? { create_date: nextCreateDate } : {}),
+    ...(nextUpdatedAt ? { updated_at: nextUpdatedAt } : {}),
+  };
+};
+
+const normalizeList = <T,>(items: T[], normalizeItem: (item: T) => T): T[] => {
+  let normalizedItems: T[] | null = null;
+
+  items.forEach((item, index) => {
+    const normalizedItem = normalizeItem(item);
+    if (normalizedItems) {
+      normalizedItems.push(normalizedItem);
+      return;
+    }
+
+    if (normalizedItem !== item) {
+      normalizedItems = items.slice(0, index);
+      normalizedItems.push(normalizedItem);
+    }
+  });
+
+  return normalizedItems || items;
+};
+
+const normalizeRecordDoc = (docSnap: { id: string; data: () => DocumentData }): Record => {
+  return normalizeRecordDateFields({ ...(docSnap.data() as object), id: docSnap.id } as Record);
+};
+
+const normalizeReviewDoc = (docSnap: { id: string; data: () => DocumentData }): EtsyReview => {
+  return normalizeReviewDateFields({ ...(docSnap.data() as object), id: docSnap.id } as EtsyReview);
+};
+
+
+export const getAccountsFromFirebase = async (teamId: string): Promise<Account[]> => {
+  const accountsCol = collection(db, 'user', teamId, 'accounts');
   const accountSnapshot = await getDocs(accountsCol);
-  const accountList = accountSnapshot.docs.map(
-    (doc) => ({ ...(doc.data() as object), id: doc.id }) as Account,
-  );
+  const accountList = accountSnapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as Account));
 
   // Sort by the order field
   accountList.sort((a, b) => {
-    const orderA = typeof a.order === "number" ? a.order : Infinity;
-    const orderB = typeof b.order === "number" ? b.order : Infinity;
+    const orderA = typeof a.order === 'number' ? a.order : Infinity;
+    const orderB = typeof b.order === 'number' ? b.order : Infinity;
     return orderA - orderB;
   });
 
   return accountList;
 };
 
-export const listenForAccounts = (
-  teamId: string,
-  callback: (accounts: Account[]) => void,
-): (() => void) => {
-  const accountsCol = collection(db, "user", teamId, "accounts");
+export const listenForAccounts = (teamId: string, callback: (accounts: Account[]) => void): (() => void) => {
+  const accountsCol = collection(db, 'user', teamId, 'accounts');
 
-  const unsubscribe = onSnapshot(
-    accountsCol,
-    (snapshot) => {
-      const accountList = snapshot.docs.map(
-        (doc) => ({ ...(doc.data() as object), id: doc.id }) as Account,
-      );
+  const unsubscribe = onSnapshot(accountsCol, (snapshot) => {
+    const accountList = snapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as Account));
 
-      // Sort by the order field
-      accountList.sort((a, b) => {
-        const orderA = typeof a.order === "number" ? a.order : Infinity;
-        const orderB = typeof b.order === "number" ? b.order : Infinity;
-        return orderA - orderB;
-      });
+    // Sort by the order field
+    accountList.sort((a, b) => {
+      const orderA = typeof a.order === 'number' ? a.order : Infinity;
+      const orderB = typeof b.order === 'number' ? b.order : Infinity;
+      return orderA - orderB;
+    });
 
-      callback(accountList);
-    },
-    (error) => {
-      console.error("Error listening for accounts:", error);
-    },
-  );
+    callback(accountList);
+  }, (error) => {
+    console.error("Error listening for accounts:", error);
+  });
 
   return unsubscribe;
 };
 
-export const saveAccountsToFirebase = async (
-  teamId: string,
-  accounts: Account[],
-  deletedAccountIds: string[] = [],
-): Promise<void> => {
+export const saveAccountsToFirebase = async (teamId: string, accounts: Account[], deletedAccountIds: string[] = []): Promise<void> => {
   const batch = writeBatch(db);
 
   // 1. Delete explicitly removed accounts
   if (deletedAccountIds.length > 0) {
-    deletedAccountIds.forEach((id) => {
-      const docRef = doc(db, "user", teamId, "accounts", id);
+    deletedAccountIds.forEach(id => {
+      const docRef = doc(db, 'user', teamId, 'accounts', id);
       batch.delete(docRef);
     });
   }
 
   // 2. Upsert (Add/Update) accounts
   if (accounts.length > 0) {
-    accounts.forEach((acc) => {
-      const docRef = doc(db, "user", teamId, "accounts", acc.id);
-      // Use set with merge: true to avoid wiping out fields not passed in the object (e.g. historical_sync_complete)
-      batch.set(docRef, acc, { merge: true });
+    accounts.forEach(acc => {
+      const docRef = doc(db, 'user', teamId, 'accounts', acc.id);
+
+      // Clean up undefined values which Firestore WriteBatch rejects
+      const safeAcc: any = { ...acc };
+      Object.keys(safeAcc).forEach(key => {
+        if (safeAcc[key] === undefined) {
+          delete safeAcc[key];
+        }
+      });
+
+      // Use set to overwrite or create. 
+      // Ensuring we write the full object as provided.
+      batch.set(docRef, safeAcc);
     });
   }
 
   await batch.commit();
 };
 
-export const updateAccountsInFirebase = async (
-  teamId: string,
-  accountsToUpdate: (Partial<Account> & { id: string })[],
-): Promise<void> => {
+export const updateAccountsInFirebase = async (teamId: string, accountsToUpdate: (Partial<Account> & { id: string })[]): Promise<void> => {
   if (!accountsToUpdate || accountsToUpdate.length === 0) {
     return;
   }
   const batch = writeBatch(db);
-  accountsToUpdate.forEach((accountUpdate) => {
+  accountsToUpdate.forEach(accountUpdate => {
     const { id, ...dataToUpdate } = accountUpdate;
     if (id && Object.keys(dataToUpdate).length > 0) {
-      const accountRef = doc(db, "user", teamId, "accounts", id);
+      const accountRef = doc(db, 'user', teamId, 'accounts', id);
       batch.set(accountRef, dataToUpdate, { merge: true });
     }
   });
   await batch.commit();
 };
 
+type UpdateRecordsProgress = {
+  processed: number;
+  total: number;
+  batchIndex: number;
+  batchCount: number;
+  writes: number;
+};
+
+type UpdateRecordsOptions = {
+  batchSize?: number;
+  markDailyCacheDirty?: boolean;
+  onProgress?: (progress: UpdateRecordsProgress) => void;
+};
+
+export const markRecordsDailyCacheDirty = async (
+  teamId: string,
+  dates: string[],
+  reason: string,
+): Promise<void> => {
+  await markDailyCacheDirtyForDates(db, teamId, ['records'], dates, reason)
+    .catch(error => console.warn('[dailyCache] Failed to mark records dirty:', error));
+};
+
 export const updateRecordsInFirebase = async (
   teamId: string,
   recordsToUpdate: (Partial<Record> & { id: string })[],
-): Promise<void> => {
+  options: UpdateRecordsOptions = {}
+): Promise<string[]> => {
   if (!recordsToUpdate || recordsToUpdate.length === 0) {
-    return;
+    return [];
   }
-  const batch = writeBatch(db);
-  recordsToUpdate.forEach((recordUpdate) => {
-    const { id, ...dataToUpdate } = recordUpdate;
-    if (id && Object.keys(dataToUpdate).length > 0) {
-      const recordRef = doc(db, "user", teamId, "records", id);
-      batch.update(recordRef, dataToUpdate);
+  const batchSize = Math.max(1, Math.min(options.batchSize || 250, 450));
+  const affectedDates = new Set<string>();
+
+  const updatesNeedingLookup = recordsToUpdate.filter(recordUpdate => recordUpdate.id && !recordUpdate.dt_local);
+  for (const recordUpdate of updatesNeedingLookup) {
+    try {
+      const recordSnap = await getDoc(doc(db, 'user', teamId, 'records', recordUpdate.id));
+      const existingRecord = recordSnap.exists() ? recordSnap.data() as Partial<Record> : null;
+      getAffectedCacheDatesForISO(existingRecord?.dt_local).forEach(date => affectedDates.add(date));
+    } catch (error) {
+      console.warn('[dailyCache] Could not resolve updated record date for dirty mark:', error);
     }
-  });
-  await batch.commit();
+  }
+
+  let processed = 0;
+  const batchCount = Math.ceil(recordsToUpdate.length / batchSize);
+  for (let i = 0; i < recordsToUpdate.length; i += batchSize) {
+    const batchIndex = Math.floor(i / batchSize) + 1;
+    const batch = writeBatch(db);
+    let writes = 0;
+
+    recordsToUpdate.slice(i, i + batchSize).forEach(recordUpdate => {
+      const { id, ...dataToUpdate } = recordUpdate;
+      if (id && Object.keys(dataToUpdate).length > 0) {
+        const recordRef = doc(db, 'user', teamId, 'records', id);
+        const normalizedUpdate = normalizeRecordDateFields(dataToUpdate as Partial<Record>);
+        batch.update(recordRef, normalizedUpdate);
+        getAffectedCacheDatesForISO(normalizedUpdate.dt_local).forEach(date => affectedDates.add(date));
+        writes++;
+      }
+    });
+
+    if (writes > 0) {
+      await batch.commit();
+    }
+    processed = Math.min(i + batchSize, recordsToUpdate.length);
+    options.onProgress?.({ processed, total: recordsToUpdate.length, batchIndex, batchCount, writes });
+  }
+
+  const affectedDateList = Array.from(affectedDates);
+  if (options.markDailyCacheDirty !== false) {
+    await markRecordsDailyCacheDirty(teamId, affectedDateList, 'records-updated');
+  }
+  return affectedDateList;
 };
 
-export const getRecordsForDateRange = async (
-  teamId: string,
-  startDate: string,
-  endDate: string,
-  timeZone: string,
-): Promise<Record[]> => {
-  const recordsCol = collection(db, "user", teamId, "records");
+export const getRecordsForDateRange = async (teamId: string, startDate: string, endDate: string, timeZone: string): Promise<Record[]> => {
+  const records = await fetchCachedDateRange<Record>({
+    db,
+    teamId,
+    collectionName: 'records',
+    field: 'dt_local',
+    startDate,
+    endDate,
+    timeZone,
+    compactDoc: normalizeRecordDoc,
+  });
+  return normalizeList(records, normalizeRecordDateFields);
+};
 
+export const getEtsyReviewsForDateRange = async (teamId: string, startDate: string, endDate: string, timeZone: string): Promise<EtsyReview[]> => {
+  const reviewsCol = collection(db, 'user', teamId, 'reviews');
   const startOffset = getTimezoneOffsetString(timeZone, startDate);
   const endOffset = getTimezoneOffsetString(timeZone, endDate);
+  const fromISO = new Date(`${startDate}T00:00:00.000${startOffset}`).toISOString();
+  const toISO = new Date(`${endDate}T23:59:59.999${endOffset}`).toISOString();
 
-  const fromDate = new Date(`${startDate}T00:00:00.000${startOffset}`);
-  const fromISO = fromDate.toISOString();
-
-  const toDate = new Date(`${endDate}T23:59:59.999${endOffset}`);
-  const toISO = toDate.toISOString();
-
-  const q = query(
-    recordsCol,
-    where("dt_local", ">=", fromISO),
-    where("dt_local", "<=", toISO),
+  const reviewsQuery = query(
+    reviewsCol,
+    where('create_date', '>=', fromISO),
+    where('create_date', '<=', toISO),
   );
-
-  const recordSnapshot = await getDocs(q);
-  const recordList = recordSnapshot.docs.map(
-    (doc) => ({ ...(doc.data() as object), id: doc.id }) as Record,
-  );
-  return recordList;
+  const snapshot = await getDocs(reviewsQuery);
+  const reviews = snapshot.docs.map(normalizeReviewDoc);
+  return normalizeList(reviews, normalizeReviewDateFields);
 };
 
-export const getAllRecordsForAccount = async (
-  teamId: string,
-  accountEmail: string,
-): Promise<Record[]> => {
-  const recordsCol = collection(db, "user", teamId, "records");
-  const q = query(recordsCol, where("account", "==", accountEmail));
+export const getAllRecordsForAccount = async (teamId: string, accountEmail: string): Promise<Record[]> => {
+  const recordsCol = collection(db, 'user', teamId, 'records');
+  const q = query(recordsCol, where('account', '==', accountEmail));
   const querySnapshot = await getDocs(q);
-  const records = querySnapshot.docs.map(
-    (doc) => ({ ...(doc.data() as object), id: doc.id }) as Record,
-  );
+  const records = querySnapshot.docs.map(doc => ({ ...(doc.data() as object), id: doc.id } as Record));
   return records;
 };
 
-export const deleteRecordsForAccounts = async (
+export const getRefundRecordsForOrderIds = async (
   teamId: string,
-  accountEmails: string[],
-): Promise<void> => {
+  orderIds: string[],
+  rangeFromStr?: string,
+  rangeToStr?: string
+): Promise<Record[]> => {
+  if (!orderIds || orderIds.length === 0) return [];
+
+  const recordsRef = collection(db, 'user', teamId, 'records');
+  const results: Record[] = [];
+
+  // Remove duplicates and empty IDs
+  const uniqueOrderIdsSet = new Set(orderIds.filter(id => !!id));
+  if (uniqueOrderIdsSet.size === 0) return [];
+
+  if (rangeFromStr) {
+    let constraints: any[] = [
+      where('source', '==', 'Etsy_Refunded'),
+      where('dt_local', '>=', rangeFromStr)
+    ];
+
+    if (rangeToStr) {
+      // Add a 60-day buffer to the end date (because refunds rarely happen >60 days after order)
+      const toDate = new Date(rangeToStr);
+      toDate.setDate(toDate.getDate() + 60);
+
+      // Prevent querying into the future
+      const now = new Date();
+      const upperBound = toDate > now ? now.toISOString() : toDate.toISOString();
+
+      constraints.push(where('dt_local', '<=', upperBound));
+
+      if (import.meta.env.DEV) {
+        console.log(`[firebaseService] 🔍 Fast cross-checking ${uniqueOrderIdsSet.size} orders for refunds between ${rangeFromStr} and ${upperBound}`);
+      }
+    } else {
+      if (import.meta.env.DEV) {
+        console.log(`[firebaseService] 🔍 Fast cross-checking ${uniqueOrderIdsSet.size} orders for refunds strictly after ${rangeFromStr}`);
+      }
+    }
+
+    const q = query(recordsRef, ...constraints);
+    const snapshot = await getDocs(q);
+
+    snapshot.docs.forEach(doc => {
+      const data = { ...(doc.data() as object), id: doc.id } as Record;
+      if (data.order_id && uniqueOrderIdsSet.has(data.order_id)) {
+        results.push(data);
+      }
+    });
+
+    if (import.meta.env.DEV) {
+      console.log(`[firebaseService] 📬 Found ${snapshot.size} total refunds in range. Matched ${results.length} related refunds.`);
+    }
+
+    return results;
+  }
+
+  // Fallback: chunked query for absolute safety if rangeFromStr is not provided
+  const uniqueOrderIds = Array.from(uniqueOrderIdsSet);
+  const IN_QUERY_LIMIT = 30;
+  const chunks = [];
+  for (let i = 0; i < uniqueOrderIds.length; i += IN_QUERY_LIMIT) {
+    chunks.push(uniqueOrderIds.slice(i, i + IN_QUERY_LIMIT));
+  }
+
+  const promises = chunks.map(chunk => {
+    const q = query(recordsRef,
+      where('source', '==', 'Etsy_Refunded'),
+      where('order_id', 'in', chunk)
+    );
+    return getDocs(q);
+  });
+
+  const snapshots = await Promise.all(promises);
+  snapshots.forEach(snap => {
+    snap.docs.forEach(doc => {
+      // Still ensure uniqueness
+      if (uniqueOrderIdsSet.has((doc.data() as Record).order_id as string)) {
+        results.push({ ...(doc.data() as object), id: doc.id } as Record);
+      }
+    });
+  });
+
+  return results;
+};
+
+export const deleteRecordsForAccounts = async (teamId: string, accountEmails: string[]): Promise<void> => {
   if (accountEmails.length === 0) return;
 
-  const recordsCollectionRef = collection(db, "user", teamId, "records");
-  const q = query(recordsCollectionRef, where("account", "in", accountEmails));
+  const recordsCollectionRef = collection(db, 'user', teamId, 'records');
+  const q = query(recordsCollectionRef, where('account', 'in', accountEmails));
   const querySnapshot = await getDocs(q);
 
   if (querySnapshot.empty) return;
 
-  const BATCH_LIMIT = 500;
+  const BATCH_LIMIT = 450;
   const promises: Promise<void>[] = [];
   let batch = writeBatch(db);
   let count = 0;
+  const affectedDates = new Set<string>();
 
   querySnapshot.forEach((doc) => {
+    getAffectedCacheDatesForISO((doc.data() as Partial<Record>).dt_local).forEach(date => affectedDates.add(date));
     batch.delete(doc.ref);
     count++;
     if (count === BATCH_LIMIT) {
@@ -288,6 +528,8 @@ export const deleteRecordsForAccounts = async (
   }
 
   await Promise.all(promises);
+  await markDailyCacheDirtyForDates(db, teamId, ['records'], Array.from(affectedDates), 'accounts-deleted')
+    .catch(error => console.warn('[dailyCache] Failed to mark deleted account records dirty:', error));
 };
 
 // Helper to chunk arrays
@@ -302,10 +544,10 @@ const chunkArray = <T>(array: T[], size: number): T[][] => {
 // === [UPDATED] Hàm quan trọng: Lưu record với ID là email_id ===
 export const saveRecordsToFirebase = async (
   teamId: string,
-  newlyFetchedRecords: Record[],
+  newlyFetchedRecords: Record[]
 ): Promise<Record[]> => {
   const emailIdsToCheck = newlyFetchedRecords
-    .map((r) => r.email_id)
+    .map(r => r.email_id)
     .filter((id): id is string => !!id);
 
   const existingEmailIds = new Set<string>();
@@ -315,14 +557,14 @@ export const saveRecordsToFirebase = async (
   if (emailIdsToCheck.length > 0) {
     const IN_QUERY_LIMIT = 30;
     const idChunks = chunkArray(emailIdsToCheck, IN_QUERY_LIMIT);
-    const recordsRef = collection(db, "user", teamId, "records");
+    const recordsRef = collection(db, 'user', teamId, 'records');
 
     for (const chunk of idChunks) {
       if (chunk.length > 0) {
         // Lưu ý: Query này kiểm tra field 'email_id' bên trong document
-        const q = query(recordsRef, where("email_id", "in", chunk));
+        const q = query(recordsRef, where('email_id', 'in', chunk));
         const querySnapshot = await getDocs(q);
-        querySnapshot.forEach((doc) => {
+        querySnapshot.forEach(doc => {
           existingEmailIds.add((doc.data() as { email_id: string }).email_id);
         });
       }
@@ -331,21 +573,68 @@ export const saveRecordsToFirebase = async (
 
   // Lọc ra các record chưa tồn tại để lưu
   const recordsToAdd = newlyFetchedRecords.filter(
-    (r) => !r.email_id || !existingEmailIds.has(r.email_id),
+    r => !r.email_id || !existingEmailIds.has(r.email_id)
   );
 
   if (recordsToAdd.length === 0) {
     return [];
   }
 
-  const recordsCollectionRef = collection(db, "user", teamId, "records");
-  const BATCH_LIMIT = 500;
+  const normalizedRecordsToAdd = normalizeList(recordsToAdd, normalizeRecordDateFields);
+  const recordsCollectionRef = collection(db, 'user', teamId, 'records');
+  const BATCH_WRITE_LIMIT = 450;
+
+  // Pre-fetch all accounts to avoid await inside forEach loop
+  const accountsMap: { [key: string]: { id: string; label: string } } = {};
+  try {
+    const accountsRef = collection(db, 'user', teamId, 'accounts');
+    const accSnap = await getDocs(accountsRef);
+    accSnap.docs.forEach(accountDoc => {
+      const data = accountDoc.data();
+      const info = {
+        id: accountDoc.id,
+        label: String(data.label || data.email || accountDoc.id).trim(),
+      };
+      [accountDoc.id, data.email, data.label]
+        .map(value => String(value || '').trim())
+        .filter(Boolean)
+        .forEach(key => {
+          accountsMap[key] = info;
+          accountsMap[key.toLowerCase()] = info;
+        });
+    });
+  } catch (e) { console.error("Could not pre-fetch accounts for mapping", e); }
+
+  const existingTaskIds = new Set<string>();
+  const taskIdsToCheck = normalizedRecordsToAdd.flatMap(record => {
+    if (
+      (record.source !== 'Etsy_Sales' && record.source !== 'Ebay_Sales')
+      || !record.order_id
+      || !record.details?.items?.length
+    ) return [];
+    return record.details.items.map((_, index) =>
+      getOrderTaskDocumentId(record.order_id, index, record.details!.items!.length)
+    );
+  });
+  await Promise.all(Array.from(new Set(taskIdsToCheck)).map(async taskId => {
+    const taskSnap = await getDoc(doc(db, 'tasks', taskId));
+    if (taskSnap.exists()) existingTaskIds.add(taskId);
+  }));
+
   try {
     const addPromises: Promise<void>[] = [];
     let addBatch = writeBatch(db);
-    let addCount = 0;
+    let pendingWriteCount = 0;
 
-    recordsToAdd.forEach((record) => {
+    const rotateAddBatchIfNeeded = () => {
+      if (pendingWriteCount < BATCH_WRITE_LIMIT) return;
+      addPromises.push(addBatch.commit());
+      addBatch = writeBatch(db);
+      pendingWriteCount = 0;
+    };
+
+    normalizedRecordsToAdd.forEach((record) => {
+      rotateAddBatchIfNeeded();
       // --- THAY ĐỔI QUAN TRỌNG ---
       // Nếu có email_id, dùng nó làm Document ID.
       // Nếu không, mới để Firestore tự sinh ID.
@@ -360,41 +649,82 @@ export const saveRecordsToFirebase = async (
       addBatch.set(newRecordRef, recordData);
       // --------------------------
 
-      addCount++;
-      if (addCount >= BATCH_LIMIT) {
-        addPromises.push(addBatch.commit());
-        addBatch = writeBatch(db);
-        addCount = 0;
+      pendingWriteCount++;
+
+      // Auto Push SKU Job & Create Draft Tasks for new marketplace sales.
+      if ((record.source === 'Etsy_Sales' || record.source === 'Ebay_Sales') && record.order_id && record.account) {
+        const orderCreatedAt = resolveRecordOrderCreatedAt(record.dt_local);
+        // 1. Push to Sku Job Queue
+        const jobsRef = collection(db, 'user', teamId, 'sku_jobs');
+        const jobDocRef = doc(jobsRef, record.order_id);
+        rotateAddBatchIfNeeded();
+        addBatch.set(jobDocRef, {
+          order_id: record.order_id,
+          account: record.account,
+          status: 'pending',
+          priority: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }, { merge: true });
+        pendingWriteCount++;
+
+        // 2. Create one task per item; personalized items stay in draft for CS review.
+        if (record.details && record.details.items && record.details.items.length > 0) {
+          const tasksRef = collection(db, 'tasks');
+
+          const accountInfo = accountsMap[record.account]
+            || accountsMap[String(record.account).toLowerCase()]
+            || { id: record.account, label: record.account };
+          const shippingAddress = normalizeOrderShippingAddress(record.details);
+          const updatedAt = new Date().toISOString();
+
+          record.details.items.forEach((item: any, index: number) => {
+            // Append -1, -2 etc. for multi-item orders
+            const taskId = getOrderTaskDocumentId(record.order_id, index, record.details!.items!.length);
+            if (existingTaskIds.has(taskId)) return;
+
+            const taskDocRef = doc(tasksRef, taskId);
+            rotateAddBatchIfNeeded();
+            addBatch.set(taskDocRef, buildOrderTaskPayload({
+              taskId,
+              orderId: record.order_id!,
+              source: record.source,
+              productName: record.product_name,
+              item,
+              accountId: accountInfo.id,
+              shopLabel: accountInfo.label,
+              createdAt: orderCreatedAt,
+              updatedAt,
+              shippingAddress,
+            }));
+            pendingWriteCount++;
+          });
+        }
       }
     });
-    if (addCount > 0) {
+    if (pendingWriteCount > 0) {
       addPromises.push(addBatch.commit());
     }
     await Promise.all(addPromises);
-    return recordsToAdd;
+    const affectedDates = normalizedRecordsToAdd.flatMap(record => getAffectedCacheDatesForISO(record.dt_local));
+    await markDailyCacheDirtyForDates(db, teamId, ['records'], affectedDates, 'records-added')
+      .catch(error => console.warn('[dailyCache] Failed to mark added records dirty:', error));
+    return normalizedRecordsToAdd;
   } catch (error) {
     console.error("Error while adding new records:", error);
+    console.error("Failed records data:", JSON.stringify(recordsToAdd, null, 2));
     throw new Error("Failed to add new records.");
   }
 };
 
-export const listenForNewRecords = (
-  teamId: string,
-  callback: (record: Record) => void,
-): (() => void) => {
-  const recordsCollectionRef = collection(db, "user", teamId, "records");
-  const q = query(
-    recordsCollectionRef,
-    where("dt_local", ">", new Date().toISOString()),
-  );
+export const listenForNewRecords = (teamId: string, callback: (record: Record) => void): (() => void) => {
+  const recordsCollectionRef = collection(db, 'user', teamId, 'records');
+  const q = query(recordsCollectionRef, where("dt_local", ">", new Date().toISOString()));
 
   const unsubscribe = onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => {
     snapshot.docChanges().forEach((change) => {
       if (change.type === "added" && !change.doc.metadata.hasPendingWrites) {
-        const newRecord = {
-          ...(change.doc.data() as object),
-          id: change.doc.id,
-        } as Record;
+        const newRecord = normalizeRecordDoc(change.doc);
         callback(newRecord);
       }
     });
@@ -402,113 +732,232 @@ export const listenForNewRecords = (
   return unsubscribe;
 };
 
+// Listen to a specific record document by its Firestore ID (for real-time updates in modals)
+export const listenToRecord = (
+  teamId: string,
+  recordId: string,
+  callback: (record: Record | null) => void
+): (() => void) => {
+  const recordRef = doc(db, 'user', teamId, 'records', recordId);
+  const unsubscribe = onSnapshot(recordRef, (docSnap) => {
+    if (docSnap.exists()) {
+      callback({ ...(docSnap.data() as object), id: docSnap.id } as Record);
+    } else {
+      callback(null);
+    }
+  });
+  return unsubscribe;
+};
+
 export const getManualCosts = async (teamId: string): Promise<any[]> => {
-  const costsCol = collection(db, "user", teamId, "manual_costs");
+  const costsCol = collection(db, 'user', teamId, 'manual_costs');
   const costSnapshot = await getDocs(costsCol);
-  const costList = costSnapshot.docs.map((doc) => ({
+  const costList = costSnapshot.docs.map(doc => ({
     id: doc.id,
-    ...(doc.data() as object),
+    ...(doc.data() as object)
   }));
   return costList;
 };
 
-export const addManualCost = async (
-  teamId: string,
-  entry: {
-    providerName: string;
-    cost: number;
-    date: string;
-    timeZone: string;
-  },
-): Promise<string> => {
+export const addManualCost = async (teamId: string, entry: {
+  providerName: string;
+  cost: number;
+  date: string;
+  timeZone: string;
+}): Promise<string> => {
   const costEntry = {
     ...entry,
-    currency: "USD",
+    currency: 'USD',
     createdAt: Timestamp.now(),
   };
-  const docRef = await addDoc(
-    collection(db, "user", teamId, "manual_costs"),
-    costEntry,
-  );
+  const docRef = await addDoc(collection(db, 'user', teamId, 'manual_costs'), costEntry);
   return docRef.id;
 };
 
-export const updateManualCost = async (
-  teamId: string,
-  costId: string,
-  updatedData: {
-    providerName: string;
-    cost: number;
-    date: string;
-  },
-): Promise<void> => {
-  const docRef = doc(db, "user", teamId, "manual_costs", costId);
+export const updateManualCost = async (teamId: string, costId: string, updatedData: {
+  providerName: string;
+  cost: number;
+  date: string;
+}): Promise<void> => {
+  const docRef = doc(db, 'user', teamId, 'manual_costs', costId);
   await updateDoc(docRef, updatedData);
 };
 
-export const deleteManualCost = async (
-  teamId: string,
-  costId: string,
-): Promise<void> => {
-  const docRef = doc(db, "user", teamId, "manual_costs", costId);
+export const deleteManualCost = async (teamId: string, costId: string): Promise<void> => {
+  const docRef = doc(db, 'user', teamId, 'manual_costs', costId);
   await deleteDoc(docRef);
 };
 
-export const deleteRecord = async (
-  teamId: string,
-  recordId: string,
-): Promise<void> => {
-  const recordRef = doc(db, "user", teamId, "records", recordId);
+export const deleteRecord = async (teamId: string, recordId: string): Promise<void> => {
+  const recordRef = doc(db, 'user', teamId, 'records', recordId);
+  const recordSnap = await getDoc(recordRef);
+  const affectedDates = recordSnap.exists()
+    ? getAffectedCacheDatesForISO((recordSnap.data() as Partial<Record>).dt_local)
+    : [];
   await deleteDoc(recordRef);
+  await markDailyCacheDirtyForDates(db, teamId, ['records'], affectedDates, 'record-deleted')
+    .catch(error => console.warn('[dailyCache] Failed to mark deleted record dirty:', error));
 };
 
-export const deleteRecordsByEmailId = async (
-  teamId: string,
-  emailId: string,
-): Promise<void> => {
-  const recordsCol = collection(db, "user", teamId, "records");
-  const q = query(recordsCol, where("email_id", "==", emailId));
+export const deleteRecordsByEmailId = async (teamId: string, emailId: string): Promise<void> => {
+  const recordsCol = collection(db, 'user', teamId, 'records');
+  const q = query(recordsCol, where('email_id', '==', emailId));
   const querySnapshot = await getDocs(q);
 
   if (querySnapshot.empty) return;
 
   const batch = writeBatch(db);
+  const affectedDates = new Set<string>();
   querySnapshot.forEach((doc) => {
+    getAffectedCacheDatesForISO((doc.data() as Partial<Record>).dt_local).forEach(date => affectedDates.add(date));
     batch.delete(doc.ref);
   });
   await batch.commit();
+  await markDailyCacheDirtyForDates(db, teamId, ['records'], Array.from(affectedDates), 'records-deleted-by-email')
+    .catch(error => console.warn('[dailyCache] Failed to mark email-deleted records dirty:', error));
 };
 
 // === [UPDATED] Hàm thêm 1 record, hỗ trợ Document ID ===
-export const addRecord = async (
-  teamId: string,
-  record: Record,
-): Promise<Record> => {
-  const recordsCollectionRef = collection(db, "user", teamId, "records");
-  const { id, ...data } = record;
+export const addRecord = async (teamId: string, record: Record): Promise<Record> => {
+  const recordsCollectionRef = collection(db, 'user', teamId, 'records');
+  const normalizedRecord = normalizeRecordDateFields(record);
+  const { id, ...data } = normalizedRecord;
 
   // Nếu có email_id -> Dùng làm Document ID
-  const docRef = record.email_id
-    ? doc(recordsCollectionRef, record.email_id)
+  const docRef = normalizedRecord.email_id
+    ? doc(recordsCollectionRef, normalizedRecord.email_id)
     : doc(recordsCollectionRef); // Fallback: Auto ID
 
   await setDoc(docRef, data);
-  return { ...record, id: docRef.id };
+  await markDailyCacheDirtyForDates(db, teamId, ['records'], getAffectedCacheDatesForISO(normalizedRecord.dt_local), 'record-added')
+    .catch(error => console.warn('[dailyCache] Failed to mark single added record dirty:', error));
+
+  // Auto Push SKU Job & Create Draft Tasks for new marketplace sales.
+  if ((normalizedRecord.source === 'Etsy_Sales' || normalizedRecord.source === 'Ebay_Sales') && normalizedRecord.order_id && normalizedRecord.account) {
+    const orderCreatedAt = resolveRecordOrderCreatedAt(normalizedRecord.dt_local);
+    // 1. Push to SKU Job Queue
+    const jobDocRef = doc(collection(db, 'user', teamId, 'sku_jobs'), normalizedRecord.order_id);
+    await setDoc(jobDocRef, {
+      order_id: normalizedRecord.order_id,
+      account: normalizedRecord.account,
+      status: 'pending',
+      priority: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }, { merge: true });
+
+    // 2. Create one task per item; personalized items stay in draft for CS review.
+    if (normalizedRecord.details && normalizedRecord.details.items && normalizedRecord.details.items.length > 0) {
+      const tasksRef = collection(db, 'tasks');
+      const batch = writeBatch(db); // Use batch for multiple items to ensure atomicity
+
+      let accountInfo = { id: normalizedRecord.account, label: normalizedRecord.account };
+      try {
+        const accountsRef = collection(db, 'user', teamId, 'accounts');
+        const accSnap = await getDocs(accountsRef);
+        const accountKey = normalizedRecord.account.trim().toLowerCase();
+        const foundAcc = accSnap.docs.find(accountDoc => {
+          const accountData = accountDoc.data();
+          return [accountDoc.id, accountData.email, accountData.label]
+            .some(value => String(value || '').trim().toLowerCase() === accountKey);
+        });
+        if (foundAcc) {
+          const accountData = foundAcc.data();
+          accountInfo = {
+            id: foundAcc.id,
+            label: String(accountData.label || accountData.email || foundAcc.id).trim(),
+          };
+        }
+      } catch (e) { console.error("Could not fetch account label for task sync", e); }
+
+      const shippingAddress = normalizeOrderShippingAddress(normalizedRecord.details);
+      const updatedAt = new Date().toISOString();
+      const taskIds = normalizedRecord.details.items.map((_, index) =>
+        getOrderTaskDocumentId(normalizedRecord.order_id, index, normalizedRecord.details!.items!.length)
+      );
+      const existingTaskIds = new Set<string>();
+      await Promise.all(taskIds.map(async taskId => {
+        const taskSnap = await getDoc(doc(tasksRef, taskId));
+        if (taskSnap.exists()) existingTaskIds.add(taskId);
+      }));
+
+      normalizedRecord.details.items.forEach((item: any, index: number) => {
+        const taskId = getOrderTaskDocumentId(normalizedRecord.order_id, index, normalizedRecord.details!.items!.length);
+
+        const taskDocRef = doc(tasksRef, taskId);
+        // Keep existing task work intact when this order is synced again.
+        if (existingTaskIds.has(taskId)) return;
+        batch.set(taskDocRef, buildOrderTaskPayload({
+          taskId,
+          orderId: normalizedRecord.order_id!,
+          source: normalizedRecord.source,
+          productName: normalizedRecord.product_name,
+          item,
+          accountId: accountInfo.id,
+          shopLabel: accountInfo.label,
+          createdAt: orderCreatedAt,
+          updatedAt,
+          shippingAddress,
+        }));
+      });
+      await batch.commit();
+    }
+  }
+
+  return { ...normalizedRecord, id: docRef.id };
 };
 
-export const searchGlobalRecords = async (
-  teamId: string,
-  term: string,
-): Promise<Record[]> => {
+export const bulkPushSkuJobs = async (teamId: string, records: Record[]): Promise<number> => {
+  if (!records || records.length === 0) return 0;
+  
+  const jobsRef = collection(db, 'user', teamId, 'sku_jobs');
+  let batch = writeBatch(db);
+  let count = 0;
+  let totalCount = 0;
+  
+  for (const record of records) {
+    if (record.order_id && record.account && record.source === 'Etsy_Sales') {
+      
+      if (!recordNeedsSkuFetch(record)) continue;
+
+      const jobDocRef = doc(jobsRef, record.order_id);
+      batch.set(jobDocRef, {
+        order_id: record.order_id,
+        account: record.account,
+        status: 'pending',
+        priority: true, // Manual triggers get priority
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }, { merge: true });
+      
+      count++;
+      totalCount++;
+      
+      if (count >= 500) {
+        await batch.commit();
+        batch = writeBatch(db);
+        count = 0;
+      }
+    }
+  }
+  
+  if (count > 0) {
+    await batch.commit();
+  }
+  
+  return totalCount;
+};
+
+export const searchGlobalRecords = async (teamId: string, term: string): Promise<Record[]> => {
   if (!term || !term.trim()) return [];
 
-  const recordsRef = collection(db, "user", teamId, "records");
+  const recordsRef = collection(db, 'user', teamId, 'records');
   const results: Record[] = [];
   const seenIds = new Set<string>();
 
   // Helper to add unique records
   const addDocs = (docs: QuerySnapshot<DocumentData>) => {
-    docs.forEach((doc) => {
+    docs.forEach(doc => {
       if (!seenIds.has(doc.id)) {
         seenIds.add(doc.id);
         results.push({ ...(doc.data() as object), id: doc.id } as Record);
@@ -518,17 +967,17 @@ export const searchGlobalRecords = async (
 
   try {
     // 1. Exact match on Order ID
-    const qOrder = query(recordsRef, where("order_id", "==", term.trim()));
+    const qOrder = query(recordsRef, where('order_id', '==', term.trim()));
     const snapOrder = await getDocs(qOrder);
     addDocs(snapOrder);
 
     // 2. Exact match on FF Code
-    const qFF = query(recordsRef, where("ff_code", "==", term.trim()));
+    const qFF = query(recordsRef, where('ff_code', '==', term.trim()));
     const snapFF = await getDocs(qFF);
     addDocs(snapFF);
 
     // 3. Exact match on Email ID (sometimes used as ref)
-    const qEmailId = query(recordsRef, where("email_id", "==", term.trim()));
+    const qEmailId = query(recordsRef, where('email_id', '==', term.trim()));
     const snapEmailId = await getDocs(qEmailId);
     addDocs(snapEmailId);
 
@@ -540,26 +989,13 @@ export const searchGlobalRecords = async (
 };
 
 // === Settings Management ===
-export interface FulfillmentAccount {
-  id: string;
-  provider: "printway" | "merchize";
-  name: string;
-  base_url: string;
-  api_token: string;
-}
-
 export interface TeamSettings {
-  googleSheetId?: string;
-  sheetAccount?: Account;
-  autoSyncToSheet?: boolean;
-  fulfillmentAccounts?: FulfillmentAccount[];
-  kpiTeams?: string[];
   [key: string]: any;
 }
 
 export const getSettings = async (teamId: string): Promise<TeamSettings> => {
   try {
-    const settingsRef = doc(db, "user", teamId, "settings", "config");
+    const settingsRef = doc(db, 'user', teamId, 'settings', 'config');
     const settingsSnap = await getDoc(settingsRef);
 
     if (!settingsSnap.exists()) {
@@ -573,12 +1009,9 @@ export const getSettings = async (teamId: string): Promise<TeamSettings> => {
   }
 };
 
-export const saveSettings = async (
-  teamId: string,
-  settings: Partial<TeamSettings>,
-): Promise<void> => {
+export const saveSettings = async (teamId: string, settings: Partial<TeamSettings>): Promise<void> => {
   try {
-    const settingsRef = doc(db, "user", teamId, "settings", "config");
+    const settingsRef = doc(db, 'user', teamId, 'settings', 'config');
     await setDoc(settingsRef, settings, { merge: true });
   } catch (error) {
     console.error("Error saving settings:", error);
@@ -586,25 +1019,300 @@ export const saveSettings = async (
   }
 };
 
-export const listenForSettings = (
-  teamId: string,
-  callback: (settings: TeamSettings) => void,
-): (() => void) => {
-  const settingsRef = doc(db, "user", teamId, "settings", "config");
+export const listenForSettings = (teamId: string, callback: (settings: TeamSettings) => void): (() => void) => {
+  const settingsRef = doc(db, 'user', teamId, 'settings', 'config');
 
-  const unsubscribe = onSnapshot(
-    settingsRef,
-    (snapshot) => {
-      if (snapshot.exists()) {
-        callback(snapshot.data() as TeamSettings);
-      } else {
-        callback({});
-      }
-    },
-    (error) => {
-      console.error("Error listening for settings:", error);
-    },
-  );
+  const unsubscribe = onSnapshot(settingsRef, (snapshot) => {
+    if (snapshot.exists()) {
+      callback(snapshot.data() as TeamSettings);
+    } else {
+      callback({});
+    }
+  }, (error) => {
+    console.error("Error listening for settings:", error);
+  });
 
   return unsubscribe;
+};
+
+export const getTeamMembers = async (teamId: string): Promise<UserProfile[]> => {
+  try {
+    const rolesRef = collection(db, 'authentication');
+    const q = query(rolesRef, where('teamId', '==', teamId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs
+      .filter(doc => {
+        const data = doc.data();
+        return data.active !== false && !['ADMIN', 'MANAGER'].includes(String(data.role || ''));
+      })
+      .map(doc => ({ ...(doc.data() as UserProfile), uid: doc.id }));
+  } catch (error) {
+    console.error("Error getting team members:", error);
+    return [];
+  }
+};
+
+// === [NEW] Category & Product Mapping Services ===
+
+export const getCategories = async (teamId: string): Promise<Category[]> => {
+  const col = collection(db, 'user', teamId, 'categories');
+  const snap = await getDocs(col);
+  return snap.docs.map(doc => ({ ...(doc.data() as Category), id: doc.id }));
+};
+
+export const saveCategory = async (teamId: string, category: Partial<Category> & { code: string }): Promise<void> => {
+  // Use code as document ID for easy reference/lookup
+  const docRef = doc(db, 'user', teamId, 'categories', category.code.toUpperCase().trim());
+  const data = {
+    ...category,
+    code: category.code.toUpperCase().trim(),
+    updatedAt: new Date().toISOString()
+  };
+  if (!category.createdAt) (data as any).createdAt = new Date().toISOString();
+  await setDoc(docRef, data, { merge: true });
+};
+
+export const saveCategoriesBulk = async (teamId: string, categories: { code: string, name: string }[]): Promise<void> => {
+  const batch = writeBatch(db);
+  const now = new Date().toISOString();
+
+  // 1. Get existing categories to handle deletions
+  const colRef = collection(db, 'user', teamId, 'categories');
+  const existingSnap = await getDocs(colRef);
+  const existingCodes = existingSnap.docs.map(doc => doc.id);
+
+  // 2. Identify codes to delete (those that are in DB but NOT in the new list)
+  const newCodes = new Set(categories.map(c => c.code.toUpperCase().trim()));
+  const codesToDelete = existingCodes.filter(code => !newCodes.has(code));
+
+  // 3. Add deletions to batch
+  codesToDelete.forEach(code => {
+    const docRef = doc(db, 'user', teamId, 'categories', code);
+    batch.delete(docRef);
+  });
+
+  // 4. Upsert (Add/Update) new categories
+  categories.forEach(category => {
+    const code = category.code.toUpperCase().trim();
+    const docRef = doc(db, 'user', teamId, 'categories', code);
+
+    // Find if it was an existing category to keep its createdAt if possible
+    const existingDoc = existingSnap.docs.find(d => d.id === code);
+    const existingData = existingDoc ? existingDoc.data() : null;
+
+    batch.set(docRef, {
+      code,
+      name: category.name.trim(),
+      updatedAt: now,
+      createdAt: existingData?.createdAt || now
+    }, { merge: true });
+  });
+
+  await batch.commit();
+};
+
+export const deleteCategory = async (teamId: string, categoryId: string): Promise<void> => {
+  const docRef = doc(db, 'user', teamId, 'categories', categoryId);
+  await deleteDoc(docRef);
+};
+
+
+// === [NEW] Worker Management Services ===
+
+/**
+ * Xóa các job đang ở trạng thái 'pending' (toàn bộ team hoặc theo từng shop)
+ */
+export const clearPendingSkuJobs = async (teamId: string, shopEmail?: string): Promise<number> => {
+  const jobsRef = collection(db, 'user', teamId, 'sku_jobs');
+  let q = query(jobsRef, where('status', '==', 'pending'));
+  
+  if (shopEmail) {
+    q = query(jobsRef, where('status', '==', 'pending'), where('account', '==', shopEmail));
+  }
+  
+  const snap = await getDocs(q);
+  if (snap.empty) return 0;
+  
+  const batch = writeBatch(db);
+  snap.docs.forEach(docSnap => {
+    batch.delete(docSnap.ref);
+  });
+  
+  await batch.commit();
+  return snap.size;
+};
+
+/**
+ * Reset trạng thái worker của tất cả account về Offline (dùng khi hệ thống bảo trì hoặc clear rác)
+ */
+export const clearAllWorkerHeartbeats = async (teamId: string): Promise<void> => {
+  const accountsRef = collection(db, 'user', teamId, 'accounts');
+  const snap = await getDocs(accountsRef);
+  
+  if (snap.empty) return;
+  
+  const batch = writeBatch(db);
+  snap.docs.forEach(docSnap => {
+    batch.update(docSnap.ref, {
+      worker_status: {
+        status: 'idle',
+        last_heartbeat: 'cleared',
+        pending_count: 0
+      }
+    });
+  });
+
+  await batch.commit();
+};
+
+export type RemoteWorkerTarget = 'health' | 'reviews';
+
+export interface WorkerControlSettings {
+  reviewCronHours: number[];
+}
+
+export const sendWorkerAlert = async (
+  teamId: string,
+  accountId: string,
+  lastHeartbeat: string,
+): Promise<void> => {
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new Error('Missing Firebase auth token for worker alert.');
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch('/api/extension-shop-health', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: 'worker-alert',
+          teamId,
+          accountId,
+          type: 'worker_lost',
+          occurredAt: new Date().toISOString(),
+          eventKey: lastHeartbeat,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.message || `Worker alert failed with HTTP ${response.status}`);
+      }
+      return;
+    } catch (error) {
+      if (attempt === 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+};
+
+export const enqueueRemoteWorkerCommand = async (
+  teamId: string,
+  target: RemoteWorkerTarget,
+  command: string,
+  payload: globalThis.Record<string, any> = {}
+): Promise<string> => {
+  const commandsRef = collection(db, 'user', teamId, 'worker_commands');
+  const docRef = await addDoc(commandsRef, {
+    target,
+    command,
+    payload,
+    status: 'pending',
+    created_at: new Date().toISOString(),
+    created_by_uid: auth.currentUser?.uid || null,
+    created_by_email: auth.currentUser?.email || null,
+  });
+  return docRef.id;
+};
+
+export const saveRemoteReviewCronHours = async (teamId: string, hours: number[]): Promise<void> => {
+  const settingsRef = doc(db, 'user', teamId, 'settings', 'worker_control');
+  await setDoc(settingsRef, {
+    review_cron_hours: hours,
+    review_cron_updated_at: new Date().toISOString(),
+    review_cron_updated_by_uid: auth.currentUser?.uid || null,
+    review_cron_updated_by_email: auth.currentUser?.email || null,
+  }, { merge: true });
+
+  await enqueueRemoteWorkerCommand(teamId, 'reviews', 'set_review_cron_hours', { hours });
+};
+
+const parseWorkerControlSettings = (data: globalThis.Record<string, any>): WorkerControlSettings => {
+  const reviewCronHours = Array.isArray(data.review_cron_hours)
+    ? data.review_cron_hours.map(Number).filter((hour: number) => Number.isInteger(hour) && hour >= 0 && hour <= 23)
+    : [];
+  return { reviewCronHours };
+};
+
+export const getWorkerControlSettings = async (teamId: string): Promise<WorkerControlSettings> => {
+  const snapshot = await getDoc(doc(db, 'user', teamId, 'settings', 'worker_control'));
+  return parseWorkerControlSettings(snapshot.data() || {});
+};
+
+export const subscribeWorkerControlSettings = (
+  teamId: string,
+  callback: (settings: WorkerControlSettings) => void,
+  onError?: (error: Error) => void,
+) => onSnapshot(doc(db, 'user', teamId, 'settings', 'worker_control'), snapshot => {
+  callback(parseWorkerControlSettings(snapshot.data() || {}));
+}, error => onError?.(error));
+
+const normalizePODTeam = (value: unknown): PODTeam | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const data = value as globalThis.Record<string, unknown>;
+  const uid = typeof data.uid === 'string' ? data.uid.trim() : '';
+  const displayName = typeof data.displayName === 'string' ? data.displayName.trim() : '';
+  if (!uid || !displayName) return null;
+
+  const allowedAccounts = Array.isArray(data.allowedAccounts)
+    ? Array.from(new Map(data.allowedAccounts
+      .filter((email): email is string => typeof email === 'string')
+      .map(email => email.trim())
+      .filter(Boolean)
+      .map(email => [email.toLowerCase(), email])).values())
+    : [];
+  const memberIds = Array.isArray(data.memberIds)
+    ? Array.from(new Set(data.memberIds
+      .filter((uid): uid is string => typeof uid === 'string')
+      .map(uid => uid.trim())
+      .filter(Boolean)))
+    : [];
+
+  return {
+    uid,
+    displayName,
+    allowedAccounts,
+    memberIds,
+    ...(typeof data.photoURL === 'string' && data.photoURL.trim() ? { photoURL: data.photoURL.trim() } : {}),
+    ...(typeof data.description === 'string' && data.description.trim() ? { description: data.description.trim() } : {}),
+    ...(typeof data.createdAt === 'string' && data.createdAt ? { createdAt: data.createdAt } : {}),
+    ...(typeof data.updatedAt === 'string' && data.updatedAt ? { updatedAt: data.updatedAt } : {}),
+  };
+};
+
+export const getPODTeams = async (teamId: string): Promise<PODTeam[]> => {
+  const settingsRef = doc(db, 'user', teamId, 'settings', 'pod_teams');
+  const snapshot = await getDoc(settingsRef);
+  if (!snapshot.exists()) return [];
+  const teams = snapshot.data().teams;
+  return Array.isArray(teams)
+    ? teams.map(normalizePODTeam).filter((team): team is PODTeam => team !== null)
+    : [];
+};
+
+export const savePODTeams = async (teamId: string, teams: PODTeam[]): Promise<void> => {
+  try {
+    const settingsRef = doc(db, 'user', teamId, 'settings', 'pod_teams');
+    const normalizedTeams = teams.map(normalizePODTeam).filter((team): team is PODTeam => team !== null);
+    await setDoc(settingsRef, {
+      teams: normalizedTeams,
+      updatedAt: new Date().toISOString(),
+      updatedBy: auth.currentUser?.email || auth.currentUser?.uid || 'unknown'
+    }, { merge: true });
+  } catch (error) {
+    console.error("Error saving POD teams:", error);
+    throw error;
+  }
 };

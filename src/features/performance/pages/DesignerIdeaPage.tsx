@@ -1,0 +1,2 @@
+import PerformanceSectionPage from '../components/PerformanceSectionPage';
+export default function DesignerIdeaPage() { return <PerformanceSectionPage sectionId="designer-idea" title="Designer Idea" />; }

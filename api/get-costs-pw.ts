@@ -1,13 +1,20 @@
 // File: api/get-costs-pw.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import type { CostData, Record, FulfillmentAccount } from './_lib/types.js';
+import { printwayConfig } from './_lib/fulfillmentConfig.js';
+import type { CostData, Record } from './_lib/types.js';
 
 // --- START: Printway Functions ---
 const formatPrintwayDate = (date: Date): string => date.toISOString().replace('T', ' ').substring(0, 19);
 
+// Helper: Normalize Order ID via Regex (Extract first numeric sequence)
 const normalizeOrderId = (rawId: string): string => {
-    const match = rawId.match(/^#?(\d+)/);
-    return match ? match[1] : rawId.replace(/^#/, '').trim();
+    // Fix: eBay Order IDs (formatted like 01-14061-85798) should not be truncated.
+    // Check for pattern: digits-digits-digits
+    if (/^\d+-\d+-\d+$/.test(rawId)) {
+        return rawId;
+    }
+    const match = rawId.match(/^(\d+)/);
+    return match ? match[1] : rawId;
 };
 
 const sliceTimeRange = (startDt: Date, endDt: Date, hoursPerSlice: number): { from: string, to: string }[] => {
@@ -22,10 +29,10 @@ const sliceTimeRange = (startDt: Date, endDt: Date, hoursPerSlice: number): { fr
     return slices;
 };
 
-async function fetchPrintwayCostsForSlice(dateRange: { from: string, to: string }, account: FulfillmentAccount): Promise<CostData[]> {
+async function fetchPrintwayCostsForSlice(dateRange: { from: string, to: string }): Promise<CostData[]> {
     const allCosts: CostData[] = [];
     let page = 1;
-    const limit = 100;
+    const limit = printwayConfig.limit;
 
     while (true) {
         const params = new URLSearchParams({
@@ -34,13 +41,13 @@ async function fetchPrintwayCostsForSlice(dateRange: { from: string, to: string 
             limit: limit.toString(),
             page: page.toString(),
         });
-        const url = `${account.base_url}/order/list?${params.toString()}`;
+        const url = `${printwayConfig.base_url}/order/list?${params.toString()}`;
         try {
             const response = await fetch(url, {
                 method: 'GET',
                 headers: {
-                    'pw-access-token': account.api_token,
-                    'Authorization': `Bearer ${account.api_token}`,
+                    'pw-access-token': printwayConfig.access_token,
+                    'Authorization': `Bearer ${printwayConfig.access_token}`,
                     'Content-Type': 'application/json',
                 },
             });
@@ -85,14 +92,26 @@ async function fetchPrintwayCostsForSlice(dateRange: { from: string, to: string 
     return allCosts;
 }
 
-async function fetchPrintwayCosts(dateRange: { from: string, to: string }, account: FulfillmentAccount): Promise<CostData[]> {
-    if (!account.base_url || !account.api_token) {
+async function fetchPrintwayCosts(dateRange: { from: string, to: string }): Promise<CostData[]> {
+    if (!printwayConfig.base_url || !printwayConfig.access_token) {
         return [];
     }
     const slices = sliceTimeRange(new Date(dateRange.from), new Date(dateRange.to), 24);
-    const slicePromises = slices.map(slice => fetchPrintwayCostsForSlice(slice, account));
-    const results = await Promise.all(slicePromises);
-    return results.flat();
+
+    // Process sequentially to avoid 429
+    const results: CostData[] = [];
+    for (const slice of slices) {
+        try {
+            const sliceCosts = await fetchPrintwayCostsForSlice(slice);
+            results.push(...sliceCosts);
+        } catch (error) {
+            console.error(`Failed to fetch slice ${slice.from}:`, error);
+        }
+        // Throttle requests (300ms delay)
+        await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    return results;
 }
 // --- END: Printway Functions ---
 
@@ -103,14 +122,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const { records, accounts } = req.body as { records: Record[], accounts: FulfillmentAccount[] };
+        const { records } = req.body as { records: Record[] };
         if (!records || !Array.isArray(records)) {
             return res.status(400).json({ message: 'Missing "records" array in request body.' });
-        }
-        
-        const printwayAccounts = (accounts || []).filter(a => a.provider === 'printway');
-        if (printwayAccounts.length === 0) {
-             return res.status(200).json({});
         }
 
         const orderRecords = records.filter(r => r.kind === 'order' && r.order_id);
@@ -124,25 +138,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         const minDate = new Date(Math.min(...dates));
-        let maxDate = new Date(Math.max(...dates));
-        
+        const maxDate = new Date(Math.max(...dates));
         minDate.setDate(minDate.getDate() - 1);
-        maxDate.setDate(maxDate.getDate() + 14); // Extended to +14 days to catch delayed fulfillment
-        
-        // Cap maxDate to current time to avoid unnecessary API requests into the future
-        const now = new Date();
-        if (maxDate > now) {
-             maxDate = now;
-        }
-        
+        maxDate.setDate(maxDate.getDate() + 1);
         const printwayDateRange = { from: minDate.toISOString(), to: maxDate.toISOString() };
 
-        const printwayDataArrays = await Promise.all(printwayAccounts.map(acc => fetchPrintwayCosts(printwayDateRange, acc)));
-        const printwayData = printwayDataArrays.flat();
+        console.log(`[PW DEBUG] Calculated Date Range: ${printwayDateRange.from} -> ${printwayDateRange.to}`);
+        console.log(`[PW DEBUG] Input Records Count: ${orderRecords.length}`);
+
+        const printwayData = await fetchPrintwayCosts(printwayDateRange);
+
+        console.log(`[PW DEBUG] Fetched Total Records from PW: ${printwayData.length}`);
 
         // --- CẬP NHẬT LOGIC MERGE ---
         const costMap: { [key: string]: CostData } = {};
         for (const item of printwayData) {
+
+            if (item.cost_total <= 0) continue;
             if (costMap[item.order_id]) {
                 costMap[item.order_id].cost_total += item.cost_total;
                 if (!costMap[item.order_id].ff_code && item.ff_code) {

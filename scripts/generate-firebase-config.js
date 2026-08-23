@@ -1,70 +1,40 @@
 // scripts/generate-firebase-config.js
-import { writeFileSync, mkdirSync, readFileSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
-
-const __filename0 = fileURLToPath(import.meta.url);
-const __dirname0 = dirname(__filename0);
-
-// Load .env file manually (dotenv not available as dependency)
-try {
-  const envPath = join(__dirname0, "..", ".env");
-  const envContent = readFileSync(envPath, "utf-8");
-  for (const line of envContent.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const idx = trimmed.indexOf("=");
-    if (idx === -1) continue;
-    const key = trimmed.slice(0, idx).trim();
-    const value = trimmed.slice(idx + 1).trim();
-    if (key && value && !process.env[key]) process.env[key] = value;
-  }
-} catch (_) {
-  /* .env not found, rely on shell env */
-}
+import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Load .env.local if available
+const envPath = join(__dirname, '..', '.env.local');
+if (existsSync(envPath) && process.loadEnvFile) {
+    process.loadEnvFile(envPath);
+}
+
 // Firebase configuration using environment variables (VITE_ prefix for client-side)
 // Note: During build, Vite will replace these with actual values
 const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY,
-  authDomain:
-    process.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN,
-  projectId:
-    process.env.VITE_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID,
-  storageBucket:
-    process.env.VITE_FIREBASE_STORAGE_BUCKET ||
-    process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId:
-    process.env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
-    process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.VITE_FIREBASE_APP_ID || process.env.FIREBASE_APP_ID,
+    apiKey: process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY,
+    authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.VITE_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID,
+    storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || process.env.FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.VITE_FIREBASE_APP_ID || process.env.FIREBASE_APP_ID,
 };
 
 // Validate all required fields
-const requiredFields = [
-  "apiKey",
-  "authDomain",
-  "projectId",
-  "storageBucket",
-  "messagingSenderId",
-  "appId",
-];
-const missingFields = requiredFields.filter((field) => !firebaseConfig[field]);
+const requiredFields = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
+const missingFields = requiredFields.filter(field => !firebaseConfig[field]);
 
 if (missingFields.length > 0) {
-  console.error(
-    "❌ Firebase configuration error: Missing required fields:",
-    missingFields.join(", "),
-  );
-  console.error("Please set the following environment variables:");
-  missingFields.forEach((field) => {
-    const envVarName = `VITE_FIREBASE_${field.replace(/([A-Z])/g, "_$1").toUpperCase()}`;
-    console.error(`  - ${envVarName}`);
-  });
-  process.exit(1);
+    console.error('❌ Firebase configuration error: Missing required fields:', missingFields.join(', '));
+    console.error('Please set the following environment variables:');
+    missingFields.forEach(field => {
+        const envVarName = `VITE_FIREBASE_${field.replace(/([A-Z])/g, '_$1').toUpperCase()}`;
+        console.error(`  - ${envVarName}`);
+    });
+    process.exit(1);
 }
 
 // Generate the config file content
@@ -75,15 +45,15 @@ self.FIREBASE_CONFIG = ${JSON.stringify(firebaseConfig, null, 2)};
 `;
 
 // Ensure public directory exists
-const publicDir = join(__dirname, "..", "public");
+const publicDir = join(__dirname, '..', 'public');
 try {
-  mkdirSync(publicDir, { recursive: true });
+    mkdirSync(publicDir, { recursive: true });
 } catch (err) {
-  // Directory already exists
+    // Directory already exists
 }
 
 // Write the config file
-const configPath = join(publicDir, "firebase-config.js");
-writeFileSync(configPath, configContent, "utf-8");
+const configPath = join(publicDir, 'firebase-config.js');
+writeFileSync(configPath, configContent, 'utf-8');
 
-console.log("✅ Generated firebase-config.js successfully");
+console.log('✅ Generated firebase-config.js successfully');

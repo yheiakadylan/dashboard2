@@ -1,11 +1,11 @@
 import React from 'react';
-import Spinner from '../Spinner';
+import { Check, Star } from 'lucide-react';
+import Spinner from '../ui/Spinner';
 import CachedImage from './CachedImage';
+import { getHighResImageUrl } from '../../utils/imageUtils';
 import { ListChildComponentProps, RowData } from './types';
 import { HIDDEN_MOBILE_HEADERS } from '../../constants';
-import EditableCostCell from './EditableCostCell';
-import EditableFfCodeCell from './EditableFfCodeCell';
-import EditableProviderCell from './EditableProviderCell';
+import { getColumnStyle, resolveFlexBasis } from '../../constants/columnConfigs';
 
 // Helper to check if a header should be hidden on mobile (Only applied in Desktop View now)
 const isHiddenOnDesktopMobileView = (header: string) => HIDDEN_MOBILE_HEADERS.includes(header);
@@ -80,13 +80,54 @@ const renderActionCell = (cell: any, _cellIndex: number, loadingItems: Set<strin
     return null;
 }
 
-const renderTextContent = (cell: any) => {
+const renderTextContent = (cell: any, selectedKeys?: Set<string>, onToggleSelect?: (key: string) => void) => {
     if (cell && typeof cell === 'object' && cell.type === 'value_with_unit') {
         if (cell.value === 0 || cell.display === '--') {
             return <span className="text-gray-300 dark:text-gray-600">--</span>;
         }
         return cell.display;
     }
+
+    if (cell && typeof cell === 'object' && cell.type === 'checkbox') {
+        const isChecked = cell.checked !== undefined ? cell.checked : (selectedKeys && cell.idKey ? selectedKeys.has(cell.idKey) : false);
+        const handleCheck = (e: React.ChangeEvent<HTMLInputElement>) => {
+            if (cell.onChange) {
+                cell.onChange(e.target.checked);
+            } else if (onToggleSelect && cell.idKey) {
+                onToggleSelect(cell.idKey);
+            }
+        };
+
+        return (
+            <div className="relative flex items-center justify-center">
+                <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={handleCheck}
+                    onClick={(e) => e.stopPropagation()} 
+                    className="peer sr-only"
+                />
+                <div 
+                    className={`w-6 h-6 rounded-lg border-2 transition-all cursor-pointer shadow-sm flex-shrink-0
+                        ${isChecked 
+                            ? 'bg-indigo-600 border-indigo-600' 
+                            : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 group-hover:border-indigo-500'}
+                    `}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (onToggleSelect && cell.idKey) onToggleSelect(cell.idKey);
+                    }}
+                >
+                    <Check 
+                        className={`w-4 h-4 text-white absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-200 pointer-events-none ${isChecked ? 'opacity-100' : 'opacity-0'}`} 
+                        strokeWidth={4}
+                    />
+                </div>
+            </div>
+        );
+    }
+
+
     return typeof cell === 'number'
         ? (cell === 0
             ? <span className="text-gray-300 dark:text-gray-600">--</span>
@@ -94,127 +135,133 @@ const renderTextContent = (cell: any) => {
                 ? cell.toLocaleString('en-US')
                 : cell.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
         )
-        : (typeof cell === 'string' ? cell : '');
+        : (typeof cell === 'string' ? cell : cell); // Fallback to cell itself if it's a React Node or unknown object
 }
 
+const renderTrendArrow = (direction?: 'up' | 'down' | 'neutral') => {
+    if (direction === 'up') {
+        return <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>;
+    }
+    if (direction === 'down') {
+        return <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>;
+    }
+    return null;
+};
+
+const getTrendDeltaClass = (direction?: 'up' | 'down' | 'neutral') => {
+    if (direction === 'up') return 'text-emerald-600 dark:text-emerald-400';
+    if (direction === 'down') return 'text-red-500 dark:text-red-400';
+    return 'text-gray-500 dark:text-gray-400';
+};
+
+const renderTrendDelta = (cell: any, className = '') => {
+    const direction = cell.subtitleDeltaDirection || cell.trendDirection;
+    if (!cell.subtitleDelta) return null;
+
+    return (
+        <span className={`inline-flex items-center gap-0.5 font-bold ${getTrendDeltaClass(direction)} ${className}`}>
+            {renderTrendArrow(direction)}
+            <span>{cell.subtitleDelta}</span>
+        </span>
+    );
+};
+
+const renderStructuredSubtitle = (cell: any) => {
+    if (!cell.subtitleLabel || cell.subtitleValue === undefined) {
+        return cell.subtitle;
+    }
+
+    return (
+        <span className="truncate">{cell.subtitleLabel}: {cell.subtitleValue}</span>
+    );
+};
+
 const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) => {
-    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, onUpdateCost, onUpdateFfCode, onUpdateProvider, columnWidths } = data;
+    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, columnWidths, onRowClick } = data;
     const row = items[index];
 
+    // isRefunded is stored as last hidden element (index 16)
     const isRefunded = row[row.length - 1] === true;
 
     // Row background: refunded = light red, others = alternating white/gray
     const rowBg = isRefunded
-        ? 'bg-red-50/80 dark:bg-red-900/10'
-        : (index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700/50');
+        ? 'bg-red-50 dark:bg-red-900/15'
+        : (index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/50 dark:bg-gray-800/80');
 
     return (
         <div
             style={{ ...style, willChange: 'transform' }}
-            className={`relative flex items-center border-b text-sm transition-colors duration-150 group cursor-pointer ${isRefunded ? 'border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30' : 'border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20'} ${rowBg}`}
-            onClick={() => {
-                const recordId = typeof row[row.length - 1] === 'string' ? row[row.length - 1] : (typeof row[row.length - 2] === 'string' ? row[row.length - 2] : null);
-                if (onViewOrderDetails && typeof recordId === 'string') {
-                    onViewOrderDetails(recordId);
-                }
-            }}
+            className={`relative flex items-center border-b text-sm transition-colors duration-150 group ${onRowClick ? 'cursor-pointer' : ''} ${isRefunded
+                ? 'border-red-200 dark:border-red-900/40 hover:bg-red-100/60 dark:hover:bg-red-950/30'
+                : 'border-gray-100 dark:border-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/10'
+                } ${rowBg}`}
+            onClick={() => onRowClick && onRowClick(row)}
         >
             {/* Hover/refund indicator strip */}
-            <div className={`absolute left-0 top-0 bottom-0 w-1 transform transition-all duration-150 origin-left ${isRefunded ? 'bg-red-400 dark:bg-red-600 scale-y-100' : 'bg-blue-400 dark:bg-blue-500 scale-y-0 group-hover:scale-y-100'}`} />
-            
+            <div className={`absolute left-0 top-0 bottom-0 w-1 transform transition-all duration-150 origin-left ${isRefunded
+                ? 'bg-red-400 dark:bg-red-600 scale-y-100'
+                : 'bg-blue-500 scale-y-0 group-hover:scale-y-100'
+                }`} />
+
             {headers.map((header, cellIndex) => {
                 const cell = row[cellIndex];
                 const isHidden = isHiddenOnDesktopMobileView(header);
 
                 const hiddenClass = isHidden ? 'hidden lg:flex' : 'flex';
 
-                let cellClass = `${hiddenClass} text-sm items-center h-full overflow-hidden px-3 py-2 `; // Changed py-1 to py-2
+                const cellClassBase = `${hiddenClass} text-sm items-center h-full overflow-hidden px-3 py-2 text-gray-700 dark:text-gray-300 min-w-0 border-r border-gray-100 dark:border-gray-700/70 last:border-r-0 `;
+                let cellClass = cellClassBase;
 
-                // --- NEW: Column-specific styling ---
-                switch (header) {
-                    case 'Image':
-                        cellClass += 'flex-none w-[95px] justify-center'; // 75px + padding
-                        break;
-                    case 'Product Name':
-                        cellClass += 'flex-[2] basis-[200px]'; // Reduced width
-                        break;
-                    case 'Order Number':
-                        cellClass += 'flex-1 basis-[110px]'; // Compact width for order numbers
-                        break;
-                    case 'Revenue':
-                    case 'Cost':
-                    case 'Currency':
-                        cellClass += 'flex-1 basis-[80px]';
-                        break;
-                    case 'Case':
-                    case 'Help':
-                        cellClass += 'flex-none w-[60px] justify-center text-center';
-                        break;
-                    case 'Message':
-                    case 'Help Kind':
-                        cellClass += 'flex-[2] basis-[250px]';
-                        break;
-                    default:
-                        cellClass += 'flex-1 basis-[120px]';
-                        break;
+                // Use centralized column config
+                const config = getColumnStyle(header);
+                if (config.justify) cellClass += `justify-${config.justify} `;
+
+                // Special styling based on column type
+                if (header === 'Product Name') {
+                    cellClass += 'font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200';
+                } else if (header === 'Order Number' || header === 'Order ID') {
+                    cellClass += 'font-semibold text-gray-500 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200';
+                } else if (header.toLowerCase().includes('funds')) {
+                    cellClass += 'font-semibold !text-emerald-700 dark:!text-emerald-300 transition-colors';
+                } else if (['Revenue', 'Cost', 'Cost (USD)', 'Currency', 'Curren'].includes(header)) {
+                    cellClass += `font-medium group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors ${isRefunded ? 'text-gray-400 dark:text-gray-500' : ''}`;
+                } else if (header === 'Message' || header === 'Help Kind') {
+                    cellClass += 'italic text-gray-500';
                 }
 
-                // Apply custom width if provided
-                const customStyle = columnWidths && columnWidths[header]
-                    ? { flexBasis: `${columnWidths[header]}px`, minWidth: `${columnWidths[header]}px` }
-                    : undefined;
+                // Apply dynamic flex styles
+                const customStyle = {
+                    flexGrow: config.flexGrow ?? 1,
+                    flexShrink: 0,
+                    flexBasis: resolveFlexBasis(config.basis),
+                    ...(columnWidths && columnWidths[header] ? { minWidth: `${columnWidths[header]}px`, flexBasis: `${columnWidths[header]}px` } : {})
+                };
 
-                // Check if complex object
+
+                // 1. First Priority: Check for complex object types
                 if (cell && typeof cell === 'object') {
                     if (cell.type === 'image') {
                         return (
                             <div key={cellIndex} className={cellClass} style={customStyle} onClick={(e) => e.stopPropagation()}>
                                 {cell.src ? (
-                                    <CachedImage src={cell.src} alt={cell.alt} onClick={() => cell.fullSrc && onImageClick(cell.fullSrc)} className="w-[75px] h-[75px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-105 transition-transform" />
+                                    <CachedImage src={cell.src} alt={cell.alt} onClick={() => onImageClick(cell.fullSrc || getHighResImageUrl(cell.src) || cell.src)} className="w-[60px] h-[60px] object-cover rounded-md border border-gray-200 dark:border-gray-600 cursor-pointer shadow-sm group-hover:shadow-md hover:scale-110 transition-transform duration-200" />
                                 ) : (
-                                    <div className="w-[75px] h-[75px] bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 text-center p-1">No Image</div>
+                                    <div className="w-[60px] h-[60px] bg-gray-100 dark:bg-gray-700 rounded-md flex items-center justify-center text-[10px] text-gray-400 dark:text-gray-500 text-center p-1 border border-dashed border-gray-300 dark:border-gray-600">No Image</div>
                                 )}
                             </div>
                         )
                     }
                     if (cell.type === 'button' || cell.type === 'action_group') {
                         return (
-                            <div key={cellIndex} className={cellClass} style={customStyle}>
+                            <div key={cellIndex} className={cellClass} style={customStyle} onClick={(e) => e.stopPropagation()}>
                                 {renderActionCell(cell, cellIndex, loadingItems, onResyncClick, onViewOrderDetails, onViewDayDetails, row)}
                             </div>
                         )
                     }
-                    if (cell.type === 'editable_cost') {
+                    if (cell.type === 'checkbox') {
                         return (
-                            <div key={cellIndex} className={cellClass} style={customStyle} onClick={(e) => e.stopPropagation()}>
-                                <EditableCostCell 
-                                    value={cell.value} 
-                                    recordId={cell.recordId} 
-                                    isManual={cell.isManual} 
-                                    onUpdateCost={onUpdateCost} 
-                                />
-                            </div>
-                        )
-                    }
-                    if (cell.type === 'editable_ffcode') {
-                        return (
-                            <div key={cellIndex} className={cellClass} style={customStyle} onClick={(e) => e.stopPropagation()}>
-                                <EditableFfCodeCell 
-                                    value={cell.value} 
-                                    recordId={cell.recordId} 
-                                    onUpdateFfCode={onUpdateFfCode} 
-                                />
-                            </div>
-                        )
-                    }
-                    if (cell.type === 'editable_provider') {
-                        return (
-                            <div key={cellIndex} className={cellClass} style={customStyle} onClick={(e) => e.stopPropagation()}>
-                                <EditableProviderCell 
-                                    value={cell.value} 
-                                    recordId={cell.recordId} 
-                                    onUpdateProvider={onUpdateProvider} 
-                                />
+                            <div key={cellIndex} className={cellClass} style={customStyle}>
+                                {renderTextContent(cell, data.selectedKeys, data.onToggleSelect)}
                             </div>
                         )
                     }
@@ -222,25 +269,33 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                          return (
                             <div key={cellIndex} className={cellClass} style={customStyle}>
                                 <div className="flex flex-col min-w-0">
-                                    <span className="font-semibold truncate">{cell.main}</span>
-                                    <span className={`text-[10px] mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis ${cell.subtitleClass || 'text-gray-500 dark:text-gray-400'}`}>
-                                        {cell.subtitle}
+                                    <span className="flex items-center gap-1.5 min-w-0">
+                                        <span className={`text-[15px] font-bold truncate ${cell.mainClass || ''}`}>{cell.main}</span>
+                                        {renderTrendDelta(cell, 'text-[11px] shrink-0')}
                                     </span>
+                                    <span className={`text-[10px] mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis ${cell.subtitleClass || 'text-gray-500 dark:text-gray-400'}`}>
+                                        {renderStructuredSubtitle(cell)}
+                                    </span>
+                                    {cell.extraSubtitle && (
+                                        <span className={`text-[10px] mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis ${cell.extraSubtitleClass || 'text-gray-500 dark:text-gray-400'}`}>
+                                            {cell.extraSubtitle}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
-                        )
+                        );
                     }
+
                 }
 
-                // Second Priority: Special Headers with specific layout but potentially simple values
+                // 2. Second Priority: Special Headers with specific layout but potentially simple values
                 if (header === 'Order ID' || header === 'Order Number') {
                     return (
                         <div key={cellIndex} className={cellClass} style={customStyle}>
                             <div className="flex flex-col min-w-0">
-                                <span className="truncate">{typeof cell === 'object' && cell !== null && 'main' in cell ? (cell as any).main : String(cell || '')}</span>
-                                {isRefunded && (!cell || typeof cell !== 'object' || !('type' in cell)) && (
+                                <span className="truncate">{typeof cell === 'object' ? cell.main : String(cell || '')}</span>
+                                {isRefunded && !cell?.type && (
                                     <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400">
-                                        <span>↩</span>
                                         <span>Refunded</span>
                                     </span>
                                 )}
@@ -249,23 +304,37 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                     );
                 }
 
+
                 if (cell === 'Click for detail') {
                     return (
                         <div key={cellIndex} className={cellClass} style={customStyle}>
                             {renderActionCell(cell, cellIndex, loadingItems, onResyncClick, onViewOrderDetails, onViewDayDetails, row)}
                         </div>
-                    )
+                    );
                 }
 
+                if (header === 'Rating' && typeof cell === 'number') {
+                    return (
+                        <div key={cellIndex} className={cellClass} style={customStyle}>
+                            <div className="flex items-center gap-0.5">
+                                <span className="font-medium mr-1">{cell}</span>
+                                <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                            </div>
+                        </div>
+                    );
+                }
+
+
+                // Default cell rendering
                 return (
                     <div
                         key={cellIndex}
-                        className={`${cellClass} ${isRefunded ? 'text-gray-500 dark:text-gray-400' : 'text-gray-800 dark:text-gray-200'}`}
-                        title={(header === 'Product Name' || header === 'Message' || header === 'Message / Type') && typeof cell === 'string' ? cell : undefined}
+                        className={cellClass}
+                        title={(header === 'Product Name' || header === 'Variant' || header === 'Message' || header === 'Message / Type') && typeof cell === 'string' ? cell : undefined}
                         style={customStyle}
                     >
                         <span className="truncate w-full block">
-                            {renderTextContent(cell)}
+                            {renderTextContent(cell, data.selectedKeys, data.onToggleSelect)}
                         </span>
                     </div>
                 );

@@ -1,51 +1,65 @@
 import React, { Suspense, useMemo, useState } from 'react';
-import LoadingSpinner from '../LoadingSpinner';
-import { ProcessedData, Record } from '../../types';
-import DataTable from '../DataTable';
+import LoadingSpinner from '../ui/LoadingSpinner';
+import { ProcessedData } from '../../types';
+import DataTable from '../ui/DataTable';
 import { ORDER_LIST_INDICES } from '../../constants/dataIndices';
 import { formatDateEfficiently } from '../../utils/dateFormatter';
-import GoogleSheetModal from '../GoogleSheetModal';
-import OrderSelectorModal from '../OrderSelectorModal';
-import PreviewSyncModal from '../PreviewSyncModal';
-import { useDashboard } from '../../contexts/DashboardContext';
+import { useUISettings } from '../../contexts/UIContext';
+import { useDashboardAccess } from '../../contexts/DashboardContext';
+import useMediaQuery from '../../hooks/useMediaQuery';
+import Pagination from '../ui/Pagination';
+
+const ITEMS_PER_PAGE = 200;
+const DESKTOP_TABLE_STYLE = { height: 'calc(100vh - 160px)' };
 
 interface OrderListTabProps {
     processedData: ProcessedData;
     dayFilter: string | null;
     sourceFilter: string;
+    statusFilter: string;
     timeZone: string;
     handleViewOrderDetails: (recordId: string) => void;
     handleResyncOrder: (recordId: string) => Promise<void>;
-    allRecords: Record[];
 }
 
 const OrderListTab: React.FC<OrderListTabProps> = ({
     processedData,
     dayFilter,
     sourceFilter,
+    statusFilter,
     timeZone,
     handleViewOrderDetails,
-    handleResyncOrder,
-    allRecords
+    handleResyncOrder
 }) => {
-    const [showGoogleSheetModal, setShowGoogleSheetModal] = useState(false);
-    const [showOrderSelector, setShowOrderSelector] = useState(false);
-    const [showPreviewModal, setShowPreviewModal] = useState(false);
-    const [selectedRecords, setSelectedRecords] = useState<Record[]>([]);
-    const [statusFilter, setStatusFilter] = useState<'All' | 'New' | 'Refunded'>('All');
-    
-    const { updateOrderManualCost, updateOrderFfCode, updateOrderProvider } = useDashboard();
+    const { globalUsdMode } = useUISettings();
+    const { exchangeRates } = useDashboardAccess();
+    const isDesktop = useMediaQuery('(min-width: 768px)');
+    const [currentPage, setCurrentPage] = useState(0);
 
-    // Identify Variants and Source column indices dynamically
-    const variantsIndex = processedData.orders.headers.findIndex(h => h === 'Variants');
-    const sourceIndex = processedData.orders.headers.findIndex(h => h === 'Source');
+    // Reset page when filtering
+    React.useEffect(() => {
+        setCurrentPage(0);
+    }, [dayFilter, sourceFilter, statusFilter]);
 
-    // Filter out Variants and Source from headers for UI display
+    // Identify column indices safely
+    const orderHeaders = processedData.orders.headers;
+    const variantsIndex = orderHeaders.findIndex(h => h.toLowerCase().includes('variant'));
+    const sourceIndex = orderHeaders.findIndex(h => h.toLowerCase() === 'source');
+    const recordIdIndex = ORDER_LIST_INDICES.RECORD_ID; // index 13
+
+    // Indices of columns we actually want to show in the table
+    const displayIndices = useMemo(() => {
+        return orderHeaders
+            .map((_, i) => i)
+            .filter(i => i !== variantsIndex && i !== sourceIndex);
+    }, [orderHeaders.length, variantsIndex, sourceIndex]);
+
+    // Derived headers for UI display
     const displayHeaders = useMemo(() => {
-        return processedData.orders.headers.filter((_, i) => i !== variantsIndex && i !== sourceIndex);
-    }, [processedData.orders.headers, variantsIndex, sourceIndex]);
+        return displayIndices.map(i => orderHeaders[i]);
+    }, [orderHeaders, displayIndices]);
 
-    // Optimizing Filtering Logic
+    // Optimizing Filtering Logic — keeps original rows intact before stripping
     const displayRows = useMemo(() => {
         let rows = processedData.orders.rows;
 
@@ -72,104 +86,83 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
             });
         }
 
-        if (variantsIndex !== -1 || sourceIndex !== -1) {
-            rows = rows.map(row => row.filter((_, i) => i !== variantsIndex && i !== sourceIndex));
+        // Strip hidden columns for display but KEEP recordId and isRefunded at the end
+        let stripped = rows.map(row => {
+            const displayPart = displayIndices.map(i => row[i]);
+            
+            // Re-append hidden metadata needed for UI logic (click & highlight)
+            // isRefunded MUST be the last element for DesktopRow/MobileCard to pick it up
+            return [
+                ...displayPart, 
+                row[recordIdIndex], 
+                row[ORDER_LIST_INDICES.IS_REFUNDED]
+            ];
+        });
+
+        // USD conversion: convert Revenue to USD using exchange rates
+        if (globalUsdMode && exchangeRates) {
+            const revIdx = displayHeaders.indexOf('Revenue');
+            const curIdx = displayHeaders.indexOf('Curren');
+            if (revIdx !== -1 && curIdx !== -1) {
+                stripped = stripped.map(row => {
+                    const currency = row[curIdx] as string;
+                    const revenue = row[revIdx] as number;
+                    if (currency && currency !== 'USD' && exchangeRates[currency]) {
+                        const newRow = [...row];
+                        newRow[revIdx] = +((revenue * exchangeRates[currency]).toFixed(2));
+                        newRow[curIdx] = 'USD';
+                        return newRow;
+                    }
+                    return row;
+                });
+            }
         }
 
-        return rows;
-    }, [processedData.orders.rows, dayFilter, sourceFilter, statusFilter, timeZone, variantsIndex, sourceIndex]);
+        return stripped;
+    }, [processedData.orders.rows, dayFilter, sourceFilter, statusFilter, timeZone, variantsIndex, sourceIndex, recordIdIndex, displayHeaders, globalUsdMode, exchangeRates]);
 
-    const handleOrderSelection = (selectedIds: Set<string>) => {
-        const records = allRecords.filter(r => r.id && selectedIds.has(r.id));
-        setSelectedRecords(records);
-        setShowOrderSelector(false);
-        setShowPreviewModal(true);
-    };
+    const totalPages = Math.ceil(displayRows.length / ITEMS_PER_PAGE);
+    React.useEffect(() => {
+        setCurrentPage(page => Math.min(page, Math.max(0, totalPages - 1)));
+    }, [totalPages]);
+
+    const paginatedRows = useMemo(() => {
+        return displayRows.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE);
+    }, [displayRows, currentPage]);
+
+    // When a row is clicked, the recordId is now the second to last element
+    // because isRefunded was appended afterwards at the very end.
+    const handleRowClick = React.useCallback((row: any[]) => {
+        const recordId = row[row.length - 2] as string | undefined;
+        if (recordId) {
+            handleViewOrderDetails(recordId);
+        }
+    }, [handleViewOrderDetails]);
 
     return (
         <div className="h-full bg-gray-50 dark:bg-gray-900 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] relative">
             <div className="p-2 md:p-6">
-                <div className="flex gap-2 mb-4">
-                    {(['All', 'New', 'Refunded'] as const).map((status) => (
-                        <button
-                            key={status}
-                            onClick={() => setStatusFilter(status)}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                                statusFilter === status
-                                    ? (status === 'Refunded' 
-                                        ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 ring-2 ring-red-500/50' 
-                                        : 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 ring-2 ring-blue-500/50')
-                                    : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
-                            }`}
-                        >
-                            {status}
-                        </button>
-                    ))}
-                </div>
-                <div style={{ height: 'calc(100vh - 170px)' }}>
-                    <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
-                        <DataTable
-                            headers={displayHeaders}
-                            data={displayRows}
-                            onViewOrderDetails={handleViewOrderDetails}
-                            onResyncOrder={handleResyncOrder}
-                            onUpdateCost={updateOrderManualCost}
-                            onUpdateFfCode={updateOrderFfCode}
-                            onUpdateProvider={updateOrderProvider}
-                            mobileRowHeight={340}
-                            autoHeight={false}
-                        />
-                    </Suspense>
+                <div style={isDesktop ? DESKTOP_TABLE_STYLE : undefined} className="flex flex-col border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
+                    <div className="flex-1 min-h-0 relative">
+                        <Suspense fallback={<LoadingSpinner variant="card" count={5} />}>
+                            <DataTable
+                                headers={displayHeaders}
+                                data={paginatedRows}
+                                onResyncOrder={handleResyncOrder}
+                                onRowClick={handleRowClick}
+                                autoHeight={!isDesktop}
+                            />
+                        </Suspense>
+                    </div>
+                    <Pagination 
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={setCurrentPage}
+                    />
                 </div>
             </div>
 
-            {/* Floating Action Button - Select Orders to Sync */}
-            <div className="fixed bottom-28 left-4 md:top-20 md:left-auto md:right-6 z-40">
-                <button
-                    onClick={() => setShowOrderSelector(true)}
-                    className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-200 flex items-center gap-2 group"
-                    title="Select Orders to Sync"
-                >
-                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M19 19H5V5H19V19M12 13H7V11H12V13M17 9H7V7H17V9M17 17H7V15H17V17Z" />
-                    </svg>
-                    <span className="hidden md:group-hover:inline-block font-medium text-sm whitespace-nowrap">
-                        Select Orders
-                    </span>
-                </button>
-            </div>
 
-            {/* Order Selector Modal */}
-            <OrderSelectorModal
-                isOpen={showOrderSelector}
-                onClose={() => setShowOrderSelector(false)}
-                allRecords={allRecords}
-                onConfirm={handleOrderSelection}
-                onOpenSettings={() => setShowGoogleSheetModal(true)}
-            />
-
-            {/* Google Sheet Config Modal - NO records */}
-            {showGoogleSheetModal && (
-                <GoogleSheetModal
-                    isOpen={showGoogleSheetModal}
-                    onClose={() => setShowGoogleSheetModal(false)}
-                    records={[]}
-                />
-            )}
-
-            {/* Preview Sync Modal */}
-            <PreviewSyncModal
-                isOpen={showPreviewModal}
-                onClose={() => {
-                    setShowPreviewModal(false);
-                    setSelectedRecords([]);
-                }}
-                selectedRecords={selectedRecords}
-                onSuccess={() => {
-                    setShowPreviewModal(false);
-                    setSelectedRecords([]);
-                }}
-            />
         </div>
     );
 };

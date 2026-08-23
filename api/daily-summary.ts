@@ -1,6 +1,6 @@
 // File: api/daily-summary.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getReportDataForDate, sendLarkDailySummary } from './_lib/larkHelper.js';
+import { getReportDataForDate } from './_lib/larkHelper.js';
 import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js'; // <-- Import
 import { createNotificationDocument } from './_lib/notificationHelper.js';
@@ -25,16 +25,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const summaryData = await getReportDataForDate(yesterdayISO, timeZoneOffset);
 
-    // 1. Send Lark
-    await sendLarkDailySummary(summaryData);
-
-    // 2. Create Notification Document in Firestore (to get ID for deep link)
-    const revenueUSD = summaryData.totalRevenue['USD'] || 0;
+    // 1. Create Notification Document in Firestore (to get ID for deep link)
     const notificationId = await createNotificationDocument({
       teamId: SHARED_USER_ID,
       type: 'SUMMARY',
       title: 'Daily Sales Summary',
-      content: `${summaryData.totalOrders} orders totaling $${revenueUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })} for ${yesterdayISO}`,
+      content: `${summaryData.totalOrders} orders processed on ${yesterdayISO}. Tap to view full report.`,
       metadata: {
         summary_data: {
           date: yesterdayISO,
@@ -46,12 +42,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     });
 
-    // 3. Send Push Notification with deep link to notification detail
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
+    // 2. Send Push Notification with deep link to notification detail
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboard2-alpha-bay.vercel.app/';
+    let deepLink = baseUrl;
+    try {
+      const u = new URL(baseUrl);
+      u.searchParams.set('notification', notificationId);
+      deepLink = u.toString();
+    } catch (e) {
+      console.error('[daily-summary] URL Error:', e);
+      // Fallback to simple concatenation if URL class fails (unlikely)
+      deepLink = `${baseUrl}?notification=${notificationId}`;
+    }
+
     await sendPushNotificationToUsers(SHARED_USER_ID, 'summary', {
       title: 'Daily Summary Report',
-      body: `📅 ${yesterdayISO}\nOrders: ${summaryData.totalOrders}\nRevenue: $${revenueUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-      url: `${appUrl}?notification=${notificationId}` // Deep link to notification detail modal
+      body: `📅 ${yesterdayISO}\nOrders: ${summaryData.totalOrders}\nTap to view full report.`,
+      url: deepLink // Deep link to notification detail modal
     });
 
     res.status(200).send(`Summary for ${yesterdayISO} (UTC-7) sent successfully.`);

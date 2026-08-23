@@ -16,9 +16,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     try {
         if (provider === 'google') {
-            return await handleGoogleToken(req, res, refreshToken);
+            return await handleGoogleToken(res, refreshToken);
         } else if (provider === 'microsoft') {
-            return await handleMicrosoftToken(req, res, refreshToken);
+            return await handleMicrosoftToken(res, refreshToken);
         } else {
             return res.status(400).json({ message: 'Invalid provider. Use "google" or "microsoft".' });
         }
@@ -28,7 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleGoogleToken(req: VercelRequest, res: VercelResponse, refreshToken: string) {
+async function handleGoogleToken(res: VercelResponse, refreshToken: string) {
     if (!GOOGLE_CLIENT_SECRET) {
         return res.status(500).json({ message: 'Server configuration error: missing Google client secret.' });
     }
@@ -55,7 +55,7 @@ async function handleGoogleToken(req: VercelRequest, res: VercelResponse, refres
     res.status(200).json({ accessToken: data.access_token, expiresIn: data.expires_in });
 }
 
-async function handleMicrosoftToken(req: VercelRequest, res: VercelResponse, refreshToken: string) {
+async function handleMicrosoftToken(res: VercelResponse, refreshToken: string) {
     if (!MICROSOFT_CLIENT_SECRET) {
         return res.status(500).json({ message: 'Server configuration error: missing Microsoft client secret.' });
     }

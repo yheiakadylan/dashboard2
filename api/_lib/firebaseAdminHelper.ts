@@ -1,6 +1,8 @@
 // File: api/_lib/firebaseAdminHelper.ts
-import { initializeApp, cert, getApps, App, ServiceAccount } from 'firebase-admin/app';
-import { getFirestore, Firestore } from 'firebase-admin/firestore';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import type { App, ServiceAccount } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import type { Firestore } from 'firebase-admin/firestore';
 
 let cachedApp: App | null = null;
 let cachedDb: Firestore | null = null;
@@ -48,7 +50,6 @@ export function getDb(): Firestore {
   try {
     // @ts-ignore (field có từ firebase-admin v12+)
     db.settings({ preferRest: true });
-    console.log('[firebaseAdminHelper] Firestore settings: preferRest=true');
   } catch (e: any) {
     console.warn('[firebaseAdminHelper] preferRest not applied:', e?.message || e);
   }

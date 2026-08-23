@@ -6,6 +6,16 @@ import { parseMessage, RULES } from '../src/services/rules.js';
 import { getHtmlFromGmailPayload, getPlainTextFromGmailPayload } from './_lib/gmailHelper.js';
 import { SHARED_USER_ID } from '../src/constants.js';
 import { sendPushNotificationToUsers } from './_lib/fcmHelper.js';
+import { createBatchWriter, estimateRecordWrites, processNewOrder } from './_lib/orderService.js';
+import { markDailyCacheDirtyForISOValues } from './_lib/dailyCacheAdmin.js';
+
+const chunkArray = <T>(array: T[], size: number): T[][] => {
+  const chunks: T[][] = [];
+  for (let index = 0; index < array.length; index += size) {
+    chunks.push(array.slice(index, index + size));
+  }
+  return chunks;
+};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -83,12 +93,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const newRecords: any[] = [];
-    const notificationEvents: { type: 'order' | 'funds', text: string }[] = [];
+    const notificationEvents: { type: 'order' | 'refund' | 'funds' | 'case' | 'help', text: string }[] = [];
 
     for (const item of historyData.history as any[]) {
       if (item.messagesAdded) {
         for (const msgHeader of item.messagesAdded) {
-          if (!msgHeader.message.labelIds?.includes('INBOX')) continue;
+
 
           const msgId = msgHeader.message.id as string;
           const msgUrl = `https://www.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`;
@@ -119,14 +129,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
               // 2. Tạo nội dung thông báo với Shop Name
               if (newRecord.kind === 'order') {
-                notificationEvents.push({
-                  type: 'order',
-                  text: `New Order: ${newRecord.order_id || 'Unknown'} - $${newRecord.amount} (${shopName})`
-                });
+                const isRefund = newRecord.source === 'Etsy_Refunded';
+                if (isRefund) {
+                  notificationEvents.push({
+                    type: 'refund',
+                    text: `Refund: #${newRecord.order_id || 'Unknown'} - $${Math.abs(newRecord.refund_details.refundAmount)} ${newRecord.refund_details.refundCurrency} (${shopName})`
+                  });
+                } else {
+                  notificationEvents.push({
+                    type: 'order',
+                    text: `New Order: #${newRecord.order_id || 'Unknown'} - $${newRecord.amount} ${newRecord.currency} (${shopName})`
+                  });
+                }
               } else if (newRecord.kind === 'Funds') {
                 notificationEvents.push({
                   type: 'funds',
                   text: `Funds Received: $${newRecord.amount} ${newRecord.currency} (${shopName})`
+                });
+              } else if (newRecord.kind === 'case') {
+                notificationEvents.push({
+                  type: 'case',
+                  text: `Case Opened: Order #${newRecord.order_id} (${shopName})`
+                });
+              } else if (newRecord.kind === 'help') {
+                notificationEvents.push({
+                  type: 'help',
+                  text: `Help Request: Order #${newRecord.order_id} - ${newRecord.help_kind || 'General'} (${shopName})`
                 });
               }
               break;
@@ -136,26 +164,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    const emailIdsToCheck = newRecords.map(record => record.email_id).filter(Boolean);
+    const existingEmailIds = new Set<string>();
+    if (emailIdsToCheck.length > 0) {
+      const recordsCollection = db.collection('user').doc(effectiveUserId).collection('records');
+      for (const chunk of chunkArray(emailIdsToCheck, 30)) {
+        const snapshot = await recordsCollection.where('email_id', 'in', chunk).get();
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.email_id) existingEmailIds.add(data.email_id);
+        });
+      }
+    }
+
+    const recordsToSave = newRecords.filter(record => !record.email_id || !existingEmailIds.has(record.email_id));
+
     // Lưu vào DB (logic cũ giữ nguyên)
     const recordsCollection = db.collection('user').doc(effectiveUserId).collection('records');
-    const batch = db.batch();
+    const batchWriter = createBatchWriter(db);
 
-    if (newRecords.length > 0) {
+    if (recordsToSave.length > 0) {
+      const accountId = accountDoc.id;
+      const infoMap = new Map([[userEmail, { id: accountId, label: shopName }]]);
       let saveCount = 0;
-      for (const record of newRecords) {
+      for (const record of recordsToSave) {
+        await batchWriter.ensureCapacity(estimateRecordWrites(record));
         const docRef = record.email_id
           ? recordsCollection.doc(record.email_id)
           : recordsCollection.doc();
         const { id, ...recordData } = record;
-        batch.set(docRef, recordData);
+        batchWriter.set(docRef, recordData);
+
+        // --- TRIGGER SKU JOB & TASK CREATION ---
+        await processNewOrder(db, batchWriter, effectiveUserId, record, infoMap);
+
         saveCount++;
       }
       if (saveCount > 0) {
-        await batch.commit();
-        console.log(`[Webhook] Processed ${saveCount} records.`);
+        await batchWriter.commit();
+        console.log(`[Webhook] Processed ${saveCount} records in ${batchWriter.getCommitCount()} batch(es).`);
+        await markDailyCacheDirtyForISOValues(
+          db,
+          effectiveUserId,
+          ['records'],
+          recordsToSave.map(record => record.dt_local),
+          'gmail-webhook'
+        ).catch(error => console.warn('[gmail-webhook] Failed to mark daily cache dirty:', error));
+
       }
     } else {
-      await batch.commit();
+      console.log(`[Webhook] No new records to save. Parsed=${newRecords.length}, existing=${existingEmailIds.size}.`);
     }
 
     // Cập nhật history ID
@@ -163,37 +221,81 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 3. Gửi Thông báo
     if (notificationEvents.length > 0) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboardvikcom.vercel.app/';
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dashboard2-alpha-bay.vercel.app';
+
+      const createDeepLink = (tabName: string) => {
+        try {
+          const url = new URL(baseUrl);
+          url.searchParams.set('tab', tabName);
+          return url.toString();
+        } catch (e) {
+          console.error('[webhook] Error creating deep link:', e);
+          return baseUrl;
+        }
+      };
 
       if (notificationEvents.length === 1) {
         // Gửi 1 tin duy nhất
         const evt = notificationEvents[0];
-        const deepLink = evt.type === 'order'
-          ? `${appUrl}/?tab=Order+List`
-          : `${appUrl}/?tab=Overview`;
+        let deepLink = baseUrl;
 
-        await sendPushNotificationToUsers(effectiveUserId, evt.type, {
-          title: evt.type === 'order' ? 'New Order!' : 'Funds Received!',
+        if (evt.type === 'order' || evt.type === 'refund') deepLink = createDeepLink('Order List');
+        else if (evt.type === 'funds') deepLink = createDeepLink('Overview');
+        else if (evt.type === 'case' || evt.type === 'help') deepLink = createDeepLink('Support');
+
+        let title = 'Notification';
+        if (evt.type === 'order') title = 'New Order!';
+        else if (evt.type === 'refund') title = 'Refund Processed';
+        else if (evt.type === 'funds') title = 'Funds Received!';
+        else if (evt.type === 'case') title = 'Case Alert!';
+        else if (evt.type === 'help') title = 'Help Request!';
+
+        await sendPushNotificationToUsers(effectiveUserId, evt.type === 'refund' ? 'order' : evt.type, {
+          title: title,
           body: evt.text,
           url: deepLink
         });
       } else {
         // Gửi tổng hợp nếu nhiều tin
         const orders = notificationEvents.filter(e => e.type === 'order');
+        const refunds = notificationEvents.filter(e => e.type === 'refund');
         const funds = notificationEvents.filter(e => e.type === 'funds');
+        const tasks = notificationEvents.filter(e => e.type === 'case' || e.type === 'help'); // Shared 'Support'
 
         if (orders.length > 0) {
+          const deepLink = createDeepLink('Order List');
           await sendPushNotificationToUsers(effectiveUserId, 'order', {
             title: 'New Orders Arrived',
             body: `You have ${orders.length} new orders.`,
-            url: `${appUrl}/?tab=Order+List`
+            url: deepLink
+          });
+        }
+        if (refunds.length > 0) {
+          const deepLink = createDeepLink('Order List');
+          await sendPushNotificationToUsers(effectiveUserId, 'order', {
+            title: 'Refunds Processed',
+            body: `You have ${refunds.length} successful refunds.`,
+            url: deepLink
           });
         }
         if (funds.length > 0) {
+          const deepLink = createDeepLink('Overview');
           await sendPushNotificationToUsers(effectiveUserId, 'funds', {
             title: 'New Funds Received',
             body: `You have ${funds.length} new payout updates.`,
-            url: `${appUrl}/?tab=Overview`
+            url: deepLink
+          });
+        }
+        if (tasks.length > 0) {
+          const deepLink = createDeepLink('Support');
+          // Determine if it's mostly cases or help
+          const caseCount = tasks.filter(t => t.type === 'case').length;
+          const helpCount = tasks.filter(t => t.type === 'help').length;
+
+          await sendPushNotificationToUsers(effectiveUserId, caseCount > 0 ? 'case' : 'help', {
+            title: 'New Support Issues',
+            body: `You have ${caseCount} cases and ${helpCount} help requests.`,
+            url: deepLink
           });
         }
       }

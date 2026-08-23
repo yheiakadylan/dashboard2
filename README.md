@@ -1,174 +1,320 @@
-# Dashboard Vikcom
+# Dashboard
 
-Một ứng dụng dashboard thương mại điện tử hiệu suất cao, toàn diện được xây dựng bằng React, TypeScript và Firebase. Ứng dụng này tổng hợp dữ liệu từ nhiều nguồn (Gmail, eBay, Etsy, v.v.) để cung cấp thông tin chi tiết theo thời gian thực, quản lý đơn hàng và báo cáo tài chính.
+Dashboard nội bộ cho vận hành shop thương mại điện tử. Ứng dụng gom dữ liệu order/review/cost từ Gmail, Outlook, Firestore, supplier API và Lark để theo dõi doanh thu, sản phẩm, fulfillment, support, review và báo cáo tuần.
 
-**Mục đích**: README này tài liệu hóa tất cả các tính năng, từ kiến trúc cốt lõi đến các chi tiết UI nhỏ nhất, đóng vai trò là tài liệu tham khảo chính thống cho việc kiểm thử (testing) và phát triển sau này.
+Mục tiêu chính của dự án là dữ liệu phải đúng, load nhanh trên range dài, và hạn chế đọc Firestore không cần thiết.
 
-## 🏗 Kiến trúc Hệ thống
+## Tech Stack
 
-*   **Frontend Framework**: React 18 với TypeScript.
-*   **Quản lý State**: Context API (`DashboardContext` cho dữ liệu, `UIContext` cho giao diện, `NotificationContext` cho thông báo).
-*   **Hiệu suất**:
-    *   **Web Workers**: Sử dụng nhiều (`workers/dataWorker.ts`) để xử lý các tập dữ liệu lớn trên luồng phụ, giữ cho UI luôn phản hồi nhanh.
-    *   **Code Splitting**: Tải chậm (Lazy loading) các component nặng (`Suspense`, `React.lazy`).
-    *   **Virtualization**: Render hiệu quả các bảng dữ liệu lớn.
-*   **Backend / Serverless**:
-    *   **Firebase**: Xác thực (Auth), Cơ sở dữ liệu (Firestore), và Cloud Functions.
-    *   **Services**: Các dịch vụ dạng module cho việc phân tích Email (`emailService.ts`), Auth, và tương tác Firebase.
-*   **Styling**: Tailwind CSS hỗ trợ cả chế độ Sáng/Tối (Dark/Light mode).
-*   **PWA**: Tính năng Progressive Web App cho phép cài đặt trên thiết bị di động.
+- Frontend: React 19, TypeScript, Vite, Tailwind CSS.
+- Backend: Vercel Serverless Functions trong thư mục `api/`.
+- Database: Firebase Auth, Firestore, Storage, FCM.
+- Data processing: Web Worker `src/workers/dataWorker.ts`.
+- Tables: `react-window` virtualization.
+- Charts: Recharts, lazy loaded theo tab.
+- Export: ExcelJS, lazy imported khi xuất file.
+- PWA: `vite-plugin-pwa`.
 
----
+## Chức Năng Chính
 
-## 🚀 Tính năng & Chức năng
+- Dashboard KPI: orders, shops, revenue, funds, cost, earn.
+- Order List: danh sách order, refund, case/help, search/filter, lazy load order detail.
+- Products: product summary, top products, SKU cleanup, grouping theo name/SKU/shop/mockup image.
+- Fulfill: fulfillment records, cost, refunded products, supplier view.
+- Reviews: lọc rating theo từng sao, filter shop dùng chung header.
+- Report: weekly operations report, revenue/top SKU/review/operation data, có phân quyền riêng.
+- Export Excel: product summary, top products by shop/category, staff summary bằng formula để sửa sheet gốc thì summary đổi theo.
+- Cost sync: fetch cost từ Merchize/Printway theo batch, có progress UI.
+- Notification Center: lazy Firestore listener, mở panel mới tải list nặng.
+- Lark integration: daily summary, order detail, trigger SKU fetch, sync SKU to tasks.
 
-### 1. Xác thực & Quản lý Người dùng
-*   **Phân quyền dựa trên vai trò (RBAC)**:
-    *   **Owner (Chủ sở hữu)**: Toàn quyền truy cập dữ liệu, cài đặt, quản lý team và thanh toán.
-    *   **User (Nhân viên)**: Quyền truy cập bị hạn chế dựa trên sự cho phép của Owner.
-*   **Quản lý Team (Chỉ Owner)**:
-    *   Thêm/Mời thành viên mới.
-    *   Quản lý quyền hạn cho từng user (ví dụ: quyền truy cập tab cụ thể, xem doanh thu, xem dữ liệu fulfill).
-*   **Thông báo Đăng nhập**:
-    *   Hệ thống cảnh báo cho Owner khi có User đăng nhập.
-    *   Phân biệt an toàn giữa các vai trò user khi đăng nhập.
-*   **Quản lý Phiên làm việc**: Đăng xuất an toàn và duy trì phiên đăng nhập.
+## Data Flow
 
-### 2. Tích hợp & Đồng bộ Dữ liệu
-*   **Hỗ trợ Đa kênh**:
-    *   Tích hợp với Gmail để phân tích đơn hàng từ nhiều nền tảng (eBay, Etsy, v.v.).
-    *   Hỗ trợ kết nối nhiều tài khoản cùng lúc.
-*   **Chiến lược Đồng bộ Dữ liệu**:
-    *   **Real-time Sync (Đồng bộ thời gian thực)**: Lắng nghe thay đổi và cập nhật (thông qua Gmail watch).
-    *   **Manual Sync (Đồng bộ thủ công)**: Kích hoạt đồng bộ cho các tài khoản cụ thể.
-    *   **Quick Sync (Đồng bộ nhanh)**: Kiểm tra nhanh các thay đổi gần đây (7 ngày qua).
-    *   **Historical Sync (Đồng bộ lịch sử)**: Quét sâu dữ liệu quá khứ.
-    *   **Resync (Đồng bộ lại)**: Khả năng reset hoàn toàn và tải lại dữ liệu cho một tài khoản cụ thể.
-*   **Cơ chế Phân tích Email**:
-    *   Các quy tắc phức tạp (`rules.ts`) để trích xuất chi tiết đơn hàng từ nhiều định dạng email khác nhau.
-    *   Xử lý dữ liệu "Chi tiết" (Details) so với dữ liệu "Đơn hàng" (Order).
+```text
+Gmail / Outlook
+  -> api/gmail-webhook.ts hoặc api/sync-outlook.ts
+  -> parse bằng src/services/rules.ts
+  -> user/{teamId}/records
+  -> tạo sku_jobs và tasks nếu là order hợp lệ
+  -> mark daily_cache dirty cho ngày bị ảnh hưởng
 
-### 3. Giao diện Dashboard & Trực quan hóa
-*   **Bộ lọc Toàn cục**:
-    *   **Chọn Khoảng thời gian**: Tùy chỉnh khoảng ngày hoặc dùng các mốc có sẵn (Hôm nay, Hôm qua, 7/30 ngày qua, v.v.).
-    *   **Chọn Múi giờ**: Điều chỉnh hiển thị toàn bộ dữ liệu theo múi giờ cụ thể.
-    *   **Lọc Tài khoản**: Xem dữ liệu của "Tất cả tài khoản" hoặc đi sâu vào một tài khoản kết nối cụ thể.
-    *   **Tìm kiếm**: Chức năng tìm kiếm toàn cục.
-*   **Thẻ KPI**: Các chỉ số cấp cao luôn hiển thị (hoặc phụ thuộc vào tab):
-    *   Tổng đơn hàng (Total Orders)
-    *   Doanh thu (Revenue - cần quyền)
-    *   Chi phí (Costs - cần quyền)
-    *   Lợi nhuận ròng (Net Profit)
-    *   Biên lợi nhuận (Margins)
-*   **Biểu đồ Tương tác**:
-    *   **Overview Chart**: Xu hướng đơn hàng/doanh thu theo thời gian.
-    *   **Summary Chart**: Tổng hợp các chỉ số hiệu suất.
-    *   **Top Products**: Trực quan hóa các sản phẩm bán chạy nhất.
-    *   **Fulfillment Charts**: Hiệu suất Merchize / Printway (nếu có).
+Dashboard UI
+  -> src/hooks/useDataSync.ts
+  -> src/services/firebaseService.ts
+  -> daily cache hoặc live query
+  -> src/workers/dataWorker.ts
+  -> tab hiện tại render phần cần thiết trước
+```
 
-### 4. Quản lý Đơn hàng (DataGrid)
-*   **Bảng Dữ liệu Nâng cao**:
-    *   **Sắp xếp**: Sắp xếp theo nhiều cột.
-    *   **Phân trang**: Xử lý hiệu quả danh sách lớn.
-    *   **Drill-down**: Click để xem **Chi tiết Đơn hàng** đầy đủ.
-*   **Thao tác Đơn hàng**:
-    *   **Xem Chi tiết**: Modal hiển thị thông tin đầy đủ (khách hàng, vận chuyển, sản phẩm).
-    *   **Resync Order**: Hành động cụ thể để phân tích lại/lấy lại dữ liệu cho một đơn hàng bị lỗi.
-*   **Chi phí Thủ công (Manual Costs)**:
-    *   `ManualCostManager`: Giao diện để nhập thêm các chi phí không được ghi nhận tự động (ví dụ: ads, phần mềm).
+Các record order dùng `dt_local` dạng ISO 8601 string. Không tự ý đổi sang Firestore Timestamp trong UI logic.
 
-### 5. Tabs & Module
-Ứng dụng được chia thành các tab có thể cấu hình:
-*   **Overview**: Sức khỏe chung của doanh nghiệp, biểu đồ và KPI cấp cao.
-*   **Order List**: Danh sách chi tiết tất cả giao dịch.
-*   **Products**: Hiệu suất theo SKU/Tên sản phẩm.
-*   **Fulfill**: Trạng thái hoàn tất đơn hàng (fulfillment) và tracking.
-*   **Case / Help**: (Quản lý tác vụ hoặc vé hỗ trợ).
+## Daily Cache
 
-### 6. Xuất dữ liệu & Báo cáo
-*   **Xuất Excel**:
-    *   Xuất toàn bộ dữ liệu dashboard ra file `.xlsx`.
-    *   **Hỗ trợ Hình ảnh**: Tùy chọn nhúng hình ảnh sản phẩm trực tiếp vào file Excel.
-    *   **Theo dõi Tiến độ**: Thanh tiến trình/trạng thái thời gian thực cho các lần xuất dữ liệu lớn.
-    *   **Nhận diện Múi giờ**: Tên file bao gồm múi giờ khi xuất.
+Cache nằm ở:
 
-### 7. Cài đặt & Tùy chỉnh
-*   **Quản lý Tab**:
-    *   Sắp xếp lại thứ tự tab bằng kéo-thả via drag-and-drop.
-    *   Ẩn/Hiện các tab cụ thể.
-*   **Quản lý Tài khoản (Account Manager)**:
-    *   Thêm/Xóa các tài khoản Gmail kết nối.
-    *   Xem trạng thái đồng bộ của từng tài khoản.
-*   **Cài đặt Thông báo**:
-    *   Cấu hình cảnh báo cho các sự kiện cụ thể.
-*   **Giao diện (Theme)**:
-    *   Chuyển đổi giữa chế độ Sáng (Light) và Tối (Dark).
+```text
+user/{teamId}/daily_cache/{collection}__{offsetKey}__{yyyy-mm-dd}
+```
 
-### 8. Trải nghiệm Mobile & PWA
-*   **Thiết kế Đáp ứng (Responsive)**: UI tương thích hoàn toàn cho mobile, tablet và desktop.
-*   **Điều hướng Mobile**: Component `BottomNav` giúp thao tác dễ dàng bằng ngón cái trên điện thoại.
-*   **Kéo để làm mới (Pull-to-Refresh)**: Thao tác vuốt tự nhiên để tải lại dữ liệu trên mobile.
-*   **Haptics**: Phản hồi rung khi tương tác (ví dụ: cập nhật thành công).
-*   **Cài đặt**: Lời nhắc "Cài đặt Ứng dụng" tùy chỉnh cho PWA.
+Offset được cache:
 
-### 9. Chi tiết UX & Hoàn thiện
-*   **Skeleton Loading**: Hiệu ứng chờ (`SidebarSkeleton`, `SkeletonLoader`) để tránh giật bố cục (CLS) khi đang tải dữ liệu.
-*   **Toasts**: Thông báo pop-up không xâm lấn cho các tin nhắn thành công/lỗi.
-*   **Error Boundaries**: Xử lý mượt mà các trường hợp crash component để tránh màn hình trắng.
-*   **Quản lý Modal**: Xử lý `ClickOutside` để dễ dàng đóng các modal cài đặt/tài khoản.
+- `p7`: UTC+07:00
+- `m7`: UTC-07:00
+- `m8`: UTC-08:00
 
----
+Nguyên tắc:
 
-## 🛠 Hướng dẫn Phát triển
+- Ngày hiện tại theo offset đang xem luôn query live từ Firestore.
+- Ngày cũ ưu tiên đọc `daily_cache`.
+- Nếu cache miss/dirty/unsupported timezone thì fallback live query.
+- Sau live query, hệ thống có thể ghi cache lại ở background.
+- Khi record thay đổi sau order như cost, refund, help, case, review, SKU/task sync, code phải mark cache dirty cho các ngày liên quan.
 
-### Yêu cầu tiên quyết
-*   Node.js (Khuyên dùng bản LTS)
-*   npm hoặc yarn
+Cron backfill:
 
-### Cài đặt
+```json
+{
+  "path": "/api/backfill-daily-cache",
+  "schedule": "30 7,8,17 * * *"
+}
+```
+
+Tương ứng sau khi ngày vừa kết thúc ở các offset `-7`, `-8`, `+7`.
+
+Backfill thủ công:
+
 ```bash
-# Clone repository
-git clone <repository-url>
+curl "https://<app>/api/backfill-daily-cache?secret=<CRON_SECRET>&from=2026-06-01&to=2026-06-30&offsets=p7,m7,m8&collections=records,reviews&force=true"
+```
 
-# Cài đặt dependencies
+Mỗi request giới hạn 45 ngày, cần chia nhỏ nếu range dài hơn.
+
+## Sync Mail
+
+Gmail:
+
+- OAuth callback lưu refresh token trong `account.token`.
+- Realtime Gmail watch gọi `api/gmail-webhook.ts`.
+- Webhook dùng `getAccessTokenFromRefreshToken(account.token)` để lấy access token tạm thời.
+- Không đổi format token cũ.
+
+Outlook:
+
+- Cron gọi `api/sync-outlook.ts`.
+- Hàm `getMicrosoftAccessToken(refreshToken)` dùng refresh token trong account.
+- Cron hiện tại chạy `0 7 * * *`.
+
+Lưu ý khi sửa:
+
+- Không overwrite `account.token` nếu chỉ sửa label/order/status.
+- Không xóa account nếu user không chủ động remove.
+- Không đổi OAuth scope/refresh-token flow nếu không test lại login Gmail/Outlook.
+
+## Export Excel
+
+Logic export nằm ở `src/utils/excelExport.ts`.
+
+Các điểm cần giữ đúng:
+
+- Revenue product dùng cùng công thức với Product Summary.
+- SKU xuất ra không fallback qua product name nếu SKU trống hoặc `"NULL"`.
+- SKU được tách thêm prefix trong export, ví dụ:
+
+```text
+TAPEL01-I023-OXIT9X7ANL-RE
+-> Product Code: TAPEL01
+-> Staff Code: I023
+-> Listing Code: OXIT9X7ANL-RE
+```
+
+- Staff Summary dùng formula dựa trên Product Summary để user sửa staff code/revenue/quantity trong sheet gốc thì sheet summary cập nhật theo.
+- Revenue trong sheet nên làm tròn số hiển thị, không để lẻ quá dài.
+
+## SKU Cleanup
+
+SKU cleanup nằm trong `src/components/tabs/ProductsTab.tsx`.
+
+Chỉ hiển thị nhóm cần sửa:
+
+- Trùng product title nhưng SKU thiếu/ngắn/khác thường.
+- Cùng shop, cùng title, cùng mockup image có thể auto-safe.
+- Có mockup images theo từng SKU variant để dễ chọn SKU đúng.
+- User có thể chọn SKU có sẵn hoặc nhập custom SKU.
+
+Khi update SKU:
+
+- Update theo chunk để tránh Firestore write queue exhausted.
+- Update UI local ngay sau batch thành công để không phải F5/query lại.
+- Mark daily cache dirty cho các record bị ảnh hưởng.
+
+## Performance
+
+Các tối ưu chính:
+
+- Web Worker xử lý theo scope của tab: overview, orders, products, fulfill, support.
+- Report không trigger worker dashboard chung để tránh lag khi query date riêng.
+- Lazy load tab/component nặng: Products, Report, Fulfill, Account Manager, charts, Excel export.
+- DataTable dùng virtualization và cache height.
+- Date range query dùng chunking cân bằng theo độ dài range.
+- Daily cache giảm số read cho ngày cũ.
+- Dev-only performance marks bật bằng localStorage.
+
+Bật log debug trong dev:
+
+```js
+localStorage.setItem('dailyCacheVerbose', '1')
+localStorage.setItem('reportVerbose', '1')
+localStorage.setItem('performanceVerbose', '1')
+localStorage.setItem('notificationVerbose', '1')
+localStorage.setItem('rulesVerbose', '1')
+```
+
+## Cấu Trúc Thư Mục
+
+```text
+api/
+  _lib/                     helper dùng cho serverless API
+  backfill-daily-cache.ts   build daily cache cho ngày cũ
+  daily-summary.ts          gửi Lark daily summary
+  get-costs-mz.ts           cost API Merchize
+  get-costs-pw.ts           cost API Printway
+  gmail-webhook.ts          nhận Gmail Pub/Sub webhook
+  lark-events.ts            Lark actions/webhooks
+  oauth-callback.ts         OAuth callback Gmail/Outlook
+  oauth-token.ts            đổi refresh token -> access token
+  sync-outlook.ts           cron sync Outlook
+
+src/
+  components/               layout, tabs, tables, modals, chart components
+  contexts/                 DashboardContext, UIContext, NotificationContext
+  features/                 accounts, auth, costs, notifications, settings, users
+  hooks/                    data sync, local storage, exchange rates
+  services/                 Firebase, email, report, daily cache, cost sync
+  utils/                    data processing, export, timezone, permissions
+  workers/                  dataWorker xử lý aggregate
+
+extension-sku-worker/       Chrome extension hỗ trợ fetch SKU/listing
+scripts/                    generate firebase config cho service worker
+```
+
+## Chạy Local
+
+Cài dependencies:
+
+```bash
 npm install
 ```
 
-### Chạy trên máy cục bộ
+Chạy Vite:
+
 ```bash
-# Khởi động development server
-npm start
-# HOẶC nếu dùng Vercel
-vercel dev
+npm run dev
 ```
 
-### Cấu trúc Dự án
+Hoặc chạy qua Vercel CLI để test API route:
+
+```bash
+vc dev
+```
+
+Build production:
+
+```bash
+npm run build
+```
+
+Preview build:
+
+```bash
+npm run preview
+```
+
+## Environment Variables
+
+Không commit `.env.local`.
+
+Firebase client:
+
 ```text
-src/
-├── api/            # Serverless functions / Backend API handlers
-├── components/     # React components (UI)
-│   ├── datatable/  # Các component riêng cho bảng dữ liệu
-│   ├── tabs/       # Các view tab chính (Overview, Orders, v.v.)
-│   └── ...         # Các thành phần chung (Header, Sidebar, Modals)
-├── contexts/       # Global State (Dashboard, UI, Notification)
-├── hooks/          # Custom React Hooks (DataSync, Auth, v.v.)
-├── services/       # Business Logic & External API wrappers (Firebase, Email)
-├── utils/          # Các hàm hỗ trợ (Formatting, Export, Permissions)
-├── workers/        # Web Workers để xử lý nền
-├── types.ts        # Định nghĩa TypeScript
-└── App.tsx         # Component gốc & Logic định tuyến
+VITE_FIREBASE_API_KEY
+VITE_FIREBASE_AUTH_DOMAIN
+VITE_FIREBASE_PROJECT_ID
+VITE_FIREBASE_STORAGE_BUCKET
+VITE_FIREBASE_MESSAGING_SENDER_ID
+VITE_FIREBASE_APP_ID
 ```
 
-### Chiến lược Test (Tương lai)
-README này đóng vai trò là cơ sở để bao phủ test case. Các khu vực chính cần test:
-1.  **Unit Tests**:
-    *   `services/emailService.ts`: Test các quy tắc phân tích (rules) với các mẫu email.
-    *   `utils/`: Test các hàm hỗ trợ (định dạng ngày, logic phân quyền).
-2.  **Integration Tests**:
-    *   **Data Sync**: Xác minh `useDataSync` cập nhật chuẩn xác `DashboardContext`.
-    *   **Export**: Xác minh việc tạo file Excel ra đúng định dạng.
-3.  **E2E Tests (Cypress/Playwright)**:
-    *   **Luồng Auth**: Đăng nhập -> Dashboard -> Đăng xuất.
-    *   **CRUD**: Thêm chi phí thủ công -> Kiểm tra hiển thị trong bảng.
-    *   **Điều hướng**: Chuyển tab, Bật/tắt menu mobile.
-    *   **Export**: Chạy luồng xuất dữ liệu.
+Firebase admin:
+
+```text
+FIREBASE_PROJECT_ID
+FIREBASE_CLIENT_EMAIL
+FIREBASE_PRIVATE_KEY
+```
+
+OAuth:
+
+```text
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+MSAL_CLIENT_ID
+MICROSOFT_CLIENT_SECRET
+```
+
+Cron/webhook:
+
+```text
+CRON_SECRET
+CRON_SECRET2
+WEBHOOK_SECRET_TOKEN
+NEXT_PUBLIC_APP_URL
+```
+
+Supplier/Lark:
+
+```text
+MERCHIZE_ACCESS_TOKEN
+PRINTWAY_ACCESS_TOKEN
+LARK_WEBHOOK_URL
+LARK_LOGIN_WEBHOOK_URL
+LARK_APP_ID
+LARK_APP_SECRET
+LARK_VERIFICATION_TOKEN
+LARK_CARD_VERIFY_TOKEN
+```
+
+## Deploy
+
+Production chạy trên Vercel.
+
+Checklist trước khi push production:
+
+```bash
+npm run build
+```
+
+Nên kiểm thêm:
+
+- Query cùng timezone/range với production để so số order/revenue.
+- Test Gmail/Outlook sync nếu chạm `api/gmail-webhook.ts`, `api/sync-outlook.ts`, OAuth hoặc account save logic.
+- Test cost sync nếu chạm fulfillment/cost files.
+- Test export Excel nếu chạm `dataProcessing`, worker hoặc `excelExport`.
+
+## Quy Tắc Khi Sửa Code
+
+- Dữ liệu thống kê quan trọng hơn UI đẹp. Không đổi công thức doanh thu nếu chưa đối chiếu production.
+- `dt_local`, `fulfill_date`, `create_date` trong UI/service nên chuẩn hóa ISO string.
+- Khi update/delete/add record ngày cũ phải mark daily cache dirty.
+- Không query task/operation report từ header nếu tab Report không mở.
+- Không load toàn bộ order detail khi chưa mở modal.
+- Không tạo nhiều listener Firestore ở header nếu chỉ cần count hoặc chưa mở panel.
+- Không dùng `limit` âm thầm cho dữ liệu thống kê thật, trừ UI preview có ghi rõ.
+- Commit lớn nên tách theo rủi ro: UI/performance riêng, DB/sync/order/cost riêng.
+
+## Git
+
+Commit gần nhất sau đợt tối ưu:
+
+```text
+9ca67ad Optimize dashboard performance and daily cache workflow
+```
