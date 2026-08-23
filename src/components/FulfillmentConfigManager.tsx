@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useNotification } from '../contexts/NotificationContext';
-import { getSettings, saveSettings, TeamSettings, FulfillmentAccount } from '../services/firebaseService';
-import { PlusIcon, TrashIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { getSettings, saveSettings } from '../services/firebaseService';
+import type { FulfillmentAccount } from '../types';
+import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
 import LoadingSpinner from './LoadingSpinner';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);

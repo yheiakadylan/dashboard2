@@ -3,6 +3,7 @@ import {
   Bell,
   Bot,
   Mail,
+  ServerCog,
   UserRound,
   UsersRound,
   X,
@@ -15,8 +16,9 @@ const MailManager = React.lazy(() => import('./MailManager').then(module => ({ d
 const NotificationSettings = React.lazy(() => import('../../notifications/components/NotificationSettings'));
 const WorkerStatusManager = React.lazy(() => import('./WorkerStatusManager'));
 const PODTeamManager = React.lazy(() => import('../../teams/components/PODTeamManager'));
+const FulfillmentConfigManager = React.lazy(() => import('../../../components/FulfillmentConfigManager'));
 
-type SettingsTab = 'profile' | 'podteams' | 'mail' | 'notifications' | 'workers';
+type SettingsTab = 'profile' | 'podteams' | 'mail' | 'notifications' | 'workers' | 'fulfillment';
 
 const AccountManager: React.FC = () => {
   const { role, permissions } = useDashboardAccess();
@@ -26,6 +28,7 @@ const AccountManager: React.FC = () => {
   const canManageMail = role === 'owner' || permissions.canManageMailSettings;
   const canManagePodTeams = role === 'owner' || permissions.canManageSettings;
   const canManageWorkers = role === 'owner' || permissions.canEditCost;
+  const canManageFulfillment = role === 'owner' || permissions.canManageSettings;
 
   const tabs = [
     {
@@ -62,6 +65,13 @@ const AccountManager: React.FC = () => {
       description: 'Crawler status and schedules',
       icon: Bot,
       visible: canManageWorkers,
+    },
+    {
+      id: 'fulfillment' as const,
+      label: 'API Config',
+      description: 'Merchize and Printway accounts',
+      icon: ServerCog,
+      visible: canManageFulfillment,
     },
   ].filter(tab => tab.visible);
 
@@ -162,6 +172,7 @@ const AccountManager: React.FC = () => {
               {activeTab === 'mail' && <MailManager />}
               {activeTab === 'notifications' && <NotificationSettings />}
               {activeTab === 'workers' && <WorkerStatusManager />}
+              {activeTab === 'fulfillment' && <FulfillmentConfigManager />}
             </Suspense>
           </main>
         </div>
