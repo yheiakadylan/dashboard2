@@ -16,7 +16,8 @@ import {
     Star,
     Palette,
     ClipboardCheck,
-    FileSpreadsheet
+    FileSpreadsheet,
+    BriefcaseBusiness
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -51,6 +52,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
             case 'Design': return <Palette className={className} />;
             case 'Templete': return <FileSpreadsheet className={className} />;
             case 'Shop Evaluation': return <ClipboardCheck className={className} />;
+            case 'Workload': return <BriefcaseBusiness className={className} />;
             default: return <Home className={className} />;
         }
     };

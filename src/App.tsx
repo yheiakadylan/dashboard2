@@ -263,6 +263,7 @@ const DashboardLayout: React.FC = () => {
         () => getPermittedTabs(tabOrder, role, permissions).filter(tab => !hiddenTabs.has(tab)),
         [tabOrder, role, permissions, hiddenTabs]
     );
+    const isWorkloadTab = activeTab === 'Workload';
 
     useEffect(() => {
         if (visibleTabs.length > 0 && !visibleTabs.includes(activeTab)) {
@@ -275,11 +276,11 @@ const DashboardLayout: React.FC = () => {
             <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
 
             <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
-                <Header />
-                <main className="flex-grow p-2 md:p-6 flex flex-col overflow-hidden relative">
-                    <div className="relative flex-grow glass-panel rounded-lg shadow-lg overflow-hidden border-0">
+                {!isWorkloadTab && <Header />}
+                <main className={isWorkloadTab ? "flex-grow flex flex-col overflow-hidden relative p-0" : "flex-grow p-2 md:p-6 flex flex-col overflow-hidden relative"}>
+                    <div className={isWorkloadTab ? "relative flex-grow overflow-hidden border-0 bg-white dark:bg-gray-950" : "relative flex-grow glass-panel rounded-lg shadow-lg overflow-hidden border-0"}>
                         {/* Pull-to-refresh UI */}
-                        {(isPulling || isRefreshing) && (
+                        {!isWorkloadTab && (isPulling || isRefreshing) && (
                             <div className="absolute top-0 left-0 right-0 flex justify-center items-center z-20" style={{ height: `${Math.min(pullDistance, 60)}px`, opacity: pullProgress }}>
                                 <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
                                     <Spinner size="sm" color="text-blue-600 dark:text-blue-400" />
@@ -293,7 +294,7 @@ const DashboardLayout: React.FC = () => {
                         {/* Single scroll container - SIMPLE! */}
                         <div
                             id="active-tab-container"
-                            className="h-full w-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] pb-24 md:pb-0"
+                            className={isWorkloadTab ? "h-full w-full overflow-hidden" : "h-full w-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] pb-24 md:pb-0"}
                             onScroll={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
                             onClick={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
                             onWheel={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
@@ -336,7 +337,7 @@ const DashboardLayout: React.FC = () => {
                     />
                 </Suspense>
             )}
-            <BottomNav tabs={visibleTabs} />
+            {!isWorkloadTab && <BottomNav tabs={visibleTabs} />}
 
             {/* Etsy warning list removed */}
 
@@ -374,22 +375,22 @@ const App: React.FC = () => {
                 <Auth authError={authError} />
             </Suspense>
         );
-    } else if (isAuthenticationAdminRoute) {
-        content = (
-            <Suspense fallback={<FullPageLoadingFallback />}>
-                <AuthenticationAdminPage user={user} logout={logout} />
-            </Suspense>
-        );
     } else {
         content = (
             <>
                 <LoginNotificationHandler user={user} userProfile={userProfile} />
                 <UIProvider userUid={user.uid} teamId={userProfile.teamId}>
-                    <ConnectedDashboardProvider user={user} userProfile={userProfile} logout={logout}>
-                        <ErrorBoundary>
-                            <DashboardLayout />
-                        </ErrorBoundary>
-                    </ConnectedDashboardProvider>
+                    {isAuthenticationAdminRoute ? (
+                        <Suspense fallback={<FullPageLoadingFallback />}>
+                            <AuthenticationAdminPage user={user} logout={logout} />
+                        </Suspense>
+                    ) : (
+                        <ConnectedDashboardProvider user={user} userProfile={userProfile} logout={logout}>
+                            <ErrorBoundary>
+                                <DashboardLayout />
+                            </ErrorBoundary>
+                        </ConnectedDashboardProvider>
+                    )}
                 </UIProvider>
             </>
         );

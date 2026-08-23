@@ -17,7 +17,7 @@ import {
   deleteDoc,
   setDoc
 } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { browserLocalPersistence, getAuth, setPersistence } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { Account, Record, UserProfile, Category, EtsyReview, PODTeam } from '../types';
 import {
@@ -62,6 +62,9 @@ export const db = getFirestore(firebaseApp);
 export const auth = getAuth(firebaseApp);
 // Thiết lập ngôn ngữ mặc định cho email là Tiếng Việt
 auth.languageCode = 'en';
+void setPersistence(auth, browserLocalPersistence).catch(error => {
+  console.warn('[Firebase] Failed to enable local auth persistence:', error);
+});
 export const storage = getStorage(firebaseApp);
 
 // Helper: Upload Avatar

@@ -10,7 +10,8 @@ import {
     Star,
     Palette,
     ClipboardCheck,
-    FileSpreadsheet
+    FileSpreadsheet,
+    BriefcaseBusiness
 } from 'lucide-react';
 
 interface BottomNavProps {
@@ -91,6 +92,8 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
                 return <FileSpreadsheet className={iconClass} />;
             case 'Shop Evaluation':
                 return <ClipboardCheck className={iconClass} />;
+            case 'Workload':
+                return <BriefcaseBusiness className={iconClass} />;
             default:
                 return <Home className={iconClass} />;
         }

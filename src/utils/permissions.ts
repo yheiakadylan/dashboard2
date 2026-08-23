@@ -27,6 +27,7 @@ export const getPermittedTabs = (
                 return hasPermission(role, permissions, 'viewSales');
             case 'Design':
             case 'Templete':
+            case 'Workload':
                 return true;
             default:
                 return false;

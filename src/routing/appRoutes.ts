@@ -10,6 +10,7 @@ export const TAB_PATHS: Record<Tab, string> = {
   Design: '/operations/design',
   Templete: '/operations/templates',
   'Shop Evaluation': '/operations/shop-evaluation',
+  Workload: '/operations/workload',
 };
 
 const normalizePath = (pathname: string) => {

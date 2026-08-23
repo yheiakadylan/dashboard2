@@ -45,6 +45,7 @@ const TabSettings: React.FC = () => {
                     return permissions.viewSales === true;
                 case 'Design':
                 case 'Templete':
+                case 'Workload':
                     return true;
                 default:
                     return false;

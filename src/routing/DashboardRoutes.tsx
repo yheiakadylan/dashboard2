@@ -16,6 +16,7 @@ const ReviewsTab = lazy(() => import('../components/tabs/ReviewsTab'));
 const DesignTab = lazy(() => import('../components/tabs/DesignTab'));
 const TempleteTab = lazy(() => import('../components/tabs/TempleteTab'));
 const ShopEvaluationTab = lazy(() => import('../components/tabs/ShopEvaluationTab'));
+const WorkloadTab = lazy(() => import('../components/tabs/WorkloadTab'));
 
 interface Props {
   onViewOrderDetails: (recordId: string) => void;
@@ -70,6 +71,9 @@ const DashboardRoutes: React.FC<Props> = ({ onViewOrderDetails, onResyncOrder })
       )} />
       <Route path="/operations/shop-evaluation" element={(
         <RouteBoundary fallback={<TableFallback />}><ShopEvaluationTab /></RouteBoundary>
+      )} />
+      <Route path="/operations/workload" element={(
+        <RouteBoundary fallback={<CardFallback />}><WorkloadTab /></RouteBoundary>
       )} />
       <Route path="/legacy/kpi" element={<Navigate to={getPathForTab('Overview')} replace />} />
       <Route path="/kpi/*" element={<Navigate to={getPathForTab('Overview')} replace />} />

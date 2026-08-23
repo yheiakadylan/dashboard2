@@ -406,7 +406,8 @@ export type Tab =
   | 'Shop Evaluation'
   | 'KPI'
   | 'Design'
-  | 'Templete';
+  | 'Templete'
+  | 'Workload';
 
 export interface Template {
   id: string;
