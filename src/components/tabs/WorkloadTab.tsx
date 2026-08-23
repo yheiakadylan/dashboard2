@@ -4,7 +4,7 @@ import { useDashboard } from '../../contexts/DashboardContext';
 const WORKLOAD_URL = (import.meta.env.VITE_WORKLOAD_URL || 'https://workload-seven.vercel.app').replace(/\/+$/, '');
 
 const WorkloadTab: React.FC = () => {
-  const { user, handleLogout } = useDashboard();
+  const { user, accounts, allAccounts, handleLogout } = useDashboard();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -24,8 +24,18 @@ const WorkloadTab: React.FC = () => {
       source: 'dashboard2',
       type: 'WORKLOAD_AUTH_TOKEN',
       idToken,
+      shopScope: {
+        restricted: accounts.length !== allAccounts.length,
+        accounts: accounts.map(account => ({
+          id: account.id,
+          email: account.email,
+          label: account.label,
+          shopName: account.shopName,
+          etsyShopName: account.etsyShopName,
+        })),
+      },
     }, workloadOrigin);
-  }, [user, workloadOrigin]);
+  }, [accounts, allAccounts.length, user, workloadOrigin]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
