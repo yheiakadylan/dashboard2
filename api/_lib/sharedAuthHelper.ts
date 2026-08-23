@@ -20,7 +20,11 @@ const LEGACY_EMAIL_FIELDS = ['email', 'user_email', 'userEmail'] as const;
 const LEGACY_EMP_ID_FIELDS = ['empID', 'employeeId', 'employeeID', 'staffId', 'user_number', 'userNumber'] as const;
 const DASHBOARD_APP_ID: SharedAppId = 'dashboard';
 const SHARED_TEAM_ID = 'jwnm5emo8mdG3gjIlh7CctiVvQO2';
-const AUTHENTICATION_ADMIN_EMAIL = 'haitrinh@gmail.com';
+export const AUTHENTICATION_ADMIN_EMAIL = 'haitrinh@gmail.com';
+export const AUTHENTICATION_ADMIN_EMAILS = [AUTHENTICATION_ADMIN_EMAIL, 'buonngu@gmail.com'] as const;
+const authenticationAdminEmailSet = new Set<string>(AUTHENTICATION_ADMIN_EMAILS);
+export const isAuthenticationAdminEmail = (email: unknown): boolean =>
+  authenticationAdminEmailSet.has(normalizeEmail(email));
 
 const roleAliases = new Map<string, SharedRole>([
   ['owner', 'ADMIN'],
@@ -290,7 +294,7 @@ export async function syncLegacyAuthenticationProfile(
   const existingCommon = existingCommonSnapshot.data() || {};
   const existingApp = existingAppSnapshot.data() || {};
   const existingRole = normalizeSharedRole(existingCommon.role);
-  const role = email === AUTHENTICATION_ADMIN_EMAIL ? 'ADMIN' : existingRole || inferLegacyRole(legacy).role;
+  const role = isAuthenticationAdminEmail(email) ? 'ADMIN' : existingRole || inferLegacyRole(legacy).role;
   const finalEmail = getLegacyEmail(legacy) || email;
   if (!finalEmail) {
     throw new SharedAuthError('This employee does not have a login email configured.', {
@@ -303,7 +307,7 @@ export async function syncLegacyAuthenticationProfile(
   const fallbackName = finalEmail.split('@')[0] || authUser.uid;
   const fullName = pickText(existingCommon.fullName, legacy.fullName, legacy.full_name, legacy.name, legacy.displayName, legacy.display_name, authUser.displayName, fallbackName);
   const displayName = pickText(existingCommon.displayName, legacy.displayName, legacy.display_name, fullName);
-  const active = email === AUTHENTICATION_ADMIN_EMAIL
+  const active = isAuthenticationAdminEmail(email)
     ? true
     : typeof existingCommon.active === 'boolean'
       ? existingCommon.active

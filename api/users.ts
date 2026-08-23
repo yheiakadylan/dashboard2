@@ -3,9 +3,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, type DocumentData } from 'firebase-admin/firestore';
 import { getDb, initFirebaseAdmin } from './_lib/firebaseAdminHelper.js';
-import { syncLegacyAuthenticationUsers } from './_lib/sharedAuthHelper.js';
+import { isAuthenticationAdminEmail, syncLegacyAuthenticationUsers } from './_lib/sharedAuthHelper.js';
 
-const AUTHENTICATION_ADMIN_EMAIL = 'haitrinh@gmail.com';
 const SHARED_TEAM_ID = 'jwnm5emo8mdG3gjIlh7CctiVvQO2';
 const APP_IDS = ['dashboard', 'workload'] as const;
 type AppId = typeof APP_IDS[number];
@@ -70,7 +69,7 @@ const verifyAuthenticationAdmin = async (req: VercelRequest) => {
     const adminAuth = getAuth(adminApp);
     const decodedToken = await adminAuth.verifyIdToken(idToken);
     const callerEmail = String(decodedToken.email || '').trim().toLowerCase();
-    if (callerEmail !== AUTHENTICATION_ADMIN_EMAIL) {
+    if (!isAuthenticationAdminEmail(callerEmail)) {
         throw Object.assign(new Error('Forbidden. Only the authentication administrator can manage users.'), { status: 403 });
     }
 
@@ -181,7 +180,7 @@ async function saveAuthenticationRecord(
     const authEmail = String(targetAuthUser.email || '').trim().toLowerCase();
     const fallbackName = authEmail.split('@')[0] || uid;
     const names = normalizeNames(record?.common?.fullName, record?.common?.displayName, fallbackName);
-    const isAuthenticationAdmin = authEmail === AUTHENTICATION_ADMIN_EMAIL;
+    const isAuthenticationAdmin = isAuthenticationAdminEmail(authEmail);
     const role = isAuthenticationAdmin ? 'ADMIN' : normalizeSharedRole(record?.common?.role);
     if (!role) throw Object.assign(new Error('Invalid shared role.'), { status: 400 });
 
@@ -296,7 +295,7 @@ async function handleUpdateUser(req: VercelRequest, res: VercelResponse) {
         }
 
         // 2. User administration is centralized in Dashboard /admin.
-        if (callerEmail !== AUTHENTICATION_ADMIN_EMAIL) {
+        if (!isAuthenticationAdminEmail(callerEmail)) {
             return res.status(403).json({ message: 'Forbidden. Only the authentication administrator can update users.' });
         }
 
@@ -358,7 +357,7 @@ async function handleUpdateUser(req: VercelRequest, res: VercelResponse) {
                 || inputFullName
                 || String(commonData.displayName || commonData.fullName || targetAuthUser?.displayName || '').trim()
                 || fallbackName;
-            const normalizedSharedRole = role && targetAuthUser?.email?.toLowerCase() === AUTHENTICATION_ADMIN_EMAIL
+            const normalizedSharedRole = role && isAuthenticationAdminEmail(targetAuthUser?.email)
                 ? 'ADMIN'
                 : role ? normalizeSharedRole(role) : null;
             if (role && !normalizedSharedRole) {
@@ -445,7 +444,7 @@ async function handleCreateUser(req: VercelRequest, res: VercelResponse) {
         }
 
         // 2. Verify the fixed authentication administrator.
-        if (callerEmail !== AUTHENTICATION_ADMIN_EMAIL) {
+        if (!isAuthenticationAdminEmail(callerEmail)) {
             return res.status(403).json({ message: 'Forbidden. Only the authentication administrator can create users.' });
         }
 
@@ -456,7 +455,7 @@ async function handleCreateUser(req: VercelRequest, res: VercelResponse) {
         const normalizedFullName = inputFullName || inputDisplayName || fallbackName;
         const normalizedDisplayName = inputDisplayName || inputFullName || fallbackName;
         const normalizedEmpID = String(empID || '').trim();
-        const normalizedSharedRole = normalizedEmail === AUTHENTICATION_ADMIN_EMAIL
+        const normalizedSharedRole = isAuthenticationAdminEmail(normalizedEmail)
             ? 'ADMIN'
             : normalizeSharedRole(requestedRole);
         if (!normalizedSharedRole) {
@@ -605,7 +604,7 @@ async function handleDeleteUser(req: VercelRequest, res: VercelResponse) {
         }
 
         // 2. Verify the fixed authentication administrator.
-        if (callerEmail !== AUTHENTICATION_ADMIN_EMAIL) {
+        if (!isAuthenticationAdminEmail(callerEmail)) {
             return res.status(403).json({ message: 'Forbidden. Only the authentication administrator can delete users.' });
         }
 
@@ -618,7 +617,7 @@ async function handleDeleteUser(req: VercelRequest, res: VercelResponse) {
         const targetEmail = String(
             targetAuthUser?.email || targetProfileSnapshot.data()?.email || '',
         ).toLowerCase();
-        if (targetEmail === AUTHENTICATION_ADMIN_EMAIL) {
+        if (isAuthenticationAdminEmail(targetEmail)) {
             return res.status(400).json({ message: 'Cannot delete the authentication administrator.' });
         }
 

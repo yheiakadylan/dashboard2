@@ -5,13 +5,12 @@ import {
   authenticateWithPassword,
   type AppAccessProfile,
   isManagementRole,
+  isAuthenticationAdminEmail,
   loadAppAccessProfile,
   resolveEmailFromIdentifier,
   SharedAuthError,
   syncLegacyAuthenticationProfile,
 } from '../_lib/sharedAuthHelper.js';
-
-const AUTHENTICATION_ADMIN_EMAIL = 'haitrinh@gmail.com';
 
 const sendError = (res: VercelResponse, error: SharedAuthError) =>
   res.status(error.status).json({
@@ -64,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const isAuthenticationAdmin = String(userRecord.email || email).trim().toLowerCase() === AUTHENTICATION_ADMIN_EMAIL;
+    const isAuthenticationAdmin = isAuthenticationAdminEmail(userRecord.email || email);
     let profile: AppAccessProfile | null = isAuthenticationAdmin
       ? {
         uid: localId,

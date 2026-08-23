@@ -29,10 +29,11 @@ import {
 import {
   APP_IDS,
   APP_LABELS,
-  AUTHENTICATION_ADMIN_EMAIL,
+  AUTHENTICATION_ADMIN_EMAILS,
   SHARED_TEAM_ID,
   SHARED_ROLES,
   getDepartmentFromRole,
+  isAuthenticationAdminEmail,
   type AppId,
   type AuthenticationUserRecord,
   type RolePermissionConfiguration,
@@ -202,7 +203,7 @@ const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ checked, disabled = false, 
 
 const AuthenticationAdminPageContent: React.FC<AuthenticationAdminPageProps> = ({ user, logout }) => {
   const { addNotification } = useNotification();
-  const isAdmin = user.email?.toLowerCase() === AUTHENTICATION_ADMIN_EMAIL;
+  const isAdmin = isAuthenticationAdminEmail(user.email);
   const [records, setRecords] = useState<AuthenticationUserRecord[]>([]);
   const [accountOptions, setAccountOptions] = useState<AuthenticationAccountOption[]>([]);
   const [roleConfigurations, setRoleConfigurations] = useState<RolePermissionConfiguration[]>([]);
@@ -249,7 +250,7 @@ const AuthenticationAdminPageContent: React.FC<AuthenticationAdminPageProps> = (
       setRoleConfigurations(nextRoleConfigurations);
       const nextUid = preferredUid
         || selectedUid
-        || nextRecords.find(record => record.common.email === AUTHENTICATION_ADMIN_EMAIL)?.uid
+        || nextRecords.find(record => isAuthenticationAdminEmail(record.common.email))?.uid
         || nextRecords[0]?.uid
         || null;
       setSelectedUid(nextUid);
@@ -297,6 +298,7 @@ const AuthenticationAdminPageContent: React.FC<AuthenticationAdminPageProps> = (
   }, [records, searchTerm]);
 
   const selectedAuthorization = draft?.apps[selectedApp] || null;
+  const draftIsAuthenticationAdmin = isAuthenticationAdminEmail(draft?.common.email);
   const activeRecordCount = records.filter(record => record.common.active).length;
   const configuredRoleCount = roleConfigurations.filter(configuration =>
     APP_IDS.some(appId => configuration.apps[appId].configured),
@@ -481,7 +483,7 @@ const AuthenticationAdminPageContent: React.FC<AuthenticationAdminPageProps> = (
     try {
       await deleteAuthenticationUser(deletedRecord.uid);
       const remainingRecords = records.filter(record => record.uid !== deletedRecord.uid);
-      const nextRecord = remainingRecords.find(record => record.common.email === AUTHENTICATION_ADMIN_EMAIL)
+      const nextRecord = remainingRecords.find(record => isAuthenticationAdminEmail(record.common.email))
         || remainingRecords[0]
         || null;
       setRecords(remainingRecords);
@@ -520,7 +522,7 @@ const AuthenticationAdminPageContent: React.FC<AuthenticationAdminPageProps> = (
           <ShieldCheck className="mx-auto h-12 w-12 text-amber-400" />
           <h1 className="mt-5 text-2xl font-semibold">Không có quyền truy cập</h1>
           <p className="mt-3 text-sm leading-6 text-slate-300">
-            Trang quản trị authentication chỉ dành cho {AUTHENTICATION_ADMIN_EMAIL}.
+            Trang quản trị authentication chỉ dành cho {AUTHENTICATION_ADMIN_EMAILS.join(', ')}.
           </p>
           <button
             type="button"
@@ -804,12 +806,12 @@ const AuthenticationAdminPageContent: React.FC<AuthenticationAdminPageProps> = (
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white/70 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/70"><span className={`text-xs font-bold ${draft.common.active ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500'}`}>{draft.common.active ? 'Active' : 'Inactive'}</span><ToggleSwitch checked={draft.common.active} disabled={draft.common.email === AUTHENTICATION_ADMIN_EMAIL} label="Thay đổi trạng thái nhân sự" onChange={active => updateCommon('active', active)} /></div>
+                    <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white/70 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/70"><span className={`text-xs font-bold ${draft.common.active ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500'}`}>{draft.common.active ? 'Active' : 'Inactive'}</span><ToggleSwitch checked={draft.common.active} disabled={draftIsAuthenticationAdmin} label="Thay đổi trạng thái nhân sự" onChange={active => updateCommon('active', active)} /></div>
                     <div className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-bold ${saving ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'}`} aria-live="polite">
                       {saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                       {saving ? 'Đang tự động lưu...' : 'Tự động lưu'}
                     </div>
-                    <button type="button" onClick={() => setDeleteDialogOpen(true)} disabled={deleting || draft.uid === user.uid || draft.common.email === AUTHENTICATION_ADMIN_EMAIL} className="flex items-center gap-2 rounded-xl border border-rose-200 bg-white/80 px-3 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-rose-900 dark:bg-gray-900/80 dark:text-rose-300 dark:hover:bg-rose-950/40" title={draft.uid === user.uid || draft.common.email === AUTHENTICATION_ADMIN_EMAIL ? 'Không thể xóa tài khoản quản trị hiện tại' : 'Xóa Firebase Auth và toàn bộ hồ sơ authentication'}>
+                    <button type="button" onClick={() => setDeleteDialogOpen(true)} disabled={deleting || draft.uid === user.uid || draftIsAuthenticationAdmin} className="flex items-center gap-2 rounded-xl border border-rose-200 bg-white/80 px-3 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-rose-900 dark:bg-gray-900/80 dark:text-rose-300 dark:hover:bg-rose-950/40" title={draft.uid === user.uid || draftIsAuthenticationAdmin ? 'Không thể xóa tài khoản quản trị hiện tại' : 'Xóa Firebase Auth và toàn bộ hồ sơ authentication'}>
                       <Trash2 className="h-4 w-4" /> Xóa tài khoản
                     </button>
                   </div>
@@ -826,7 +828,7 @@ const AuthenticationAdminPageContent: React.FC<AuthenticationAdminPageProps> = (
                       <input value={draft.common.empID || ''} onChange={event => updateCommon('empID', event.target.value || null)} onBlur={() => void flushAutoSave(draft)} className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-normal text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white" />
                     </label>
                     <label className="text-xs font-bold text-gray-500">Role dùng chung
-                      <select value={draft.common.role || ''} onChange={event => updateSharedRole((event.target.value || null) as SharedRole | null)} disabled={draft.common.email === AUTHENTICATION_ADMIN_EMAIL} className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:disabled:bg-gray-800">
+                      <select value={draft.common.role || ''} onChange={event => updateSharedRole((event.target.value || null) as SharedRole | null)} disabled={draftIsAuthenticationAdmin} className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:disabled:bg-gray-800">
                         <option value="">Chưa gán role</option>{SHARED_ROLES.map(role => <option key={role} value={role}>{role}</option>)}
                       </select>
                     </label>
@@ -872,7 +874,7 @@ const AuthenticationAdminPageContent: React.FC<AuthenticationAdminPageProps> = (
                             <span className="text-sm font-bold text-gray-800 dark:text-gray-100">{statusLabel(selectedAuthorization.enabled)}</span>
                             <ToggleSwitch
                               checked={selectedAuthorization.enabled === true}
-                              disabled={selectedApp === 'dashboard' && draft.common.email === AUTHENTICATION_ADMIN_EMAIL}
+                              disabled={selectedApp === 'dashboard' && draftIsAuthenticationAdmin}
                               label={`Thay đổi truy cập ${APP_LABELS[selectedApp]}`}
                               onChange={enabled => updateSelectedApp({ enabled })}
                             />

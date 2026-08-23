@@ -1,4 +1,8 @@
 export const AUTHENTICATION_ADMIN_EMAIL = 'haitrinh@gmail.com';
+export const AUTHENTICATION_ADMIN_EMAILS = [AUTHENTICATION_ADMIN_EMAIL, 'buonngu@gmail.com'] as const;
+const authenticationAdminEmailSet = new Set<string>(AUTHENTICATION_ADMIN_EMAILS);
+export const isAuthenticationAdminEmail = (email: unknown): boolean =>
+  authenticationAdminEmailSet.has(String(email || '').trim().toLowerCase());
 export const SHARED_TEAM_ID = 'jwnm5emo8mdG3gjIlh7CctiVvQO2';
 
 export const APP_IDS = ['dashboard', 'workload'] as const;

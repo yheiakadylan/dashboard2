@@ -4,7 +4,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../../../services/firebaseService';
 import { requestForToken } from '../../notifications/services/notificationService';
 import {
-    AUTHENTICATION_ADMIN_EMAIL,
+    isAuthenticationAdminEmail,
     normalizeSharedRole,
     type SharedRole,
 } from '../../admin/authenticationTypes';
@@ -108,7 +108,7 @@ export const useAuthLogic = () => {
                         const email = String(commonData?.email || currentUser.email || '')
                             .trim()
                             .toLowerCase();
-                        const isAuthenticationAdmin = email === AUTHENTICATION_ADMIN_EMAIL;
+                        const isAuthenticationAdmin = isAuthenticationAdminEmail(email);
 
                         if (!commonData) {
                             rejectAccess('Tài khoản chưa có hồ sơ authentication. Vui lòng liên hệ quản trị viên.');

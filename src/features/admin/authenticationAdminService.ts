@@ -2,9 +2,9 @@ import type { DocumentData } from 'firebase/firestore';
 import { auth } from '../../services/firebaseService';
 import {
   APP_IDS,
-  AUTHENTICATION_ADMIN_EMAIL,
   SHARED_ROLES,
   SHARED_TEAM_ID,
+  isAuthenticationAdminEmail,
   getDepartmentFromRole,
   normalizeSharedRole,
   type AppAuthorization,
@@ -251,7 +251,7 @@ export const saveAuthenticationUser = async (
 ): Promise<AuthenticationUserRecord> => {
   const email = normalizeEmail(record.common.email);
   const names = normalizeNames(record.common.fullName, record.common.displayName, email.split('@')[0] || record.uid);
-  const isAuthenticationAdmin = email === AUTHENTICATION_ADMIN_EMAIL;
+  const isAuthenticationAdmin = isAuthenticationAdminEmail(email);
   const role = isAuthenticationAdmin ? 'ADMIN' : normalizeSharedRole(record.common.role);
   if (!role) throw new Error('Role nhân sự là bắt buộc.');
 

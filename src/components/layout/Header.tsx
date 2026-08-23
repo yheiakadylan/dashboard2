@@ -18,7 +18,7 @@ import { useNotification } from '../../contexts/NotificationContext';
 import CustomSelect from '../ui/CustomSelect';
 import { ORDER_LIST_INDICES } from '../../constants/dataIndices';
 import { usePWA } from '../../contexts/pwa';
-import { AUTHENTICATION_ADMIN_EMAIL } from '../../features/admin/authenticationTypes';
+import { isAuthenticationAdminEmail } from '../../features/admin/authenticationTypes';
 import { recordNeedsSkuFetch } from '../../utils/skuFetch';
 import useMediaQuery from '../../hooks/useMediaQuery';
 
@@ -112,7 +112,7 @@ const Header: React.FC = () => {
   }, [visibleOrderRecords]);
 
   const missingSkuCount = recordsMissingSku.length;
-  const isAuthenticationAdmin = user?.email?.trim().toLowerCase() === AUTHENTICATION_ADMIN_EMAIL;
+  const isAuthenticationAdmin = isAuthenticationAdminEmail(user?.email);
 
   const triggerBulkSyncSkuToTasks = async () => {
     if (isApiLoading) return;
