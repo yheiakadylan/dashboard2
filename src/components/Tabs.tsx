@@ -8,7 +8,8 @@ const Tabs: React.FC = () => {
   // Get tab customization state from context
   const {
     role,
-    permissions
+    permissions,
+    user
   } = useDashboard();
 
   const {
@@ -22,8 +23,16 @@ const Tabs: React.FC = () => {
   // Filter TABS based on permissions
   const getPermittedTabs = (tabs: Tab[]): Tab[] => {
     return tabs.filter(tab => {
+      // Special logic for Shop Evaluation
+      if (tab === 'Shop Evaluation') {
+        const allowedEmails = ['buonngu@gmail.com', 'haitrinh@gmail.com'];
+        if (!user?.email || !allowedEmails.includes(user.email.toLowerCase())) {
+          return false;
+        }
+      }
+
       if (role === 'owner') {
-        return true; // Owner sees all
+        return true; // Owner sees all (except blocked above)
       }
 
       // User role - check permissions

@@ -26,7 +26,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
-    const { role, permissions, handleExport, isExporting } = useDashboard();
+    const { role, permissions, handleExport, isExporting, user } = useDashboard();
     const {
         activeTab,
         handleTabClick,
@@ -39,7 +39,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
 
 
     // Filter tabs logic
-    const permittedTabs = getPermittedTabs(tabOrder, role, permissions);
+    const permittedTabs = getPermittedTabs(tabOrder, role, permissions, user?.email);
 
     const getIconForTab = (tab: string, className: string = "h-5 w-5") => {
         switch (tab) {

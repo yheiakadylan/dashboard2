@@ -51,6 +51,7 @@ const DashboardLayout: React.FC = () => {
         accounts,
         role,
         permissions,
+        user,
     } = useDashboard();
 
     const { addNotification } = useNotification();
@@ -260,8 +261,8 @@ const DashboardLayout: React.FC = () => {
 
 
     const visibleTabs = React.useMemo(
-        () => getPermittedTabs(tabOrder, role, permissions).filter(tab => !hiddenTabs.has(tab)),
-        [tabOrder, role, permissions, hiddenTabs]
+        () => getPermittedTabs(tabOrder, role, permissions, user?.email).filter(tab => !hiddenTabs.has(tab)),
+        [tabOrder, role, permissions, hiddenTabs, user?.email]
     );
     const isWorkloadTab = activeTab === 'Workload';
 

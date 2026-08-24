@@ -4,9 +4,18 @@ import { hasPermission, type UserPermissions } from './permissionHelper';
 export const getPermittedTabs = (
     tabs: Tab[],
     role: 'owner' | 'user',
-    permissions: UserPermissions
+    permissions: UserPermissions,
+    userEmail?: string | null
 ): Tab[] => {
     return tabs.filter(tab => {
+        // Special logic for Shop Evaluation
+        if (tab === 'Shop Evaluation') {
+            const allowedEmails = ['buonngu@gmail.com', 'haitrinh@gmail.com'];
+            if (!userEmail || !allowedEmails.includes(userEmail.toLowerCase())) {
+                return false;
+            }
+        }
+
         if (role === 'owner') return true;
 
         // Use granular tab permissions
