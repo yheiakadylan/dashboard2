@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Etsy SKU Worker",
-  "version": "2.2.3",
+  "version": "2.2.4",
   "description": "Background worker for Etsy SKU and review synchronization via Firebase.",
   "permissions": [
     "storage",

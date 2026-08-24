@@ -6,7 +6,7 @@ import { createEtsyReviewSync, ETSY_REVIEW_ALARM } from './reviews/reviewSync';
 
 const DEFAULT_APP_URL = 'https://dashboard2-alpha-bay.vercel.app';
 const EXTENSION_API_PATH = '/api/extension-shop-health';
-const TASK_ENRICHMENT_API_URL = 'https://workload.xyz/api/tasks/update-with-reuse';
+const TASK_ENRICHMENT_API_URL = 'https://workload-seven.vercel.app/api/tasks/update-with-reuse';
 const INVALID_SKU_VALUES = new Set(['']);
 const STALE_PROCESSING_JOB_MS = 5 * 60 * 1000;
 
@@ -687,15 +687,28 @@ function buildTaskSyncPayloads(
 }
 
 async function syncTaskViaCentralApi(payload: TaskSyncPayload): Promise<void> {
-    const response = await fetch(TASK_ENRICHMENT_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+    await updateDoc(doc(db, 'tasks', payload.taskId), {
+        sku: payload.sku,
+        ...(payload.variant1 !== undefined ? { variant1: payload.variant1 } : {}),
+        ...(payload.variant2 !== undefined ? { variant2: payload.variant2 } : {}),
+        customerFiles: payload.customerFiles,
+        ...(payload.listingId ? { listingId: payload.listingId } : {}),
+        ...(payload.transactionId ? { transactionId: payload.transactionId } : {}),
+        updatedAt: new Date().toISOString()
     });
 
-    if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        throw new Error(`Enrichment API returned ${response.status} for task ${payload.taskId}${body ? `: ${body.slice(0, 300)}` : ''}`);
+    try {
+        const response = await fetch(TASK_ENRICHMENT_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+            const body = await response.text().catch(() => '');
+            console.warn(`[Worker] Enrichment API returned ${response.status} for task ${payload.taskId}${body ? `: ${body.slice(0, 300)}` : ''}`);
+        }
+    } catch (error) {
+        console.warn(`[Worker] Enrichment API failed for task ${payload.taskId}:`, error);
     }
 }
 
