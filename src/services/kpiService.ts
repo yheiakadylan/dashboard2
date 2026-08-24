@@ -107,23 +107,62 @@ export interface KpiUserProfile {
   manage_mail?: boolean;
   allowedAccounts?: string[];
   kpi_team?: string;
+  sharedRole?: string;
+  hasFullAccountAccess?: boolean;
 }
 
-export const getKpiUserProfiles = async (teamId: string): Promise<KpiUserProfile[]> => {
-  const q = query(
+const getLegacyKpiUserProfiles = async (teamId: string): Promise<KpiUserProfile[]> => {
+  const legacyQuery = query(
     collection(db, 'user_roles'),
     where('teamId', '==', teamId),
-    where('is_kpi', '==', true)
+    where('is_kpi', '==', true),
   );
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({
-    id: d.id,
-    email: d.data().email || '',
-    display_name: d.data().display_name || '',
-    manage_mail: d.data().permissions?.canManageSettings ?? true,
-    allowedAccounts: d.data().allowedAccounts || [],
-    kpi_team: d.data().kpi_team,
-  }));
+  const snapshot = await getDocs(legacyQuery);
+  return snapshot.docs.map(userDoc => {
+    const data = userDoc.data();
+    const sharedRole = String(data.role || '').toUpperCase();
+    const allowedAccounts = Array.isArray(data.allowedAccounts) ? data.allowedAccounts : [];
+    return {
+      id: userDoc.id,
+      email: data.email || '',
+      display_name: data.display_name || data.displayName || data.fullName || '',
+      manage_mail: data.permissions?.canManageSettings ?? true,
+      allowedAccounts,
+      kpi_team: data.kpi_team || undefined,
+      sharedRole,
+      hasFullAccountAccess: ['ADMIN', 'MANAGER', 'OWNER'].includes(sharedRole) && allowedAccounts.length === 0,
+    };
+  });
+};
+
+export const getKpiUserProfiles = async (teamId: string): Promise<KpiUserProfile[]> => {
+  try {
+    const q = query(collection(db, 'authentication'), where('teamId', '==', teamId));
+    const snap = await getDocs(q);
+    const profiles = await Promise.all(snap.docs
+      .filter(d => d.id !== '_settings' && d.data().active === true)
+      .map(async d => {
+        const profileSnap = await getDoc(doc(db, 'authentication', d.id, 'kpi', 'profile'));
+        const profile = profileSnap.data() || {};
+        if (profile.isKpi !== true) return null;
+        const sharedRole = String(d.data().role || '').toUpperCase();
+        const allowedAccounts = Array.isArray(profile.allowedAccounts) ? profile.allowedAccounts : [];
+        return {
+          id: d.id,
+          email: d.data().email || '',
+          display_name: d.data().displayName || d.data().fullName || '',
+          manage_mail: true,
+          allowedAccounts,
+          kpi_team: profile.kpiTeam || undefined,
+          sharedRole,
+          hasFullAccountAccess: ['ADMIN', 'MANAGER'].includes(sharedRole) && allowedAccounts.length === 0,
+        } satisfies KpiUserProfile;
+      }));
+    return profiles.filter(profile => profile !== null);
+  } catch (error) {
+    console.warn('[KPI] Canonical profiles are not readable yet; using legacy profiles.', error);
+    return getLegacyKpiUserProfiles(teamId);
+  }
 };
 
 // --- KPI Targets cho Leaderboard ---

@@ -60,12 +60,23 @@ const normalizePermissions = (value: unknown): Record<string, boolean> => {
   );
 };
 
+const normalizeStringArray = (value: unknown): string[] => Array.isArray(value)
+  ? Array.from(new Set(value
+    .filter((item): item is string => typeof item === 'string')
+    .map(item => item.trim())
+    .filter(Boolean)))
+  : [];
+
 const normalizeAppAuthorization = (appId: AppId, value: DocumentData | null): AppAuthorization => ({
   appId,
   configured: value != null,
   enabled: value?.enabled === true,
   allowedAccounts: normalizeAllowedAccounts(value?.allowedAccounts),
   permissions: normalizePermissions(value?.permissions),
+  isKpi: value?.isKpi === true || value?.is_kpi === true,
+  canViewLeaderboard: value?.canViewLeaderboard === true || value?.can_view_leaderboard === true,
+  kpiTeam: normalizeNullableText(value?.kpiTeam ?? value?.kpi_team),
+  viewableKpiTeams: normalizeStringArray(value?.viewableKpiTeams ?? value?.viewable_kpi_teams),
 });
 
 const buildRecord = (
@@ -110,6 +121,7 @@ interface AuthenticationAdminProfilePayload {
 interface AuthenticationAdminSnapshotPayload {
   profiles: AuthenticationAdminProfilePayload[];
   accounts: Array<{ id: string } & DocumentData>;
+  kpiTeams: string[];
   roleConfigurations: Array<{
     role: SharedRole;
     apps?: Partial<Record<AppId, DocumentData | null>>;
@@ -133,6 +145,7 @@ const loadAdminSnapshot = async (): Promise<AuthenticationAdminSnapshotPayload> 
     return {
       profiles: Array.isArray(result?.profiles) ? result.profiles : [],
       accounts: Array.isArray(result?.accounts) ? result.accounts : [],
+      kpiTeams: normalizeStringArray(result?.kpiTeams),
       roleConfigurations: Array.isArray(result?.roleConfigurations) ? result.roleConfigurations : [],
     };
   })();
@@ -193,6 +206,11 @@ export const loadAuthenticationAccounts = async (): Promise<AuthenticationAccoun
       || left.email.localeCompare(right.email));
 };
 
+export const loadAuthenticationKpiTeams = async (): Promise<string[]> => {
+  const { kpiTeams } = await loadAdminSnapshot();
+  return kpiTeams;
+};
+
 export const loadRolePermissionConfigurations = async (): Promise<RolePermissionConfiguration[]> => {
   const { roleConfigurations } = await loadAdminSnapshot();
   const byRole = new Map(roleConfigurations.map(configuration => [configuration.role, configuration]));
@@ -243,6 +261,10 @@ const serializeAppAuthorization = (app: AppAuthorization) => ({
   enabled: app.enabled === true,
   allowedAccounts: normalizeAllowedAccounts(app.allowedAccounts),
   permissions: normalizePermissions(app.permissions),
+  isKpi: app.isKpi === true,
+  canViewLeaderboard: app.canViewLeaderboard === true,
+  kpiTeam: normalizeNullableText(app.kpiTeam),
+  viewableKpiTeams: normalizeStringArray(app.viewableKpiTeams),
 });
 
 export const saveAuthenticationUser = async (
@@ -282,6 +304,10 @@ export const saveAuthenticationUser = async (
       enabled: app.enabled === true,
       allowedAccounts: normalizeAllowedAccounts(app.allowedAccounts),
       permissions: normalizePermissions(app.permissions),
+      isKpi: app.isKpi === true,
+      canViewLeaderboard: app.canViewLeaderboard === true,
+      kpiTeam: normalizeNullableText(app.kpiTeam),
+      viewableKpiTeams: normalizeStringArray(app.viewableKpiTeams),
     }];
   })) as AuthenticationUserRecord['apps'];
   const savedRecord: AuthenticationUserRecord = {

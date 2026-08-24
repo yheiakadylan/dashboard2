@@ -52,6 +52,8 @@ const DashboardLayout: React.FC = () => {
         role,
         permissions,
         user,
+        is_kpi,
+        can_view_leaderboard,
     } = useDashboard();
 
     const { addNotification } = useNotification();
@@ -261,8 +263,11 @@ const DashboardLayout: React.FC = () => {
 
 
     const visibleTabs = React.useMemo(
-        () => getPermittedTabs(tabOrder, role, permissions, user?.email).filter(tab => !hiddenTabs.has(tab)),
-        [tabOrder, role, permissions, hiddenTabs, user?.email]
+        () => getPermittedTabs(tabOrder, role, permissions, user?.email, {
+            isKpi: is_kpi,
+            canViewLeaderboard: can_view_leaderboard,
+        }).filter(tab => !hiddenTabs.has(tab)),
+        [tabOrder, role, permissions, hiddenTabs, user?.email, is_kpi, can_view_leaderboard]
     );
     const isWorkloadTab = activeTab === 'Workload';
 

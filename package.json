@@ -12,7 +12,9 @@
     "preview": "vite preview",
     "audit:daily-cache": "node scripts/audit-daily-cache.mjs",
     "backfill:performance-baseline": "node --experimental-strip-types scripts/backfill-performance-baselines.ts",
-    "sync:authentication": "node scripts/sync-authentication-canonical.mjs"
+    "sync:authentication": "node scripts/sync-authentication-canonical.mjs",
+    "migrate:kpi-auth": "node scripts/migrate-legacy-kpi-authentication.mjs",
+    "check:kpi-access": "node --experimental-strip-types scripts/check-kpi-access.ts"
   },
   "dependencies": {
     "@babel/core": "^7.28.5",

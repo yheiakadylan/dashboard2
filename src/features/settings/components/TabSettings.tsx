@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Tab } from '../../../types';
-import { useDashboardAccess } from '../../../contexts/DashboardContext';
+import { useDashboard } from '../../../contexts/DashboardContext';
 import { useUIModals, useUITabs, useUITheme } from '../../../contexts/UIContext';
 import ThemeToggle from '../../../components/ui/ThemeToggle';
 
 
 const TabSettings: React.FC = () => {
-    const { role, permissions } = useDashboardAccess();
+    const { role, permissions, is_kpi, can_view_leaderboard } = useDashboard();
     const {
         tabOrder,
         hiddenTabs,
@@ -41,6 +41,8 @@ const TabSettings: React.FC = () => {
                     return permissions.viewFulfillTab === true;
                 case 'Reviews':
                     return permissions.viewReviewsTab === true;
+                case 'KPI':
+                    return is_kpi === true || can_view_leaderboard === true;
                 case 'Shop Evaluation':
                     return permissions.viewShopEvaluationTab === true || permissions.viewSales === true;
                 case 'Design':

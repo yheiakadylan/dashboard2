@@ -66,6 +66,10 @@ export interface AppAuthorization {
   enabled: boolean | null;
   allowedAccounts: string[];
   permissions: Record<string, boolean>;
+  isKpi: boolean;
+  canViewLeaderboard: boolean;
+  kpiTeam: string | null;
+  viewableKpiTeams: string[];
 }
 
 export interface AuthenticationUserRecord {

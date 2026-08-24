@@ -5,7 +5,8 @@ export const getPermittedTabs = (
     tabs: Tab[],
     role: 'owner' | 'user',
     permissions: UserPermissions,
-    userEmail?: string | null
+    userEmail?: string | null,
+    kpiAccess?: { isKpi?: boolean; canViewLeaderboard?: boolean }
 ): Tab[] => {
     return tabs.filter(tab => {
         // Special logic for Shop Evaluation
@@ -32,6 +33,8 @@ export const getPermittedTabs = (
                 return hasPermission(role, permissions, 'viewFulfillTab');
             case 'Reviews':
                 return hasPermission(role, permissions, 'viewReviewsTab');
+            case 'KPI':
+                return kpiAccess?.isKpi === true || kpiAccess?.canViewLeaderboard === true;
             case 'Shop Evaluation':
                 return hasPermission(role, permissions, 'viewShopEvaluationTab') || hasPermission(role, permissions, 'viewSales');
             case 'Design':

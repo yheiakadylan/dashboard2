@@ -12,6 +12,7 @@ const ProductsTab = lazy(() => import('../components/tabs/ProductsTab'));
 const SupportTab = lazy(() => import('../components/tabs/SupportTab'));
 const OrderListTab = lazy(() => import('../components/tabs/OrderListTab'));
 const FulfillTab = lazy(() => import('../components/tabs/FulfillTab'));
+const KpiManagement = lazy(() => import('../components/tabs/KpiManagement'));
 const ReviewsTab = lazy(() => import('../components/tabs/ReviewsTab'));
 const DesignTab = lazy(() => import('../components/tabs/DesignTab'));
 const TempleteTab = lazy(() => import('../components/tabs/TempleteTab'));
@@ -61,6 +62,10 @@ const DashboardRoutes: React.FC<Props> = ({ onViewOrderDetails, onResyncOrder })
       <Route path="/operations/fulfillment" element={canView('viewFulfillTab') ? (
         <RouteBoundary fallback={<TableFallback />}><FulfillTab processedData={processedData} /></RouteBoundary>
       ) : <PermissionDenied>You do not have permission to view fulfillment.</PermissionDenied>} />
+      <Route path="/operations/kpi" element={(
+        <RouteBoundary fallback={<CardFallback />}><KpiManagement /></RouteBoundary>
+      )} />
+      <Route path="/legacy/kpi" element={<Navigate to={getPathForTab('KPI')} replace />} />
       <Route path="/operations/reviews" element={canView('viewReviewsTab') ? (
         <RouteBoundary fallback={<CardFallback />}><ReviewsTab /></RouteBoundary>
       ) : <PermissionDenied>You do not have permission to view reviews.</PermissionDenied>} />
@@ -76,8 +81,7 @@ const DashboardRoutes: React.FC<Props> = ({ onViewOrderDetails, onResyncOrder })
       <Route path="/operations/workload" element={canView('viewWorkloadTab') ? (
         <RouteBoundary fallback={<CardFallback />}><WorkloadTab /></RouteBoundary>
       ) : <PermissionDenied>You do not have permission to view workload.</PermissionDenied>} />
-      <Route path="/legacy/kpi" element={<Navigate to={getPathForTab('Overview')} replace />} />
-      <Route path="/kpi/*" element={<Navigate to={getPathForTab('Overview')} replace />} />
+      <Route path="/kpi/*" element={<Navigate to={getPathForTab('KPI')} replace />} />
       <Route path="/" element={<Navigate to={getPathForTab(activeTab)} replace />} />
       <Route path="*" element={<Navigate to={getPathForTab(activeTab)} replace />} />
     </Routes>

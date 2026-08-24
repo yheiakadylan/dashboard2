@@ -52,6 +52,10 @@ const normalizeAllowedAccounts = (value: unknown): string[] => Array.isArray(val
     ? Array.from(new Set(value.map(String).map(item => item.trim().toLowerCase()).filter(Boolean)))
     : [];
 
+const normalizeStringArray = (value: unknown): string[] => Array.isArray(value)
+    ? Array.from(new Set(value.map(String).map(item => item.trim()).filter(Boolean)))
+    : [];
+
 const normalizeNames = (fullName: unknown, displayName: unknown, fallback: string) => {
     const normalizedFullName = typeof fullName === 'string' ? fullName.trim() : '';
     const normalizedDisplayName = typeof displayName === 'string' ? displayName.trim() : '';
@@ -95,10 +99,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 async function handleListAuthenticationUsers(req: VercelRequest, res: VercelResponse) {
     try {
         const { adminDb } = await verifyAuthenticationAdmin(req);
-        const [authenticationSnapshot, appSnapshot, accountSnapshot] = await Promise.all([
+        const [authenticationSnapshot, appSnapshot, accountSnapshot, settingsSnapshot] = await Promise.all([
             adminDb.collection('authentication').get(),
             adminDb.collectionGroup('apps').get(),
             adminDb.collection('user').doc(SHARED_TEAM_ID).collection('accounts').get(),
+            adminDb.doc(`user/${SHARED_TEAM_ID}/settings/config`).get(),
         ]);
         const authenticationByUid = new Map(authenticationSnapshot.docs
             .filter(snapshot => snapshot.id !== '_settings')
@@ -150,8 +155,9 @@ async function handleListAuthenticationUsers(req: VercelRequest, res: VercelResp
             };
         });
         const accounts = accountSnapshot.docs.map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+        const kpiTeams = normalizeStringArray(settingsSnapshot.data()?.kpiTeams);
         res.setHeader('Cache-Control', 'no-store');
-        return res.status(200).json({ profiles, accounts, roleConfigurations });
+        return res.status(200).json({ profiles, accounts, roleConfigurations, kpiTeams });
     } catch (error: any) {
         console.error('[API GET /users Error]', error);
         return res.status(error?.status || 500).json({ message: error?.message || 'Internal Server Error' });
@@ -164,6 +170,12 @@ const normalizeAppAuthorization = (value: unknown) => {
         enabled: typeof app.enabled === 'boolean' ? app.enabled : null,
         allowedAccounts: normalizeAllowedAccounts(app.allowedAccounts),
         permissions: normalizePermissions(app.permissions),
+        isKpi: app.isKpi === true || app.is_kpi === true,
+        canViewLeaderboard: app.canViewLeaderboard === true || app.can_view_leaderboard === true,
+        kpiTeam: typeof (app.kpiTeam ?? app.kpi_team) === 'string'
+            ? String(app.kpiTeam ?? app.kpi_team).trim() || null
+            : null,
+        viewableKpiTeams: normalizeStringArray(app.viewableKpiTeams ?? app.viewable_kpi_teams),
     };
 };
 
@@ -233,12 +245,27 @@ async function saveAuthenticationRecord(
             enabled: app.enabled,
             allowedAccounts: app.allowedAccounts,
             permissions: app.permissions,
+            isKpi: app.isKpi,
+            canViewLeaderboard: app.canViewLeaderboard,
+            kpiTeam: app.kpiTeam,
+            viewableKpiTeams: app.viewableKpiTeams,
+            ...(appId === 'dashboard' ? { legacyKpiMigrated: true } : {}),
             role: FieldValue.delete(),
             permissionDefaults: FieldValue.delete(),
             updatedAt: now,
             updatedBy: callerEmail,
         }, { merge: true });
     });
+    batch.set(adminDb.doc(`authentication/${uid}/kpi/profile`), {
+        isKpi: dashboardApp.isKpi,
+        canViewLeaderboard: dashboardApp.canViewLeaderboard,
+        kpiTeam: dashboardApp.kpiTeam,
+        viewableKpiTeams: dashboardApp.viewableKpiTeams,
+        allowedAccounts: dashboardApp.allowedAccounts,
+        sharedRole: role,
+        updatedAt: now,
+        updatedBy: callerEmail,
+    }, { merge: true });
 
     await batch.commit();
     const desiredAdminClaim = isManagementRole(role);
@@ -540,6 +567,11 @@ async function handleCreateUser(req: VercelRequest, res: VercelResponse) {
             enabled: normalizedEnabledApps.has('dashboard'),
             allowedAccounts: [],
             permissions: {},
+            isKpi: false,
+            canViewLeaderboard: false,
+            kpiTeam: null,
+            viewableKpiTeams: [],
+            legacyKpiMigrated: true,
             role: FieldValue.delete(),
             permissionDefaults: FieldValue.delete(),
             updatedAt: now,
@@ -552,6 +584,16 @@ async function handleCreateUser(req: VercelRequest, res: VercelResponse) {
             permissions: {},
             role: FieldValue.delete(),
             permissionDefaults: FieldValue.delete(),
+            updatedAt: now,
+            updatedBy: callerEmail,
+        }, { merge: true });
+        batch.set(adminDb.doc(`authentication/${newUserUid}/kpi/profile`), {
+            isKpi: false,
+            canViewLeaderboard: false,
+            kpiTeam: null,
+            viewableKpiTeams: [],
+            allowedAccounts: [],
+            sharedRole: normalizedSharedRole,
             updatedAt: now,
             updatedBy: callerEmail,
         }, { merge: true });

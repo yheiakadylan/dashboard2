@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { KpiReport, KpiIdea } from '../types';
 import { updateKpiReportField, getKpiUserProfiles, KpiUserProfile, listenKpiReports, getIdeaTags, addIdeaTags, getKpiTargets, ExtendedKpiTarget } from '../services/kpiService';
+import { getKpiAccountFilter } from '../utils/kpiAccess';
 import * as XLSX from 'xlsx';
 import { ArrowDownTrayIcon, ChevronDownIcon, PencilIcon } from '@heroicons/react/24/outline';
 import Spinner from './Spinner';
@@ -372,7 +373,8 @@ interface ReportRow {
 // ---- Main Component ----
 const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTrigger }) => {
     const { filterDateRange, timeZone } = useUI();
-    const { records, allowedAccounts, display_name, user, role, can_view_leaderboard, allAccounts } = useDashboard();
+    const { records, allowedAccounts, display_name, user, role, sharedRole, can_view_leaderboard, allAccounts } = useDashboard();
+    const viewerHasFullAccountAccess = role === 'owner' || ['ADMIN', 'MANAGER'].includes(String(sharedRole || '').toUpperCase());
 
     const [reports, setReports] = useState<KpiReport[]>([]);
     const [weekReports, setWeekReports] = useState<KpiReport[]>([]);
@@ -556,12 +558,7 @@ const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTri
         const userAccountMap = new Map<string, Set<string> | null | 'NONE'>();
         for (const u of kpiUsers) {
             const key = normalizeName(u.display_name || u.email);
-            const accs = u.allowedAccounts;
-            if (!accs || accs.length === 0) {
-                userAccountMap.set(key, 'NONE');
-            } else {
-                userAccountMap.set(key, new Set(accs));
-            }
+            userAccountMap.set(key, getKpiAccountFilter(u, allowedAccounts, viewerHasFullAccountAccess));
         }
 
         const result: Record<string, { revenue: number; baseCost: number; refund: number }> = {};
@@ -590,13 +587,13 @@ const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTri
             }
         }
         return result;
-    }, [records, kpiUsers]);
+    }, [allowedAccounts, records, kpiUsers, viewerHasFullAccountAccess]);
 
     // Enrich rows with live revenue
     const enrichedRows = useMemo(() => rows.map(row => {
         const liveKey = `${row.dateStr}_${normalizeName(row.displayName)}`;
-        const accs = row.kpiUser.allowedAccounts;
-        const hasShops = accs && accs.length > 0;
+        const accountFilter = getKpiAccountFilter(row.kpiUser, allowedAccounts, viewerHasFullAccountAccess);
+        const hasShops = accountFilter !== 'NONE';
         
         let finalRevenue = row.report.revenue || 0;
         let finalBaseCost = row.report.baseCost || 0;
@@ -607,13 +604,17 @@ const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTri
             finalRevenue = live.revenue;
             finalBaseCost = live.baseCost;
             finalRefund = live.refund;
+        } else {
+            finalRevenue = 0;
+            finalBaseCost = 0;
+            finalRefund = 0;
         }
 
         const netRevenue = finalRevenue - finalRefund;
         const grossProfit = netRevenue - finalBaseCost;
         const profitMargin = netRevenue > 0 ? (grossProfit / netRevenue) * 100 : 0;
         return { ...row, report: { ...row.report, revenue: netRevenue, baseCost: finalBaseCost, refund: finalRefund, grossProfit, profitMargin }, hasShops };
-    }), [rows, revenueByUserDate]);
+    }), [allowedAccounts, revenueByUserDate, rows, viewerHasFullAccountAccess]);
 
     // Summary By Team
     const summaryByTeam = useMemo(() => {
@@ -949,6 +950,7 @@ const KpiPersonalReport: React.FC<KpiPersonalReportProps> = ({ teamId, exportTri
             {/* Render Sections */}
             {selectedTeam === 'all' && canViewAll ? (
                 <div className="space-y-8">
+                    {Object.keys(summaryByTeam).length === 0 && renderTable([])}
                     {Object.entries(summaryByTeam).map(([teamName, teamSummary]) => {
                         const teamMargin = teamSummary.revenue > 0 ? (teamSummary.grossProfit / teamSummary.revenue) * 100 : 0;
                         const teamRows = enrichedRows.filter(r => (r.kpiUser.kpi_team || 'No Team') === teamName);

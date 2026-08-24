@@ -277,6 +277,11 @@ service cloud.firestore {
                             .hasOnly(['fcmTokens', 'notificationSettings', 'fcmUpdatedAt']));
       }
 
+      match /kpi/{documentId} {
+        allow read: if hasDashboardAccess();
+        allow create, update, delete: if isAuthenticationAdmin();
+      }
+
       match /permission_roles/{role}/apps/{appId} {
         allow read: if isAuthenticationAdmin()
                     || (hasActiveAuthenticationProfile()

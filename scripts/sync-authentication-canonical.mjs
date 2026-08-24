@@ -87,6 +87,12 @@ const normalizeArray = value => Array.isArray(value)
     .map(item => item.trim().toLowerCase())
     .filter(Boolean)))
   : [];
+const normalizeStringArray = value => Array.isArray(value)
+  ? Array.from(new Set(value
+    .filter(item => typeof item === 'string')
+    .map(item => item.trim())
+    .filter(Boolean)))
+  : [];
 const isPlainObject = value => value && typeof value === 'object' && !Array.isArray(value);
 const normalizePermissions = value => isPlainObject(value)
   ? Object.fromEntries(Object.entries(value).filter(([key, val]) => key.trim() && typeof val === 'boolean'))
@@ -213,6 +219,11 @@ const buildRecord = async (db, auth, item) => {
   const legacyPermissions = normalizePermissions(legacy.permissions);
   const existingAllowedAccounts = normalizeArray(existingApp.allowedAccounts);
   const legacyAllowedAccounts = normalizeArray(legacy.allowedAccounts);
+  const kpiAlreadyMigrated = existingApp.legacyKpiMigrated === true;
+  const existingViewableKpiTeams = normalizeStringArray(
+    existingApp.viewableKpiTeams ?? existingApp.viewable_kpi_teams,
+  );
+  const legacyViewableKpiTeams = normalizeStringArray(legacy.viewable_kpi_teams);
   const enabled = !force && typeof existingApp.enabled === 'boolean' ? existingApp.enabled : true;
   const active = normalizeEmail(email) === 'haitrinh@gmail.com'
     ? true
@@ -245,6 +256,21 @@ const buildRecord = async (db, auth, item) => {
       enabled,
       allowedAccounts: pickExistingArray(existingAllowedAccounts, legacyAllowedAccounts),
       permissions: pickExistingObject(existingPermissions, legacyPermissions),
+      isKpi: kpiAlreadyMigrated
+        ? existingApp.isKpi === true || existingApp.is_kpi === true
+        : existingApp.isKpi === true || existingApp.is_kpi === true || legacy.is_kpi === true,
+      canViewLeaderboard: kpiAlreadyMigrated
+        ? existingApp.canViewLeaderboard === true || existingApp.can_view_leaderboard === true
+        : existingApp.canViewLeaderboard === true
+          || existingApp.can_view_leaderboard === true
+          || legacy.can_view_leaderboard === true,
+      kpiTeam: kpiAlreadyMigrated
+        ? pickText(existingApp.kpiTeam, existingApp.kpi_team) || null
+        : pickText(existingApp.kpiTeam, existingApp.kpi_team, legacy.kpi_team) || null,
+      viewableKpiTeams: kpiAlreadyMigrated
+        ? existingViewableKpiTeams
+        : existingViewableKpiTeams.length ? existingViewableKpiTeams : legacyViewableKpiTeams,
+      legacyKpiMigrated: true,
       updatedAt: FieldValue.serverTimestamp(),
       updatedBy: UPDATED_BY,
     },
@@ -283,6 +309,7 @@ const runSelfCheck = () => {
   assert.equal(normalizeSharedRole('admin'), 'ADMIN');
   assert.equal(inferRole({ permissions: { canManageUsers: true } }).role, 'MANAGER');
   assert.deepEqual(normalizeArray([' A@X.COM ', 'a@x.com', '', null]), ['a@x.com']);
+  assert.deepEqual(normalizeStringArray([' NH MEDIA ', 'NH MEDIA', '', null]), ['NH MEDIA']);
   assert.deepEqual(normalizePermissions({ a: true, b: false, c: 'yes' }), { a: true, b: false });
   console.log('self-check passed');
 };
@@ -320,6 +347,16 @@ const main = async () => {
     const batch = db.batch();
     batch.set(db.doc(`authentication/${record.uid}`), record.common, { merge: true });
     batch.set(db.doc(`authentication/${record.uid}/apps/${DASHBOARD_APP_ID}`), record.app, { merge: true });
+    batch.set(db.doc(`authentication/${record.uid}/kpi/profile`), {
+      isKpi: record.app.isKpi,
+      canViewLeaderboard: record.app.canViewLeaderboard,
+      kpiTeam: record.app.kpiTeam,
+      viewableKpiTeams: record.app.viewableKpiTeams,
+      allowedAccounts: record.app.allowedAccounts,
+      sharedRole: record.role,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: UPDATED_BY,
+    }, { merge: true });
     await batch.commit();
     await auth.setCustomUserClaims(record.uid, record.claims);
     console.log(`synced: ${record.uid} ${record.common.email} role=${record.role}`);

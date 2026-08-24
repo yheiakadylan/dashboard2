@@ -17,7 +17,8 @@ import {
     Palette,
     ClipboardCheck,
     FileSpreadsheet,
-    BriefcaseBusiness
+    BriefcaseBusiness,
+    ChartNoAxesColumnIncreasing
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -26,7 +27,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
-    const { role, permissions, handleExport, isExporting, user } = useDashboard();
+    const { role, permissions, handleExport, isExporting, user, is_kpi, can_view_leaderboard } = useDashboard();
     const {
         activeTab,
         handleTabClick,
@@ -39,7 +40,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
 
 
     // Filter tabs logic
-    const permittedTabs = getPermittedTabs(tabOrder, role, permissions, user?.email);
+    const permittedTabs = getPermittedTabs(tabOrder, role, permissions, user?.email, {
+        isKpi: is_kpi,
+        canViewLeaderboard: can_view_leaderboard,
+    });
 
     const getIconForTab = (tab: string, className: string = "h-5 w-5") => {
         switch (tab) {
@@ -49,6 +53,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, toggleSidebar }) => {
             case 'Fulfill': return <Truck className={className} />;
             case 'Products': return <Tag className={className} />;
             case 'Reviews': return <Star className={className} />;
+            case 'KPI': return <ChartNoAxesColumnIncreasing className={className} />;
             case 'Design': return <Palette className={className} />;
             case 'Templete': return <FileSpreadsheet className={className} />;
             case 'Shop Evaluation': return <ClipboardCheck className={className} />;

@@ -117,10 +117,17 @@ const normalizeText = (value: unknown): string =>
 const normalizeKey = (value: unknown): string =>
   normalizeText(value).toLowerCase().replace(/[\s-]+/g, '_');
 
-const normalizeArray = (value: unknown): string[] => Array.isArray(value)
+const normalizeAccountArray = (value: unknown): string[] => Array.isArray(value)
   ? Array.from(new Set(value
     .filter((item): item is string => typeof item === 'string')
     .map(item => item.trim().toLowerCase())
+    .filter(Boolean)))
+  : [];
+
+const normalizeStringArray = (value: unknown): string[] => Array.isArray(value)
+  ? Array.from(new Set(value
+    .filter((item): item is string => typeof item === 'string')
+    .map(item => item.trim())
     .filter(Boolean)))
   : [];
 
@@ -318,8 +325,13 @@ export async function syncLegacyAuthenticationProfile(
         : true;
   const existingPermissions = normalizePermissions(existingApp.permissions);
   const legacyPermissions = normalizePermissions(legacy.permissions);
-  const existingAllowedAccounts = normalizeArray(existingApp.allowedAccounts);
-  const legacyAllowedAccounts = normalizeArray(legacy.allowedAccounts);
+  const existingAllowedAccounts = normalizeAccountArray(existingApp.allowedAccounts);
+  const legacyAllowedAccounts = normalizeAccountArray(legacy.allowedAccounts);
+  const kpiAlreadyMigrated = existingApp.legacyKpiMigrated === true;
+  const existingViewableKpiTeams = normalizeStringArray(
+    existingApp.viewableKpiTeams ?? existingApp.viewable_kpi_teams,
+  );
+  const legacyViewableKpiTeams = normalizeStringArray(legacy.viewable_kpi_teams);
   const now = FieldValue.serverTimestamp();
   const batch = db.batch();
   const commonData = {
@@ -342,6 +354,21 @@ export async function syncLegacyAuthenticationProfile(
     enabled: typeof existingApp.enabled === 'boolean' ? existingApp.enabled : true,
     allowedAccounts: existingAllowedAccounts.length ? existingAllowedAccounts : legacyAllowedAccounts,
     permissions: Object.keys(existingPermissions).length ? existingPermissions : legacyPermissions,
+    isKpi: kpiAlreadyMigrated
+      ? existingApp.isKpi === true || existingApp.is_kpi === true
+      : existingApp.isKpi === true || existingApp.is_kpi === true || legacy.is_kpi === true,
+    canViewLeaderboard: kpiAlreadyMigrated
+      ? existingApp.canViewLeaderboard === true || existingApp.can_view_leaderboard === true
+      : existingApp.canViewLeaderboard === true
+        || existingApp.can_view_leaderboard === true
+        || legacy.can_view_leaderboard === true,
+    kpiTeam: kpiAlreadyMigrated
+      ? pickText(existingApp.kpiTeam, existingApp.kpi_team) || null
+      : pickText(existingApp.kpiTeam, existingApp.kpi_team, legacy.kpi_team) || null,
+    viewableKpiTeams: kpiAlreadyMigrated
+      ? existingViewableKpiTeams
+      : existingViewableKpiTeams.length ? existingViewableKpiTeams : legacyViewableKpiTeams,
+    legacyKpiMigrated: true,
     updatedAt: now,
     updatedBy,
     legacySource: legacyRecord.collectionName,
@@ -349,6 +376,16 @@ export async function syncLegacyAuthenticationProfile(
 
   batch.set(db.doc(`authentication/${authUser.uid}`), commonData, { merge: true });
   batch.set(db.doc(`authentication/${authUser.uid}/apps/${DASHBOARD_APP_ID}`), appData, { merge: true });
+  batch.set(db.doc(`authentication/${authUser.uid}/kpi/profile`), {
+    isKpi: appData.isKpi,
+    canViewLeaderboard: appData.canViewLeaderboard,
+    kpiTeam: appData.kpiTeam,
+    viewableKpiTeams: appData.viewableKpiTeams,
+    allowedAccounts: appData.allowedAccounts,
+    sharedRole: role,
+    updatedAt: now,
+    updatedBy,
+  }, { merge: true });
   await batch.commit();
 
   if (options.requireDashboardAccess === false) {

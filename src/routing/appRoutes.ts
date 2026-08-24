@@ -6,6 +6,7 @@ export const TAB_PATHS: Record<Tab, string> = {
   Products: '/operations/products',
   Support: '/operations/support',
   Fulfill: '/operations/fulfillment',
+  KPI: '/operations/kpi',
   Reviews: '/operations/reviews',
   Design: '/operations/design',
   Templete: '/operations/templates',

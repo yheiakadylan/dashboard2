@@ -11,7 +11,8 @@ import {
     Palette,
     ClipboardCheck,
     FileSpreadsheet,
-    BriefcaseBusiness
+    BriefcaseBusiness,
+    ChartNoAxesColumnIncreasing
 } from 'lucide-react';
 
 interface BottomNavProps {
@@ -86,6 +87,8 @@ const BottomNav: React.FC<BottomNavProps> = ({ tabs }) => {
                 return <HelpCircle className={iconClass} />;
             case 'Reviews':
                 return <Star className={iconClass} />;
+            case 'KPI':
+                return <ChartNoAxesColumnIncreasing className={iconClass} />;
             case 'Design':
                 return <Palette className={iconClass} />;
             case 'Templete':

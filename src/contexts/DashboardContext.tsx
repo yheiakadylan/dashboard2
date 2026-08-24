@@ -394,22 +394,25 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     const canScopeAllAccounts = role === 'owner'
       || permissions.canManageSettings === true
       || ['ADMIN', 'MANAGER'].includes(String(sharedRole || '').toUpperCase());
+    const explicitlyAllowedAccounts = allowedAccounts && allowedAccounts.length > 0
+      ? allAccounts.filter(acc => allowedAccounts.includes(acc.email))
+      : null;
+    const baseAccounts = explicitlyAllowedAccounts || (canScopeAllAccounts ? allAccounts : []);
 
     if (canScopeAllAccounts) {
       // If a board is selected, filter by that board's allowedAccounts
       if (selectedBoardId) {
         const selectedBoard = boards.find(b => b.uid === selectedBoardId);
         if (selectedBoard && selectedBoard.allowedAccounts && selectedBoard.allowedAccounts.length > 0) {
-          return allAccounts.filter(acc => selectedBoard.allowedAccounts!.includes(acc.email));
+          return baseAccounts.filter(acc => selectedBoard.allowedAccounts!.includes(acc.email));
         }
         return [];
       }
-      return allAccounts;
+      return baseAccounts;
     }
 
     // POD membership only scopes Performance/KPI; Operations keeps per-user shop permissions.
-    if (!allowedAccounts || allowedAccounts.length === 0) return [];
-    return allAccounts.filter(acc => allowedAccounts.includes(acc.email));
+    return baseAccounts;
   }, [allAccounts, role, permissions.canManageSettings, sharedRole, allowedAccounts, selectedBoardId, boards]);
 
   const visibleReviewShopIdsKey = useMemo(() => [...new Set(
@@ -419,19 +422,21 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   )].sort().join('|'), [visibleAccounts]);
 
   const visibleEtsyReviews = useMemo(() => {
-    if (role === 'owner' && !selectedBoardId) return etsyReviews;
+    const hasExplicitAccountScope = !!allowedAccounts?.length;
+    if (role === 'owner' && !hasExplicitAccountScope && !selectedBoardId) return etsyReviews;
 
     const permittedShopIds = new Set(visibleReviewShopIdsKey.split('|').filter(Boolean));
 
     if (permittedShopIds.size === 0) return [];
     return etsyReviews.filter(review => permittedShopIds.has(String(review.shop_id || '').trim().toLowerCase()));
-  }, [etsyReviews, role, selectedBoardId, visibleReviewShopIdsKey]);
+  }, [allowedAccounts, etsyReviews, role, selectedBoardId, visibleReviewShopIdsKey]);
   // Computed Management Accounts (for MailManager - users with canManageSettings see ALL)
   const managementAccounts = useMemo(() => {
-    // Owner always sees all
-    if (role === 'owner') return allAccounts;
-    // Users with canManageSettings permission see ALL accounts (to prevent accidental deletion)
-    if (permissions.canManageSettings) return allAccounts;
+    if (allowedAccounts && allowedAccounts.length > 0) {
+      return allAccounts.filter(acc => allowedAccounts.includes(acc.email));
+    }
+    // Empty scope means full access only for management roles.
+    if (role === 'owner' || permissions.canManageSettings) return allAccounts;
     // Regular users see only their allowed accounts
     if (!allowedAccounts || allowedAccounts.length === 0) return [];
     return allAccounts.filter(acc => allowedAccounts.includes(acc.email));
@@ -1123,7 +1128,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     allAccounts,
     managementAccounts,
     setAccounts: setAllAccounts,
-    records, setRecords,
+    records: filteredRecords, setRecords,
     etsyReviews: visibleEtsyReviews, setEtsyReviews,
     manualCosts, setManualCosts,
     isLoading, isSyncing, isFetchingNewRange, syncState, setSyncState, syncProgress, accountSyncStatuses, isProcessing, isSavingAccounts,
@@ -1158,7 +1163,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   }), [
     user, displayName, employeeId, teamId, role, sharedRole, permissions, allowedAccounts, filterDateRange, timeZone,
     display_name, user_number, is_kpi, can_view_leaderboard, kpi_team, viewable_kpi_teams, viewable_design_teams,
-    visibleAccounts, allAccounts, managementAccounts, setAllAccounts, records, setRecords,
+    visibleAccounts, allAccounts, managementAccounts, setAllAccounts, filteredRecords, setRecords,
     visibleEtsyReviews, setEtsyReviews, manualCosts, setManualCosts,
     isLoading, isSyncing, isFetchingNewRange, syncState, syncProgress, accountSyncStatuses, isProcessing, isSavingAccounts,
     exportProgress, isExporting, showExportOptions, setShowExportOptions,

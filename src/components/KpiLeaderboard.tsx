@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { KpiReport, Record as DashboardRecord } from '../types';
 import { getKpiReports, getKpiTargets, saveKpiTarget, getKpiUserProfiles, KpiUserProfile, listenKpiReports, ExtendedKpiTarget } from '../services/kpiService';
+import { getKpiAccountFilter } from '../utils/kpiAccess';
 import { getRecordsForDateRange, listenForSettings } from '../services/firebaseService';
 import * as XLSX from 'xlsx';
 import { ArrowDownTrayIcon, TrophyIcon, FireIcon, ArrowTrendingUpIcon, StarIcon, LightBulbIcon, InformationCircleIcon, ArrowsPointingOutIcon, ArrowsPointingInIcon } from '@heroicons/react/24/outline';
@@ -63,7 +64,8 @@ type EditingField = 'target' | 'targetIdeas' | 'targetMockup' | 'targetListing' 
 
 const KpiLeaderboard: React.FC<KpiLeaderboardProps> = ({ teamId, exportTrigger }) => {
     const { filterDateRange, timeZone } = useUI();
-    const { records, user, role, can_view_leaderboard, viewable_kpi_teams } = useDashboard();
+    const { records, user, role, sharedRole, allowedAccounts, can_view_leaderboard, viewable_kpi_teams } = useDashboard();
+    const viewerHasFullAccountAccess = role === 'owner' || ['ADMIN', 'MANAGER'].includes(String(sharedRole || '').toUpperCase());
     const [loading, setLoading] = useState(false);
     const [selectedTeam, setSelectedTeam] = useState<string>('all');
     const [globalKpiTeams, setGlobalKpiTeams] = useState<string[]>([]);
@@ -249,13 +251,7 @@ const KpiLeaderboard: React.FC<KpiLeaderboardProps> = ({ teamId, exportTrigger }
                 return displayMatch || emailMatch;
             });
 
-            const allowedAccs = kpiUser?.allowedAccounts;
-            let accountFilter: Set<string> | null | 'NONE' = null;
-            if (!allowedAccs || allowedAccs.length === 0) {
-                accountFilter = 'NONE';
-            } else {
-                accountFilter = new Set(allowedAccs);
-            }
+            const accountFilter = getKpiAccountFilter(kpiUser, allowedAccounts, viewerHasFullAccountAccess);
 
             let currentRev = 0;
             let prevRev = 0;
@@ -276,9 +272,6 @@ const KpiLeaderboard: React.FC<KpiLeaderboardProps> = ({ teamId, exportTrigger }
                         prevRev += (r.amount || 0) - refAmt;
                     }
                 }
-            } else {
-                currentRev = entry.current.revenue;
-                prevRev = entry.prev.revenue;
             }
 
             const e = { ...entry };
@@ -302,7 +295,7 @@ const KpiLeaderboard: React.FC<KpiLeaderboardProps> = ({ teamId, exportTrigger }
 
             return e;
         }).sort((a, b) => b.score - a.score);
-    }, [entries, kpiUsers, allRecords, currentRange, prevRange]);
+    }, [allowedAccounts, entries, kpiUsers, allRecords, currentRange, prevRange, viewerHasFullAccountAccess]);
 
     const handleCellDoubleClick = (normalizedName: string, field: EditingField, currentValue: any) => {
         setEditingCell({ normalizedName, field });

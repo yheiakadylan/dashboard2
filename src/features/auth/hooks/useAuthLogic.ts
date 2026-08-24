@@ -150,6 +150,12 @@ export const useAuthLogic = () => {
                                 ...userPermissions,
                             },
                             allowedAccounts: normalizeAllowedAccounts(appData?.allowedAccounts),
+                            isKpi: appData?.isKpi === true || appData?.is_kpi === true,
+                            canViewLeaderboard: appData?.canViewLeaderboard === true || appData?.can_view_leaderboard === true,
+                            kpiTeam: typeof (appData?.kpiTeam ?? appData?.kpi_team) === 'string'
+                                ? String(appData?.kpiTeam ?? appData?.kpi_team).trim() || null
+                                : null,
+                            viewableKpiTeams: normalizeAllowedAccounts(appData?.viewableKpiTeams ?? appData?.viewable_kpi_teams),
                             email,
                         });
                         setAuthError(null);

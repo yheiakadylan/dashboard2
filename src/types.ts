@@ -584,6 +584,28 @@ export interface ManualCost {
   createdAt?: any; // Firestore Timestamp
 }
 
+export interface KpiIdea {
+  type: string;
+  count: number;
+}
+
+export interface KpiReport {
+  id?: string;
+  date: string;
+  timestamp: number;
+  sellerName: string;
+  ideas: KpiIdea[];
+  mockup: number;
+  listing: number;
+  fulfill: number;
+  revenue: number;
+  baseCost: number;
+  grossProfit: number;
+  profitMargin: number;
+  refund?: number;
+  note?: string;
+}
+
 export interface UserProfile {
   uid?: string; // Added for convenience when fetching from Firestore
   teamId: string;
