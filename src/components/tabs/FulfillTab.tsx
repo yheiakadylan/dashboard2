@@ -5,6 +5,7 @@ import { ProcessedData } from '../../types';
 import CollapsibleContainer from '../ui/CollapsibleContainer';
 import DataTable from '../ui/DataTable';
 import Pagination from '../ui/Pagination';
+import { useDashboard } from '../../contexts/DashboardContext';
 
 const ITEMS_PER_PAGE = 200;
 
@@ -25,6 +26,7 @@ import useMediaQuery from '../../hooks/useMediaQuery';
 const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
     const isDesktop = useMediaQuery('(min-width: 768px)');
     const { addNotification } = useNotification();
+    const { updateOrderManualCost, updateOrderFfCode, updateOrderProvider } = useDashboard();
     const [currentPage, setCurrentPage] = React.useState(0);
     const [statusFilter, setStatusFilter] = React.useState<'All' | 'Active' | 'Refunded'>('All');
     const { activeCount, refundedCount } = React.useMemo(() => {
@@ -152,6 +154,9 @@ const FulfillTab: React.FC<FulfillTabProps> = ({ processedData }) => {
                                     headers={processedData.fulfill.table.headers}
                                     data={paginatedRows}
                                     autoHeight={!isDesktop}
+                                    onUpdateCost={updateOrderManualCost}
+                                    onUpdateFfCode={updateOrderFfCode}
+                                    onUpdateProvider={updateOrderProvider}
                                     onRowClick={(row) => {
                                         const isRefunded = isFulfillRowRefunded(row);
                                         if (isRefunded) {

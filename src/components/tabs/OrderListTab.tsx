@@ -5,7 +5,7 @@ import DataTable from '../ui/DataTable';
 import { ORDER_LIST_INDICES } from '../../constants/dataIndices';
 import { formatDateEfficiently } from '../../utils/dateFormatter';
 import { useUISettings } from '../../contexts/UIContext';
-import { useDashboardAccess } from '../../contexts/DashboardContext';
+import { useDashboard, useDashboardAccess } from '../../contexts/DashboardContext';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import Pagination from '../ui/Pagination';
 
@@ -33,6 +33,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
 }) => {
     const { globalUsdMode } = useUISettings();
     const { exchangeRates } = useDashboardAccess();
+    const { updateOrderManualCost, updateOrderFfCode, updateOrderProvider } = useDashboard();
     const isDesktop = useMediaQuery('(min-width: 768px)');
     const [currentPage, setCurrentPage] = useState(0);
 
@@ -45,7 +46,7 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
     const orderHeaders = processedData.orders.headers;
     const variantsIndex = orderHeaders.findIndex(h => h.toLowerCase().includes('variant'));
     const sourceIndex = orderHeaders.findIndex(h => h.toLowerCase() === 'source');
-    const recordIdIndex = ORDER_LIST_INDICES.RECORD_ID; // index 13
+    const recordIdIndex = ORDER_LIST_INDICES.RECORD_ID;
 
     // Indices of columns we actually want to show in the table
     const displayIndices = useMemo(() => {
@@ -149,6 +150,9 @@ const OrderListTab: React.FC<OrderListTabProps> = ({
                                 headers={displayHeaders}
                                 data={paginatedRows}
                                 onResyncOrder={handleResyncOrder}
+                                onUpdateCost={updateOrderManualCost}
+                                onUpdateFfCode={updateOrderFfCode}
+                                onUpdateProvider={updateOrderProvider}
                                 onRowClick={handleRowClick}
                                 autoHeight={!isDesktop}
                             />

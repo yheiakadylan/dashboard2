@@ -42,8 +42,9 @@ const PermissionModal: React.FC<PermissionModalProps> = ({ user, onSave, onClose
     actions: {
       title: 'Actions',
       description: 'System actions & Data access',
-      keys: ['canEditCost', 'canExportData', 'canResyncOrder', 'canSyncData', 'canManageUsers', 'canManageMailSettings', 'canManageSettings', 'canManageMappings', 'viewMerchizeData', 'viewPrintwayData', 'viewEbayData', 'viewEtsyData'] as const,
+      keys: ['canEditFulfillmentData', 'canEditCost', 'canExportData', 'canResyncOrder', 'canSyncData', 'canManageUsers', 'canManageMailSettings', 'canManageSettings', 'canManageMappings', 'viewMerchizeData', 'viewPrintwayData', 'viewEbayData', 'viewEtsyData'] as const,
       labels: {
+        canEditFulfillmentData: 'Edit Cost / Provider / FF Code',
         canEditCost: 'Edit Manual Cost',
         canExportData: 'Export Data',
         canResyncOrder: 'Resync Single Order',

@@ -315,7 +315,8 @@ export interface Record {
   kind: 'order' | 'Funds' | 'case' | 'help';
   case_msg?: string | null;
   help_kind?: string | null;
-  cost_total?: number;
+  cost_total?: number | null;
+  is_manual_cost?: boolean;
   ff_code?: string;
   fulfill_provider?: string; // e.g. "IP", "Printway"
   fulfill_date?: string; // Date of fulfillment from provider

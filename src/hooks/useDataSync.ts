@@ -11,7 +11,8 @@ import {
     getAccountsFromFirebase,
     getManualCosts,
     getRefundRecordsForOrderIds,
-    sendWorkerAlert
+    sendWorkerAlert,
+    updateRecordsInFirebase
 } from '../services/firebaseService';
 import { User } from 'firebase/auth';
 
@@ -950,6 +951,42 @@ export const useDataSync = ({
         };
     }, [abortAllOperations]);
 
+    const updateOrderFields = useCallback(async (
+        recordId: string,
+        updatedData: Partial<Record>,
+        successMessage: string,
+        errorMessage: string
+    ) => {
+        try {
+            await updateRecordsInFirebase(teamId, [{ id: recordId, ...updatedData }]);
+            setRecords(prevRecords => prevRecords.map(record => (
+                record.id === recordId ? { ...record, ...updatedData } : record
+            )));
+            addNotification(successMessage, 'success');
+        } catch (error) {
+            console.error(errorMessage, error);
+            addNotification(errorMessage, 'error');
+            throw error;
+        }
+    }, [teamId, addNotification]);
+
+    const updateOrderManualCost = useCallback((recordId: string, newCost: number | null) => (
+        updateOrderFields(
+            recordId,
+            { cost_total: newCost, is_manual_cost: newCost !== null },
+            newCost === null ? 'Manual cost cleared.' : 'Manual cost saved.',
+            'Failed to update manual cost.'
+        )
+    ), [updateOrderFields]);
+
+    const updateOrderFfCode = useCallback((recordId: string, newFfCode: string) => (
+        updateOrderFields(recordId, { ff_code: newFfCode }, 'FF Code updated.', 'Failed to update FF Code.')
+    ), [updateOrderFields]);
+
+    const updateOrderProvider = useCallback((recordId: string, newProvider: string) => (
+        updateOrderFields(recordId, { fulfill_provider: newProvider }, 'Provider updated.', 'Failed to update Provider.')
+    ), [updateOrderFields]);
+
     return {
         allAccounts, setAllAccounts,
         records, setRecords,
@@ -964,6 +1001,9 @@ export const useDataSync = ({
         accountSyncStatuses,
         runSync,
         runHistoricalSync,
-        enqueueSyncTask
+        enqueueSyncTask,
+        updateOrderManualCost,
+        updateOrderFfCode,
+        updateOrderProvider
     };
 };

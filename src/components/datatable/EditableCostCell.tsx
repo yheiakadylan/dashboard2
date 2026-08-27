@@ -26,6 +26,8 @@ const EditableCostCell: React.FC<EditableCostCellProps> = ({ value, recordId, is
             }
             await onUpdateCost(recordId, newCost);
             setIsEditing(false);
+        } catch {
+            setIsEditing(true);
         } finally {
             setIsSaving(false);
         }
@@ -41,7 +43,7 @@ const EditableCostCell: React.FC<EditableCostCellProps> = ({ value, recordId, is
 
     if (isEditing) {
         return (
-            <div className="flex items-center gap-1 w-full relative">
+            <div className="flex items-center gap-1 w-full relative" onClick={(event) => event.stopPropagation()}>
                 <input
                     type="number"
                     step="0.01"
@@ -61,7 +63,11 @@ const EditableCostCell: React.FC<EditableCostCellProps> = ({ value, recordId, is
     return (
         <div 
             className="relative flex items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 rounded px-1 -ml-1 py-0.5 w-full h-full group pr-3"
-            onDoubleClick={() => setIsEditing(true)}
+            onClick={(event) => event.stopPropagation()}
+            onDoubleClick={() => {
+                setEditValue(value !== null ? String(value) : '');
+                setIsEditing(true);
+            }}
             title={isManual ? "Manual cost. Double click to edit." : "Double click to edit cost manually"}
         >
             <span className={`truncate ${isManual ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}`}>

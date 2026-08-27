@@ -6,6 +6,9 @@ import { getHighResImageUrl } from '../../utils/imageUtils';
 import { ListChildComponentProps, RowData } from './types';
 import { HIDDEN_MOBILE_HEADERS } from '../../constants';
 import { getColumnStyle, resolveFlexBasis } from '../../constants/columnConfigs';
+import EditableCostCell from './EditableCostCell';
+import EditableFfCodeCell from './EditableFfCodeCell';
+import EditableProviderCell from './EditableProviderCell';
 
 // Helper to check if a header should be hidden on mobile (Only applied in Desktop View now)
 const isHiddenOnDesktopMobileView = (header: string) => HIDDEN_MOBILE_HEADERS.includes(header);
@@ -177,7 +180,7 @@ const renderStructuredSubtitle = (cell: any) => {
 };
 
 const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) => {
-    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, columnWidths, onRowClick } = data;
+    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, onUpdateCost, onUpdateFfCode, onUpdateProvider, columnWidths, onRowClick } = data;
     const row = items[index];
 
     // isRefunded is stored as last hidden element (index 16)
@@ -282,6 +285,27 @@ const DesktopRow = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                                         </span>
                                     )}
                                 </div>
+                            </div>
+                        );
+                    }
+                    if (cell.type === 'editable_cost') {
+                        return (
+                            <div key={cellIndex} className={cellClass} style={customStyle} onClick={(event) => event.stopPropagation()}>
+                                <EditableCostCell value={cell.value} recordId={cell.recordId} isManual={cell.isManual} onUpdateCost={onUpdateCost} />
+                            </div>
+                        );
+                    }
+                    if (cell.type === 'editable_ffcode') {
+                        return (
+                            <div key={cellIndex} className={cellClass} style={customStyle} onClick={(event) => event.stopPropagation()}>
+                                <EditableFfCodeCell value={cell.value} recordId={cell.recordId} onUpdateFfCode={onUpdateFfCode} />
+                            </div>
+                        );
+                    }
+                    if (cell.type === 'editable_provider') {
+                        return (
+                            <div key={cellIndex} className={cellClass} style={customStyle} onClick={(event) => event.stopPropagation()}>
+                                <EditableProviderCell value={cell.value} recordId={cell.recordId} onUpdateProvider={onUpdateProvider} />
                             </div>
                         );
                     }

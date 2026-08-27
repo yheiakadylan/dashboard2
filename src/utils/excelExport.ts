@@ -224,6 +224,7 @@ const cleanCellData = (cell: any, useUsdMode: boolean = false, exchangeRates: { 
         if (cell.type === 'image') {
             return cell.src || '';
         }
+        if (String(cell.type || '').startsWith('editable_')) return cell.value ?? '';
         if (cell.type === 'button') return decodeHTMLEntities(cell.label || '');
         if (cell.type === 'text_with_subtitle') {
             let totalMain: number | string = 0;

@@ -240,6 +240,7 @@ export function processData(
     const needsOrderRows = needsAll || scope === 'orders';
     const needsFulfill = needsAll || scope === 'fulfill';
     const needsSupport = needsAll || scope === 'support';
+    const canEditFulfillmentData = role === 'owner' || permissions.canEditFulfillmentData === true;
     const accountLabelMap = new Map(accounts.map(acc => [acc.email, acc.label || acc.email]));
     const categoryNameMap = new Map(categories.map(c => [normalizeCategoryCode(c.code), c.name]));
     categoryNameMap.set(UNCATEGORIZED_CATEGORY_CODE, UNCATEGORIZED_CATEGORY_LABEL);
@@ -501,10 +502,18 @@ export function processData(
 
                 const reviewData = r.order_id ? reviewMap.get(r.order_id) : null;
                 const rating = reviewData?.rating || '-';
+                let provider = r.fulfill_provider;
+                if (!provider || provider === '-') {
+                    const ffCode = r.ff_code || '-';
+                    provider = ffCode.startsWith('PWN') ? 'Printway' : (ffCode !== '-' && ffCode !== 'owner' ? 'Merchize' : '-');
+                }
 
                 const commonOrderRow = [
                     { type: 'image' as const, ...getOptimizedImageProps(pImg), alt: shopPName }, shopPName, pVars, r.order_id || 'N/A', r.amount, currency,
-                    r.cost_total ?? null, r.ff_code || '-', rating, r.order_id && caseMap.has(r.order_id) ? caseMap.get(r.order_id) : 'No',
+                    canEditFulfillmentData ? { type: 'editable_cost' as const, value: r.cost_total ?? null, recordId: r.id!, isManual: !!r.is_manual_cost } : (r.cost_total ?? null),
+                    canEditFulfillmentData ? { type: 'editable_provider' as const, value: provider, recordId: r.id! } : provider,
+                    canEditFulfillmentData ? { type: 'editable_ffcode' as const, value: r.ff_code || null, recordId: r.id! } : (r.ff_code || '-'),
+                    rating, r.order_id && caseMap.has(r.order_id) ? caseMap.get(r.order_id) : 'No',
                     r.order_id && helpMap.has(r.order_id) ? helpMap.get(r.order_id) : 'No', shopLabel,
                     finalDateCell, formatSource(r.source), r.id, r.dt_local, r.source, finalStatus === 'Refunded'
                 ];
@@ -518,7 +527,7 @@ export function processData(
                 }
 
                 // Fulfillment logic
-                if (needsFulfill && (r.ff_code || r.cost_total || r.product_name)) {
+                if (needsFulfill && (r.fulfill_provider || r.ff_code || r.cost_total || r.product_name)) {
                     fulfillStats.totalCount++;
                     if (isRef) fulfillStats.refCount++; // Chỉ đếm refund cho các record có dữ liệu fulfillment
 
@@ -534,7 +543,10 @@ export function processData(
                     fulfillRows.push([
                         finalFfDateCell, r.order_id || 'N/A',
                         isRef ? { type: 'text_with_subtitle' as const, main: r.product_name || '-', subtitle: `Refund: ${r.refund_details?.reason || sInfo?.refund_details?.reason || 'Refunded'}`, subtitleClass: 'text-red-500 font-medium' } : (r.product_name || '-'),
-                        provider, ffCode, r.cost_total ?? null, shopLabel, isRef, r.fulfill_date || r.dt_local
+                        canEditFulfillmentData ? { type: 'editable_provider' as const, value: provider, recordId: r.id! } : provider,
+                        canEditFulfillmentData ? { type: 'editable_ffcode' as const, value: r.ff_code || null, recordId: r.id! } : ffCode,
+                        canEditFulfillmentData ? { type: 'editable_cost' as const, value: r.cost_total ?? null, recordId: r.id!, isManual: !!r.is_manual_cost } : (r.cost_total ?? null),
+                        shopLabel, isRef, r.fulfill_date || r.dt_local
                     ]);
 
                     if (r.product_name) {
@@ -969,7 +981,7 @@ export function processData(
 
     return {
         overview: { table: { headers: overviewHeaders, rows: overviewRows as any }, chartData: overviewChartData },
-        orders: { headers: ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Curren", "Cost", "FF Code", "Rating", "Case", "Help", "Account", "Date", "Source"], rows: ordersTabRows.sort((a, b) => (b[15] || '').localeCompare(a[15] || '')) },
+        orders: { headers: ["Image", "Product Name", "Variants", "Order ID", "Revenue", "Curren", "Cost", "Provider", "FF Code", "Rating", "Case", "Help", "Account", "Date", "Source"], rows: ordersTabRows.sort((a, b) => (b[16] || '').localeCompare(a[16] || '')) },
         ebay: { headers: ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"], rows: ebayRows.sort((a, b) => (b[9] || '').localeCompare(a[9] || '')) },
         etsy: { headers: ["Image", "Product Name", "Order Number", "Revenue", "Currency", "Account", "Date", "Actions"], rows: etsyRows.sort((a, b) => (b[9] || '').localeCompare(a[9] || '')) },
         cases: { headers: ["Order Number", "Message", "Source", "Account", "Date"], rows: caseRows.sort((a, b) => (b[5] || '').localeCompare(a[5] || '')) },

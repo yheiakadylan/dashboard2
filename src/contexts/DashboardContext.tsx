@@ -20,6 +20,7 @@ import { useExchangeRates } from '../hooks/useExchangeRates';
 import type { ProcessingScope } from '../utils/dataProcessing';
 import { startMeasure } from '../utils/perfMarks';
 import { getAccountShopIdentifiers } from '../utils/accountLabels';
+import { hasPermission } from '../utils/permissionHelper';
 
 
 // Default Tab List
@@ -94,6 +95,9 @@ interface DashboardContextType {
   performGlobalSearch: (term: string) => Promise<void>;
   clearGlobalSearch: () => void;
   handleBulkFetchSKU: () => Promise<void>;
+  updateOrderManualCost: (recordId: string, newCost: number | null) => Promise<void>;
+  updateOrderFfCode: (recordId: string, newFfCode: string) => Promise<void>;
+  updateOrderProvider: (recordId: string, newProvider: string) => Promise<void>;
 
 
 
@@ -314,7 +318,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     accountSyncStatuses,
     runSync,
     runHistoricalSync,
-    enqueueSyncTask
+    enqueueSyncTask,
+    updateOrderManualCost: updateOrderManualCostRaw,
+    updateOrderFfCode: updateOrderFfCodeRaw,
+    updateOrderProvider: updateOrderProviderRaw
   } = useDataSync({
     user,
     teamId,
@@ -326,6 +333,27 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
   });
 
   const { rates: exchangeRates, updateRate, resetRates, refreshRates, nextUpdateTime } = useExchangeRates();
+
+  const canEditFulfillmentData = hasPermission(role, permissions, 'canEditFulfillmentData');
+  const runFulfillmentEdit = useCallback(async (action: () => Promise<void>) => {
+    if (!canEditFulfillmentData) {
+      addNotification('You do not have permission to edit fulfillment data.', 'error');
+      throw new Error('Missing canEditFulfillmentData permission.');
+    }
+    await action();
+  }, [canEditFulfillmentData, addNotification]);
+
+  const updateOrderManualCost = useCallback((recordId: string, newCost: number | null) => (
+    runFulfillmentEdit(() => updateOrderManualCostRaw(recordId, newCost))
+  ), [runFulfillmentEdit, updateOrderManualCostRaw]);
+
+  const updateOrderFfCode = useCallback((recordId: string, newFfCode: string) => (
+    runFulfillmentEdit(() => updateOrderFfCodeRaw(recordId, newFfCode))
+  ), [runFulfillmentEdit, updateOrderFfCodeRaw]);
+
+  const updateOrderProvider = useCallback((recordId: string, newProvider: string) => (
+    runFulfillmentEdit(() => updateOrderProviderRaw(recordId, newProvider))
+  ), [runFulfillmentEdit, updateOrderProviderRaw]);
 
   // --- 4. Logic Functions ---
 
@@ -1144,6 +1172,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     performGlobalSearch,
     clearGlobalSearch,
     handleBulkFetchSKU,
+    updateOrderManualCost,
+    updateOrderFfCode,
+    updateOrderProvider,
     processedData,
     processedDataKeys,
     currentDataKey,
@@ -1169,6 +1200,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
     exportProgress, isExporting, showExportOptions, setShowExportOptions,
     handleSaveAccounts, handleSyncClick, handleResyncAccount, handleQuickSync, onLogout,
     handleExport, handleExportWithOptions, performGlobalSearch, clearGlobalSearch, handleBulkFetchSKU,
+    updateOrderManualCost, updateOrderFfCode, updateOrderProvider,
     processedData, processedDataKeys, currentDataKey, exchangeRates, updateRate, resetRates, refreshRates, nextUpdateTime,
     boards, selectedBoardId, setSelectedBoardId, refreshBoards,
     categories, refreshCategories, createCategory, bulkSaveCategories

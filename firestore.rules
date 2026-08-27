@@ -105,6 +105,13 @@ service cloud.firestore {
       return hasAuthenticationPermission('dashboard', permission, fallback);
     }
 
+    function canEditFulfillmentData() {
+      let canViewOrders = hasDashboardPermission('viewOrderListTab', true);
+      let canViewFulfill = hasDashboardPermission('viewFulfillTab', true);
+      return (canViewOrders || canViewFulfill)
+        && hasDashboardPermission('canEditFulfillmentData', canViewOrders || canViewFulfill);
+    }
+
     function hasDashboardTeamAccess(teamId) {
       let profile = getAuthenticationProfile();
       return isAuthenticationAdmin()
@@ -341,6 +348,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /user/{teamId}/records/{recordId} {
+      allow read, create, delete: if hasDashboardTeamAccess(teamId);
+      allow update: if hasDashboardTeamAccess(teamId)
+                    && (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                          'cost_total', 'is_manual_cost', 'ff_code', 'fulfill_provider'
+                        ])
+                        || canEditFulfillmentData());
+    }
+
     match /user/{teamId}/{collectionId}/{documents=**} {
       allow read, write: if collectionId != 'accounts'
                          && collectionId != 'kpi_targets'
@@ -348,6 +364,7 @@ service cloud.firestore {
                          && collectionId != 'listings'
                          && collectionId != 'settings'
                          && collectionId != 'performance_baseline_buckets'
+                         && collectionId != 'records'
                          && hasDashboardTeamAccess(teamId);
     }
 // =========================================================

@@ -27,6 +27,7 @@ const dashboardPermissions: RolePermissionDefinition[] = [
   { key: 'viewKpiFunds', label: 'Funds', description: 'Xem funds.', group: 'Số liệu tổng quan' },
   { key: 'viewKpiCost', label: 'Chi phí', description: 'Xem chi phí.', group: 'Số liệu tổng quan' },
   { key: 'viewKpiEarn', label: 'Lợi nhuận', description: 'Xem lợi nhuận.', group: 'Số liệu tổng quan' },
+  { key: 'canEditFulfillmentData', label: 'Sửa fulfillment', description: 'Sửa Cost, Provider và FF Code của đơn hàng.', group: 'Cài đặt & thao tác' },
   { key: 'canEditCost', label: 'Sửa chi phí', description: 'Thêm hoặc sửa chi phí thủ công.', group: 'Cài đặt & thao tác' },
   { key: 'canExportData', label: 'Xuất dữ liệu', description: 'Xuất Excel hoặc CSV.', group: 'Cài đặt & thao tác' },
   { key: 'canManageMailSettings', label: 'Quản lý email', description: 'Quản lý kết nối email và đồng bộ.', group: 'Cài đặt & thao tác' },

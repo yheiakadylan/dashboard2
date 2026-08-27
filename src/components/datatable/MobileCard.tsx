@@ -4,6 +4,9 @@ import Spinner from '../ui/Spinner';
 import CachedImage from './CachedImage';
 import { getHighResImageUrl } from '../../utils/imageUtils';
 import { ListChildComponentProps, RowData } from './types';
+import EditableCostCell from './EditableCostCell';
+import EditableFfCodeCell from './EditableFfCodeCell';
+import EditableProviderCell from './EditableProviderCell';
 
 const renderActionCell = (cell: any, _cellIndex: number, loadingItems: Set<string>, onResyncClick: (id: string) => void, onViewOrderDetails?: (id: string) => void, onViewDayDetails?: (date: string) => void, rowData?: any[], isMobile: boolean = false) => {
     if (cell === 'Click for detail' && onViewDayDetails && rowData) {
@@ -175,8 +178,21 @@ const renderTextContent = (cell: any, selectedKeys?: Set<string>, onToggleSelect
 
 
 const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) => {
-    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, isMobile, onRowClick } = data;
+    const { items, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onResyncClick, onImageClick, onUpdateCost, onUpdateFfCode, onUpdateProvider, isMobile, onRowClick } = data;
     const row = items[index];
+
+    const renderCellValue = (cell: any) => {
+        if (cell?.type === 'editable_cost') {
+            return <div className="h-6" onClick={(event) => event.stopPropagation()}><EditableCostCell value={cell.value} recordId={cell.recordId} isManual={cell.isManual} onUpdateCost={onUpdateCost} /></div>;
+        }
+        if (cell?.type === 'editable_ffcode') {
+            return <div className="h-6" onClick={(event) => event.stopPropagation()}><EditableFfCodeCell value={cell.value} recordId={cell.recordId} onUpdateFfCode={onUpdateFfCode} /></div>;
+        }
+        if (cell?.type === 'editable_provider') {
+            return <div className="h-6" onClick={(event) => event.stopPropagation()}><EditableProviderCell value={cell.value} recordId={cell.recordId} onUpdateProvider={onUpdateProvider} /></div>;
+        }
+        return renderTextContent(cell, data.selectedKeys, data.onToggleSelect);
+    };
 
     // isRefunded is stored as last hidden element
     const isRefunded = row[row.length - 1] === true;
@@ -294,12 +310,12 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                             return (
                                 <div key={item.i} className="flex flex-col min-w-0">
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide truncate">{item.h}</span>
-                                    <span className={`text-sm flex items-center gap-0.5 truncate ${valueClass}`}>
-                                        {item.isMoney ? item.val : renderTextContent(item.val, data.selectedKeys, data.onToggleSelect)}
+                                    <div className={`text-sm flex items-center gap-0.5 min-w-0 ${valueClass}`}>
+                                        {item.isMoney ? item.val : renderCellValue(item.val)}
                                         {item.h === 'Rating' && item.val !== '-' && (
                                             <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
                                         )}
-                                    </span>
+                                    </div>
                                 </div>
                             );
                         })}
@@ -436,7 +452,7 @@ const MobileCard = ({ index, style, data }: ListChildComponentProps<RowData>) =>
                                 <div key={item.i} className={containerClass}>
                                     <span className={headerClass} title={item.h}>{item.h}</span>
                                     {/* Removed truncate to allow wrapped text (subtitles) to show */}
-                                    <span className={`text-sm ${valueClass}`}>{renderTextContent(item.val, data.selectedKeys, data.onToggleSelect)}</span>
+                                    <div className={`text-sm ${valueClass}`}>{renderCellValue(item.val)}</div>
                                 </div>
                             )
                         })}

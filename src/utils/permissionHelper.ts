@@ -44,6 +44,7 @@ export interface UserPermissions {
     viewEtsyData?: boolean;         // Data: Etsy sales data
 
     // === ACTION PERMISSIONS ===
+    canEditFulfillmentData?: boolean; // Edit cost, provider, and fulfillment code
     canEditCost?: boolean;          // Edit manual costs
     canExportData?: boolean;        // Export Excel/CSV
     canManageUsers?: boolean;       // Admin: User management
@@ -96,6 +97,7 @@ export const getDashboardPermissionsForRole = (role: SharedRole | null): UserPer
 
     const permissions: UserPermissions = {};
     setPermissions(permissions, READ_ONLY_PERMISSIONS);
+    permissions.canEditFulfillmentData = permissions.viewOrderListTab === true || permissions.viewFulfillTab === true;
 
     if (role === 'ADMIN' || role === 'MANAGER') {
         setPermissions(permissions, MANAGEMENT_PERMISSIONS);

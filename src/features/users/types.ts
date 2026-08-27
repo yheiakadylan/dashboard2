@@ -26,6 +26,7 @@ export interface UserRole {
     viewEtsyData?: boolean;
 
     // Action permissions
+    canEditFulfillmentData?: boolean;
     canEditCost?: boolean;
     canExportData?: boolean;
     canManageUsers?: boolean;

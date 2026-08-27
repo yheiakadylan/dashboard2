@@ -16,12 +16,14 @@ export const compareValues = (a: any, b: any, direction: SortDirection): number 
         else if ('type' in valA && valA.type === 'image') valA = valA.alt;
         else if ('type' in valA && valA.type === 'action_group') valA = '';
         else if ('type' in valA && valA.type === 'value_with_unit') valA = valA.value;
+        else if ('type' in valA && String(valA.type).startsWith('editable_')) valA = valA.value;
     }
     if (valB && typeof valB === 'object') {
         if ('type' in valB && valB.type === 'button') valB = valB.label;
         else if ('type' in valB && valB.type === 'image') valB = valB.alt;
         else if ('type' in valB && valB.type === 'action_group') valB = '';
         else if ('type' in valB && valB.type === 'value_with_unit') valB = valB.value;
+        else if ('type' in valB && String(valB.type).startsWith('editable_')) valB = valB.value;
     }
 
     const isNumericA = typeof valA === 'number';

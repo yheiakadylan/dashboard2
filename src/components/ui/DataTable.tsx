@@ -67,7 +67,7 @@ const useContainerSize = (ref: React.RefObject<HTMLDivElement>) => {
 
 // SortDirection type imported from utils now
 
-const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, autoHeight = false, mobileRowHeight, forceCardView = false, mobileBreakpoint = 768, columnWidths, headerActions, onRowClick, onItemsRendered, selectedKeys, onToggleSelect }) => {
+const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, onViewOrderDetails, onResyncOrder, onUpdateCost, onUpdateFfCode, onUpdateProvider, autoHeight = false, mobileRowHeight, forceCardView = false, mobileBreakpoint = 768, columnWidths, headerActions, onRowClick, onItemsRendered, selectedKeys, onToggleSelect }) => {
     const [sortColumn, setSortColumn] = useState<number | null>(null);
     const [sortDirection, setSortDirection] = useState<SortDirection>(null);
     const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set());
@@ -337,6 +337,9 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         loadingItems,
         onViewDayDetails,
         onViewOrderDetails,
+        onUpdateCost,
+        onUpdateFfCode,
+        onUpdateProvider,
         onResyncClick: handleResyncClick,
         onImageClick: setPreviewImage,
         isMobile,
@@ -344,7 +347,7 @@ const DataTable: React.FC<DataTableProps> = ({ headers, data, onViewDayDetails, 
         onRowClick,
         selectedKeys,
         onToggleSelect
-    }), [sortedData, headers, loadingItems, onViewDayDetails, onViewOrderDetails, handleResyncClick, setPreviewImage, isMobile, columnWidths, onRowClick, selectedKeys, onToggleSelect]);
+    }), [sortedData, headers, loadingItems, onViewDayDetails, onViewOrderDetails, onUpdateCost, onUpdateFfCode, onUpdateProvider, handleResyncClick, setPreviewImage, isMobile, columnWidths, onRowClick, selectedKeys, onToggleSelect]);
 
     // ── Early returns (AFTER all hooks) ──────────────────────────────────────
     if (data.length === 0) {
