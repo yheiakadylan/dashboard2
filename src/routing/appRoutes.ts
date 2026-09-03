@@ -1,6 +1,6 @@
 import type { Tab } from '../types';
 
-export const TAB_PATHS: Record<Tab, string> = {
+export const TAB_PATHS: Partial<Record<Tab, string>> = {
   Overview: '/operations/overview',
   'Order List': '/operations/orders',
   Products: '/operations/products',
@@ -9,7 +9,6 @@ export const TAB_PATHS: Record<Tab, string> = {
   KPI: '/operations/kpi',
   Reviews: '/operations/reviews',
   Design: '/operations/design',
-  Templete: '/operations/templates',
   'Shop Evaluation': '/operations/shop-evaluation',
   Workload: '/operations/workload',
 };

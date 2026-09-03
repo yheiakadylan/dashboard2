@@ -6,7 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { getPathForTab, getTabFromPath } from '../routing/appRoutes';
 
 // Constants moved here or imported? For now, defining strict types/constants.
-const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Support', 'Fulfill', 'KPI', 'Reviews', 'Design', 'Templete', 'Shop Evaluation', 'Workload'];
+const DEFAULT_TABS: Tab[] = ['Overview', 'Order List', 'Products', 'Support', 'Fulfill', 'KPI', 'Reviews', 'Design', 'Shop Evaluation', 'Workload'];
 const TAB_PREFERENCES_VERSION = 5;
 const normalizeTab = (value: unknown): Tab => DEFAULT_TABS.includes(value as Tab) ? value as Tab : 'Overview';
 

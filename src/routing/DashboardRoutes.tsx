@@ -15,7 +15,6 @@ const FulfillTab = lazy(() => import('../components/tabs/FulfillTab'));
 const KpiManagement = lazy(() => import('../components/tabs/KpiManagement'));
 const ReviewsTab = lazy(() => import('../components/tabs/ReviewsTab'));
 const DesignTab = lazy(() => import('../components/tabs/DesignTab'));
-const TempleteTab = lazy(() => import('../components/tabs/TempleteTab'));
 const ShopEvaluationTab = lazy(() => import('../components/tabs/ShopEvaluationTab'));
 const WorkloadTab = lazy(() => import('../components/tabs/WorkloadTab'));
 
@@ -72,9 +71,7 @@ const DashboardRoutes: React.FC<Props> = ({ onViewOrderDetails, onResyncOrder })
       <Route path="/operations/design" element={canView('viewDesignTab') ? (
         <RouteBoundary fallback={<TableFallback />}><DesignTab /></RouteBoundary>
       ) : <PermissionDenied>You do not have permission to view design.</PermissionDenied>} />
-      <Route path="/operations/templates" element={canView('viewTemplatesTab') ? (
-        <RouteBoundary fallback={<TableFallback />}><TempleteTab /></RouteBoundary>
-      ) : <PermissionDenied>You do not have permission to view templates.</PermissionDenied>} />
+      <Route path="/operations/templates" element={<Navigate to={getPathForTab('Workload')} replace />} />
       <Route path="/operations/shop-evaluation" element={canView('viewShopEvaluationTab') || canView('viewSales') ? (
         <RouteBoundary fallback={<TableFallback />}><ShopEvaluationTab /></RouteBoundary>
       ) : <PermissionDenied>You do not have permission to view shop evaluation.</PermissionDenied>} />
